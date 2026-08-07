@@ -8091,7 +8091,15 @@ export class GameServer {
         const dx = e.pos.x - anchorEntity.pos.x;
         const dz = e.pos.z - anchorEntity.pos.z;
         const d2 = dx * dx + dz * dz;
-        if (d2 > queryLimitSq) continue;
+        // Apply battleground interest widening (mirrors the serial path's
+        // bgWideInterestApplies branch): same-slot teammates and slot furniture
+        // are tracked at the wider BG_MATCH radii.
+        const known = session.sentEnts.has(e.id);
+        const isBgWide = bgWideInterestApplies(anchorEntity, e, bgTeam);
+        const effectiveLimitSq = isBgWide
+          ? (known ? BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS : BG_MATCH_INTEREST_RADIUS * BG_MATCH_INTEREST_RADIUS)
+          : queryLimitSq;
+        if (d2 > effectiveLimitSq) continue;
         if (e.id === anchorEntity.id) continue;
         if (!this.canObserveEntity(anchorEntity, e, d2)) continue;
         ents.push({
