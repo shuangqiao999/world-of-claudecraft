@@ -8096,9 +8096,12 @@ export class GameServer {
         // are tracked at the wider BG_MATCH radii.
         const known = session.sentEnts.has(e.id);
         const isBgWide = bgWideInterestApplies(anchorEntity, e, bgTeam);
-        const effectiveLimitSq = isBgWide
-          ? (known ? BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS : BG_MATCH_INTEREST_RADIUS * BG_MATCH_INTEREST_RADIUS)
-          : queryLimitSq;
+        const effectiveLimitSq =
+          anchorEntity.targetId === e.id
+            ? NPC_DROP_RADIUS * NPC_DROP_RADIUS
+            : isBgWide
+              ? (known ? BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS : BG_MATCH_INTEREST_RADIUS * BG_MATCH_INTEREST_RADIUS)
+              : interestLimitSq(e, known);
         if (d2 > effectiveLimitSq) continue;
         if (e.id === anchorEntity.id) continue;
         if (!this.canObserveEntity(anchorEntity, e, d2)) continue;
