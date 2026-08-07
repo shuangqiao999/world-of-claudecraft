@@ -8081,11 +8081,12 @@ export class GameServer {
       }
     }
 
-    // Build per-session tasks: pre-filtered candidate entity ids
+    // Build per-session tasks: pre-filtered candidate entities with context
     const tasks: import('./snapshot_worker_core').SessionTask[] = [];
     for (const a of anchors) {
-      const { session, anchor: anchorEntity, stableTimerWire } = a;
-      const candidateIds: number[] = [];
+      const { session, anchor: anchorEntity, anchorMeta, anchorSession, stableTimerWire } = a;
+      const ents: import('./snapshot_worker_core').CandidateEntry[] = [];
+      const bgTeam = this.bgTeamPidsFor(anchorEntity);
       for (const e of candidates.forSession(session.pid)) {
         const dx = e.pos.x - anchorEntity.pos.x;
         const dz = e.pos.z - anchorEntity.pos.z;
@@ -8093,13 +8094,22 @@ export class GameServer {
         if (d2 > queryLimitSq) continue;
         if (e.id === anchorEntity.id) continue;
         if (!this.canObserveEntity(anchorEntity, e, d2)) continue;
-        candidateIds.push(e.id);
+        ents.push({
+          id: e.id,
+          d2,
+          templateId: e.templateId ?? '',
+          aggroTargetId: (e as any).aggroTargetId ?? undefined,
+        });
       }
       tasks.push({
         pid: session.pid,
         stableTimerWire,
         sentEnts: Array.from(session.sentEnts.entries()),
-        candidateIds,
+        candidates: ents,
+        anchorId: anchorEntity.id,
+        anchorTargetId: anchorEntity.targetId,
+        selfHeavy: this.buildSelfHeavy(session, anchorEntity, anchorMeta, anchorSession, vcupDue),
+        lastSent: { ...session.lastSent },
       });
     }
 
@@ -8108,18 +8118,20 @@ export class GameServer {
     const entityEntries = Array.from(entityMap.entries());
     const results = this.snapshotPool.broadcast(ctx, entityEntries, tasks);
 
-    // Main thread: selfWireJson + JSON assembly + sendRaw for each result
+    // Apply worker results: entity lists + heavy-field delta-diffed self JSON
     for (const r of results) {
       const session = this.clients.get(r.pid);
       if (!session || session.linkdead) continue;
-      // Apply updated sentEnts from worker
       session.sentEnts = new Map(r.updatedSentEnts);
+      // Worker already did the heavy-field delta comparison; apply updated lastSent
+      Object.assign(session.lastSent, r.updatedLastSent);
 
-      // Build self JSON via the existing serial path
       const a = anchors.find((x) => x.sessionId === r.pid);
       if (!a) continue;
-      const { anchor: anchorEntity, anchorMeta, anchorSession, stableTimerWire } = a;
-      const selfJson = this.selfWireJson(session, anchorEntity, anchorMeta, anchorSession, vcupDue);
+      const { anchor: anchorEntity, stableTimerWire } = a;
+      // Worker assembled the self JSON from pre-computed Heavy values and base;
+      // the result carries the full self JSON string (base + extra).
+      const selfJson = r.selfJson;
 
       const keepJson = r.keep.length > 0 ? `,"keep":[${r.keep.join(',')}]` : '';
       const timerWireJson = stableTimerWire ? `,"tw":${STABLE_TIMER_WIRE_VERSION}` : '';
@@ -8791,6 +8803,177 @@ export class GameServer {
       maybe('sport', meta.sportRole ? { role: meta.sportRole } : null);
     }
     return extra === '' ? json : `${json.slice(0, -1)}${extra}}`;
+  }
+
+  // Pre-computes every heavy field value (and the base self JSON) that selfWireJson
+  // normally serialises per session.  Returns a map of wire-key -> serialised JSON
+  // string suitable for the worker pool's snapshot core, where the delta comparison
+  // against session.lastSent runs in parallel.
+  private buildSelfHeavy(
+    session: ClientSession,
+    p: Entity,
+    meta: PlayerMeta,
+    anchorSession: ClientSession = session,
+    vcupDue = false,
+  ): Record<string, string> {
+    const h: Record<string, string> = {};
+    const stableTimerWire = session.timerWireVersion === STABLE_TIMER_WIRE_VERSION;
+    const self = wireEntity(p, !stableTimerWire);
+    Object.assign(self, {
+      res: Math.round(p.resource * 10) / 10,
+      mres: p.maxResource,
+      rtype: p.resourceType,
+      xp: meta.xp,
+      lxp: meta.lifetimeXp,
+      rxp: Math.round(meta.restedXp),
+      prk: meta.prestigeRank,
+      copper: meta.copper,
+      gcd: round2(p.gcdRemaining),
+      pcd: round2(p.potionCdRemaining),
+      fcd: round2(p.firebottleCdRemaining),
+      swing: round2(p.swingTimer),
+      combo: p.comboPoints,
+      target: p.targetId,
+      auto: p.autoAttack,
+      queued: p.queuedOnSwing,
+      ap: p.attackPower,
+      sp: p.spellPower,
+      sh: p.spellHaste,
+      crit: p.critChance,
+      dodge: p.dodgeChance,
+      blk: p.blockChance,
+      bval: p.blockValue,
+      crat: p.critRating,
+      hrat: p.hasteRating,
+      hirat: p.hitRating,
+      eat: p.eating ? { remaining: round2(p.eating.remaining) } : null,
+      drk: p.drinking ? { remaining: round2(p.drinking.remaining) } : null,
+      ccast: p.craftCastRecipeId
+        ? { r: p.craftCastRecipeId, rem: p.craftCastBatchRemaining, tot: p.craftCastBatchTotal }
+        : null,
+      opUntil: p.overpowerUntil > this.sim.time ? 1 : 0,
+      opRem: round2(Math.max(0, p.overpowerUntil - this.sim.time)),
+      ack: session.spectating ? 0 : anchorSession.lastInputSeq,
+      ddiff: this.sim.dungeonDifficulty(anchorSession.pid),
+    });
+    h['_selfBase'] = JSON.stringify(self);
+
+    // Dynamic fields (mirrors selfWireJson maybe/maybeRaw calls)
+    h['lockouts'] = JSON.stringify(Object.fromEntries([...meta.raidLockouts].filter(([, until]) => until > Date.now())));
+    h['corpse'] = JSON.stringify(p.corpsePos ?? null);
+    if (stableTimerWire) {
+      h['auras'] = this.stableAuraWireFor(p).json;
+      h['cds'] = session.timerWireCache.encodeCooldowns(anchorSession.pid, p, this.sim.time).json;
+    } else {
+      h['cds'] = JSON.stringify(Object.fromEntries([...p.cooldowns.entries()].map(([k, v]) => [k, round2(v)])));
+    }
+    if (stableTimerWire) {
+      h['ncd'] = session.timerWireCache.encodeNodeCooldowns(anchorSession.pid, meta.nodeHarvestReadyAt, this.sim.time).json;
+    } else {
+      let anyCooling = false;
+      for (const k in meta.nodeHarvestReadyAt) {
+        if (meta.nodeHarvestReadyAt[k] > this.sim.time) { anyCooling = true; break; }
+      }
+      h['ncd'] = anyCooling
+        ? JSON.stringify(Object.fromEntries(Object.entries(meta.nodeHarvestReadyAt).filter(([, until]) => until > this.sim.time).map(([k, until]) => [k, round2(until - this.sim.time)])))
+        : '{}';
+    }
+    if (stableTimerWire) {
+      h['achg'] = session.timerWireCache.encodeCharges(anchorSession.pid, p.abilityCharges).json;
+      h['achr'] = session.timerWireCache.encodeChargeRecharges(anchorSession.pid, p.abilityCharges, this.sim.time).json;
+    } else {
+      h['achg'] = JSON.stringify(p.abilityCharges ? Object.fromEntries(Object.entries(p.abilityCharges).map(([k, v]) => [k, v.charges])) : {});
+      h['achr'] = JSON.stringify(p.abilityCharges ? Object.fromEntries(Object.entries(p.abilityCharges).filter(([, v]) => v.recharge > 0 && Number.isFinite(v.recharge)).map(([k, v]) => [k, [v.recharge, v.rechargeLength]])) : {});
+    }
+    h['stats'] = JSON.stringify(p.stats);
+    h['weapon'] = JSON.stringify(p.weapon);
+    h['party'] = JSON.stringify(this.partyWire(anchorSession.pid));
+    h['marks'] = JSON.stringify(this.markersWire(anchorSession.pid));
+    h['trade'] = JSON.stringify(this.tradeWire(anchorSession.pid));
+    h['duel'] = JSON.stringify(this.duelWire(anchorSession.pid));
+    h['cardDuel'] = JSON.stringify(this.sim.cardMinigameInfoFor(anchorSession.pid));
+    h['honor'] = JSON.stringify(meta.honor);
+    h['lhonor'] = JSON.stringify(meta.lifetimeHonor);
+    if (this.sim.tickCount - session.lastArenaWireTick >= ARENA_WIRE_INTERVAL_TICKS) {
+      h['arena'] = JSON.stringify(this.sim.arenaInfoFor(anchorSession.pid));
+    }
+    if (this.sim.tickCount - session.lastBgWireTick >= BG_WIRE_INTERVAL_TICKS) {
+      const ladder = realmReadoutObject(this.bgLadderReadout, this.sim.tickCount, () => this.sim.bgLadder());
+      h['bg'] = JSON.stringify(this.sim.bgInfoFor(anchorSession.pid, ladder));
+    }
+    if (vcupDue) {
+      const shared = realmReadoutObject(this.realmReadout, this.sim.tickCount, () => this.sim.cupSharedInfoFor());
+      const full = this.sim.cupInfoFor(anchorSession.pid, shared);
+      if (full) {
+        const viewerReadout = {
+          standing: full.standing, queued: full.queued, bracket: full.bracket,
+          nation: full.nation, role: full.role, position: full.position,
+          deserterFor: full.deserterFor, match: full.match, spectate: full.spectate,
+          betRecord: full.betRecord, myGuild: full.myGuild, guildStanding: full.guildStanding,
+          liveHidden: shared.live !== null && full.live === null,
+        };
+        h['vcup'] = JSON.stringify(viewerReadout);
+        h['vcupb'] = realmReadoutJson(this.realmReadout, this.sim.tickCount, () => this.sim.cupSharedInfoFor());
+      } else {
+        h['vcup'] = 'null';
+      }
+    }
+    if (this.sim.tickCount - session.lastDfWireTick >= DF_WIRE_INTERVAL_TICKS) {
+      h['df'] = JSON.stringify(this.sim.dungeonFinderInfoFor(anchorSession.pid));
+      h['dfb'] = realmReadoutJson(this.dfBoardReadout, this.sim.tickCount, () => this.sim.dungeonFinderBoardView());
+    }
+    h['market'] = JSON.stringify(this.sim.marketInfoFor(anchorSession.pid) ?? null);
+    h['mktU'] = JSON.stringify(this.sim.marketCollectPendingFor(anchorSession.pid) ? 1 : 0);
+    h['mail'] = JSON.stringify(this.sim.mailInfoFor(anchorSession.pid));
+    h['mailU'] = JSON.stringify(this.sim.mailUnreadFor(anchorSession.pid));
+    h['bank'] = JSON.stringify(this.sim.bankInfoFor(anchorSession.pid));
+    h['guildBank'] = JSON.stringify(this.sim.guildBankInfoFor(anchorSession.pid));
+    h['lroll'] = JSON.stringify(this.sim.activeLootRolls(anchorSession.pid));
+    h['lrollg'] = JSON.stringify(this.sim.lootRollGroupStatus(anchorSession.pid));
+    h['mloot'] = JSON.stringify(this.sim.activeMasterLootRolls(anchorSession.pid));
+    h['drun'] = JSON.stringify(this.sim.delveRunWire(anchorSession.pid));
+    h['dcompanion'] = JSON.stringify(this.sim.delveCompanionWire(anchorSession.pid));
+    h['dmarks'] = JSON.stringify(this.sim.delveMarksFor(anchorSession.pid));
+    h['dcomp'] = JSON.stringify(this.sim.companionUpgradesFor(anchorSession.pid));
+    h['dclears'] = JSON.stringify(this.sim.delveClearsFor(anchorSession.pid));
+    h['delveDaily'] = JSON.stringify(this.sim.delveDailyWire(anchorSession.pid));
+    h['prof'] = JSON.stringify(this.sim.professionsStateFor(anchorSession.pid));
+    h['cprof'] = JSON.stringify(this.sim.craftingIdentityFor(anchorSession.pid));
+    h['mst'] = JSON.stringify(this.sim.activeMobileStationCraftFor(anchorSession.pid));
+    h['corder'] = JSON.stringify(this.sim.commissionOrdersFor(anchorSession.pid));
+    h['denc'] = JSON.stringify(this.sim.lastDisenchantResultFor(anchorSession.pid));
+    h['ench'] = JSON.stringify(this.sim.lastEnchantResultFor(anchorSession.pid));
+    h['salv'] = JSON.stringify(this.sim.lastSalvageResultFor(anchorSession.pid));
+    h['tfocus'] = JSON.stringify(this.sim.townFocusFor(anchorSession.pid));
+    h['gprof'] = JSON.stringify(this.sim.gatheringProficiencyFor(anchorSession.pid));
+    const tslotRows = this.sim.toolEffectSlotsFor(anchorSession.pid);
+    h['tslot'] = tslotRows.length === 0 ? '[]' : JSON.stringify(tslotRows);
+    h['mntRtd'] = JSON.stringify(meta.ridingTrained === true ? true : null);
+    h['mntLesson'] = JSON.stringify(this.sim.mountLessonActiveFor(anchorSession.pid));
+    h['mntRace'] = JSON.stringify(this.sim.mountRaceViewFor(anchorSession.pid));
+    h['renown'] = JSON.stringify(meta.renown);
+    h['atitle'] = JSON.stringify(meta.activeTitle);
+
+    const heavyDue = !this.heavySelfGate || session.selfHeavyDirty || meta.wireRev !== session.lastWireRev
+      || (this.sim.tickCount + session.pid) % HEAVY_SELF_REFRESH_TICKS === 0;
+    if (heavyDue) {
+      h['inv'] = JSON.stringify(meta.inventory);
+      h['bags'] = JSON.stringify(meta.bags);
+      h['mntOwn'] = JSON.stringify(this.sim.ownedMountsFor(anchorSession.pid));
+      h['buyback'] = JSON.stringify(meta.vendorBuyback);
+      h['equip'] = JSON.stringify(meta.equipment);
+      h['einst'] = JSON.stringify(meta.equipmentInstance);
+      h['cosmetics'] = JSON.stringify(anchorSession.accountCosmetics);
+      h['qlog'] = JSON.stringify([...meta.questLog.values()].map(questProgressForWire));
+      h['qdone'] = JSON.stringify([...meta.questsDone]);
+      h['milestones'] = JSON.stringify([...meta.unlockedMilestones]);
+      h['deeds'] = JSON.stringify(Object.fromEntries(meta.deedsEarned));
+      h['dstats'] = JSON.stringify({ counters: meta.deedStats.counters, itemsDiscovered: [...meta.deedStats.itemsDiscovered], visited: [...meta.deedStats.visited], dungeonClears: meta.deedStats.dungeonClears });
+      h['tal'] = JSON.stringify({ alloc: meta.talents, loadouts: meta.loadouts, activeLoadout: meta.activeLoadout });
+      h['hbl'] = JSON.stringify(session.initialHotbarLayout);
+      h['sport'] = JSON.stringify(meta.sportRole ? { role: meta.sportRole } : null);
+    }
+    return h;
   }
 
   // Global party-frame aggregates (aggro holders + incoming heals), scanned once
