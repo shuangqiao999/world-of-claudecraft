@@ -9,6 +9,8 @@ dist/
 dist-env/
 dist-ota/
 dist-server/
+dist-host/
+postgres-src/
 release/
 release-steam/
 # generated main-process runtime bundles (scripts/electron-vendor.mjs)
