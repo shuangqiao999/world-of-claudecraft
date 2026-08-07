@@ -151,8 +151,8 @@ function ensurePostgres() {
     '-E',
     'UTF8',
     '--locale=C',
-    '-N',
-    '200',
+    '-c',
+    'max_connections=200',
   ]);
   fs.rmSync(pwFile, { force: true });
   writeEnvFile(password);

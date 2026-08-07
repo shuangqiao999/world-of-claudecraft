@@ -1,59 +1,56 @@
-// Snapshot worker thread pool for the broadcastSnapshots phase.  The main
-// game loop is single-threaded (it owns sim.tick and determinism), but the
-// per-session snapshot assembly is embarrassingly parallel: each session's
-// snapshot depends only on shared world state and its own private delta
-// state, with zero cross-session ordering constraints.
+// Snapshot worker thread pool for the broadcastSnapshots phase.
+// Workers run on separate OS threads; the main loop blocks synchronously
+// via Atomics.wait/notify until every worker has finished its batch.
 //
-// When the env var WOC_SNAPSHOT_WORKERS is set to a positive number, the
-// broadcastSnapshots phase fans out per-session batches to that many worker
-// threads and joins before returning.  Without the env var (or set to 0) the
-// serial broadcast path is used unchanged.
-//
-// Adaptive default: when WOC_SNAPSHOT_WORKERS is set but empty, the pool
-// uses Math.floor(os.cpus().length / 2) workers (capped at 16), leaving the
-// other half for the main loop, socket I/O, and Postgres.
+// Adaptive default: when WOC_SNAPSHOT_WORKERS is unset, the pool uses
+// Math.floor(os.cpus().length / 2) workers (capped at 16).  Set to 0 to
+// disable and keep the serial broadcast path.
 
 import { Worker } from 'node:worker_threads';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { BroadcastContext, SessionBundle, SessionSnapshot } from './snapshot_worker_core';
+import type {
+  BroadcastContext,
+  EncodedEntity,
+  SessionResult,
+  SessionTask,
+} from './snapshot_worker_core';
 
 export interface SnapshotPoolOptions {
-  workers?: number; // 0 = disabled (serial path); undefined/empty = adaptive
-}
-
-interface PendingWork {
-  resolve: (results: SessionSnapshot[]) => void;
-  reject: (err: Error) => void;
+  workers?: number;
 }
 
 export class SnapshotPool {
   private workers: Worker[] = [];
-  private pending = new Map<number, PendingWork>();
-  private nextId = 0;
-  private busy = false;
+  private pending: SessionResult[] = [];
+  private doneCount = 0;
+  private sab: SharedArrayBuffer | null = null;
+  private barrier: Int32Array | null = null;
   private log: (msg: string) => void;
 
   constructor(opts: SnapshotPoolOptions, log: (msg: string) => void = () => {}) {
     this.log = log;
     const count = resolveWorkerCount(opts.workers);
     if (count <= 0) return;
-    const workerPath = path.join(__dirname, 'snapshot_thread.mjs');
+    const workerPath = path.join(__dirname, 'snapshot_thread.cjs');
     for (let i = 0; i < count; i++) {
       const w = new Worker(workerPath);
-      w.on('message', (reply: { id: number; results?: SessionSnapshot[]; error?: string }) => {
-        const pending = this.pending.get(reply.id);
-        if (!pending) return;
-        this.pending.delete(reply.id);
-        if (reply.error) {
-          pending.reject(new Error(`snapshot worker error: ${reply.error}`));
-        } else {
-          pending.resolve(reply.results ?? []);
+      w.on('message', (reply: { results?: SessionResult[]; error?: string }) => {
+        if (reply.results) {
+          for (const r of reply.results) this.pending.push(r);
+        }
+        this.doneCount++;
+        if (this.barrier) {
+          Atomics.add(this.barrier, 0, 1);
         }
       });
       w.on('error', (err: Error) => {
         this.log(`snapshot worker error: ${err.message}`);
+        this.doneCount++;
+        if (this.barrier) {
+          Atomics.add(this.barrier, 0, 1);
+        }
       });
       this.workers.push(w);
     }
@@ -64,27 +61,38 @@ export class SnapshotPool {
     return this.workers.length > 0;
   }
 
-  async broadcast(
+  broadcast(
     ctx: BroadcastContext,
-    batch: SessionBundle[],
-  ): Promise<SessionSnapshot[]> {
-    if (!this.active || batch.length === 0) return [];
-    if (this.busy) throw new Error('SnapshotPool: overlapping broadcast calls');
-    this.busy = true;
-    try {
-      const chunks = splitIntoChunks(batch, this.workers.length);
-      const promises = chunks.map((bundles, i) => {
-        return new Promise<SessionSnapshot[]>((resolve, reject) => {
-          const id = this.nextId++;
-          this.pending.set(id, { resolve, reject });
-          this.workers[i].postMessage({ ctx, bundles, id });
-        });
+    entityEntries: [number, EncodedEntity][],
+    tasks: SessionTask[],
+  ): SessionResult[] {
+    if (!this.active || tasks.length === 0) return [];
+    const batches = splitIntoChunks(tasks, this.workers.length);
+    const n = batches.length;
+    this.pending = [];
+    this.doneCount = 0;
+    this.sab = new SharedArrayBuffer(4);
+    this.barrier = new Int32Array(this.sab);
+
+    // Fan work to workers — each gets the full entity map + its batch
+    for (let i = 0; i < n; i++) {
+      this.workers[i].postMessage({
+        ctx,
+        entityMap: entityEntries,
+        tasks: batches[i],
       });
-      const results = await Promise.all(promises);
-      return results.flat();
-    } finally {
-      this.busy = false;
     }
+
+    // Block until every worker signals completion
+    while (this.doneCount < n) {
+      Atomics.wait(this.barrier!, 0, this.doneCount);
+    }
+
+    const results = this.pending;
+    this.pending = [];
+    this.sab = null;
+    this.barrier = null;
+    return results;
   }
 
   async shutdown(): Promise<void> {
@@ -97,10 +105,6 @@ export class SnapshotPool {
 
 function resolveWorkerCount(explicit?: number): number {
   if (explicit !== undefined && explicit >= 0) return explicit;
-  // Adaptive: half the logical CPUs, capped at 16.  The main loop and
-  // socket I/O occupy one thread, Postgres another; the rest are available
-  // for snapshot encoding.  Below 4 logical CPUs we keep it serial (faster
-  // than the thread-spawn overhead).
   const logical = os.cpus?.()?.length ?? 1;
   if (logical < 4) return 0;
   return Math.min(Math.floor(logical / 2), 16);
@@ -111,6 +115,13 @@ function splitIntoChunks<T>(arr: T[], chunks: number): T[][] {
   const per = Math.ceil(arr.length / chunks);
   for (let i = 0; i < arr.length; i += per) {
     result.push(arr.slice(i, i + per));
+  }
+  if (result.length > chunks) {
+    // Merge extra chunks into the last
+    while (result.length > chunks) {
+      const last = result.pop()!;
+      result[result.length - 1].push(...last);
+    }
   }
   return result;
 }

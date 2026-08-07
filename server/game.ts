@@ -7872,8 +7872,30 @@ export class GameServer {
     const queryLimitSq = INTEREST_QUERY_RADIUS * INTEREST_QUERY_RADIUS;
     const bgQueryLimitSq = BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS;
 
-    // Build each session's snapshot from its shared candidate list, still guarded
-    // per session so one throw cannot starve the rest.
+    // Parallel path: when the worker pool is active and there are enough sessions
+    // to amortise the data-transfer overhead, fan the per-session snapshot
+    // assembly out across worker threads.
+    if (
+      this.snapshotPool.active &&
+      anchors.length >= 8
+    ) {
+      const parResult = this.buildParallelSnapshots(
+        head,
+        vcupDue,
+        tick,
+        tickHzJson,
+        activeFrostRings,
+        activeTemporalHourglasses,
+        anchors,
+        candidates,
+        queryLimitSq,
+        bgQueryLimitSq,
+      );
+      if (parResult) return; // pool handled everything
+    }
+
+    // Serial path (unchanged): Build each session's snapshot from its shared
+    // candidate list, still guarded per session so one throw cannot starve the rest.
     forEachGuarded(
       anchors,
       ({ session, anchor: anchorEntity, anchorMeta, anchorSession, stableTimerWire }) => {
@@ -8019,6 +8041,122 @@ export class GameServer {
       this.lastWireSweepTick = tick;
       this.sweepWireCache();
     }
+  }
+
+  // Parallel snapshot broadcast: pre-computes the entity wire map and per-session
+  // task bundles on the main thread, fans assembly out to worker threads, collects
+  // results, and sends them via sendRaw.  Returns true when the pool handled
+  // everything; false when the caller should fall through to the serial path.
+  private buildParallelSnapshots(
+    head: string,
+    vcupDue: boolean,
+    tick: number,
+    tickHzJson: string,
+    activeFrostRings: { x: number; z: number; radius: number; innerRadius: number; duration: number; remaining: number; id: string }[],
+    activeTemporalHourglasses: { x: number; z: number; radius: number; duration: number; remaining: number; id: string }[],
+    anchors: SnapshotAnchor[],
+    candidates: ReturnType<typeof buildSharedInterestCandidates>,
+    queryLimitSq: number,
+    bgQueryLimitSq: number,
+  ): boolean {
+    // Build entity wire map: pre-encode every entity that appears in any
+    // session's candidate list this pass, using the wireCache.
+    const entityMap = new Map<number, import('./snapshot_worker_core').EncodedEntity>();
+    const seenEntities = new Set<number>();
+    for (const a of anchors) {
+      for (const e of candidates.forSession(a.sessionId)) {
+        if (seenEntities.has(e.id)) continue;
+        seenEntities.add(e.id);
+        const w = this.wireCacheFor(e, a.stableTimerWire);
+        entityMap.set(e.id, {
+          id: e.id,
+          idVer: w.idVer,
+          dynVer: w.dynVer,
+          auraVer: w.auraVer,
+          wireFull: w.fullJson,
+          wireFullAura: w.fullAuraJson,
+          wireLite: w.liteJson,
+          wireLiteAura: w.liteAuraJson,
+        });
+      }
+    }
+
+    // Build per-session tasks: pre-filtered candidate entity ids
+    const tasks: import('./snapshot_worker_core').SessionTask[] = [];
+    for (const a of anchors) {
+      const { session, anchor: anchorEntity, stableTimerWire } = a;
+      const candidateIds: number[] = [];
+      for (const e of candidates.forSession(session.pid)) {
+        const dx = e.pos.x - anchorEntity.pos.x;
+        const dz = e.pos.z - anchorEntity.pos.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > queryLimitSq) continue;
+        if (e.id === anchorEntity.id) continue;
+        if (!this.canObserveEntity(anchorEntity, e, d2)) continue;
+        candidateIds.push(e.id);
+      }
+      tasks.push({
+        pid: session.pid,
+        stableTimerWire,
+        sentEnts: Array.from(session.sentEnts.entries()),
+        candidateIds,
+      });
+    }
+
+    // Fan to workers (synchronous via Atomics.wait)
+    const ctx: import('./snapshot_worker_core').BroadcastContext = { tick, head };
+    const entityEntries = Array.from(entityMap.entries());
+    const results = this.snapshotPool.broadcast(ctx, entityEntries, tasks);
+
+    // Main thread: selfWireJson + JSON assembly + sendRaw for each result
+    for (const r of results) {
+      const session = this.clients.get(r.pid);
+      if (!session || session.linkdead) continue;
+      // Apply updated sentEnts from worker
+      session.sentEnts = new Map(r.updatedSentEnts);
+
+      // Build self JSON via the existing serial path
+      const a = anchors.find((x) => x.sessionId === r.pid);
+      if (!a) continue;
+      const { anchor: anchorEntity, anchorMeta, anchorSession, stableTimerWire } = a;
+      const selfJson = this.selfWireJson(session, anchorEntity, anchorMeta, anchorSession, vcupDue);
+
+      const keepJson = r.keep.length > 0 ? `,"keep":[${r.keep.join(',')}]` : '';
+      const timerWireJson = stableTimerWire ? `,"tw":${STABLE_TIMER_WIRE_VERSION}` : '';
+
+      // Frost rings & temporal hourglasses (fast, per-session)
+      const aoeBase = isBgPos(anchorEntity.pos.x) ? BG_MATCH_DROP_RADIUS : INTEREST_QUERY_RADIUS;
+      const frostRings = activeFrostRings
+        .filter((ring) => {
+          const dx = ring.x - anchorEntity.pos.x;
+          const dz = ring.z - anchorEntity.pos.z;
+          const limit = aoeBase + ring.radius;
+          return dx * dx + dz * dz <= limit * limit;
+        })
+        .map((ring) =>
+          `{"id":${JSON.stringify(ring.id)},"x":${round2(ring.x)},"z":${round2(ring.z)},"r":${round2(ring.radius)},"i":${round2(ring.innerRadius)},"dur":${round2(ring.duration)},"rem":${round2(ring.remaining)}}`,
+        );
+      const frostRingsJson = frostRings.length > 0 ? `,"rings":[${frostRings.join(',')}]` : '';
+      const temporalHourglasses = activeTemporalHourglasses
+        .filter((hourglass) => {
+          const dx = hourglass.x - anchorEntity.pos.x;
+          const dz = hourglass.z - anchorEntity.pos.z;
+          const limit = aoeBase + hourglass.radius;
+          return dx * dx + dz * dz <= limit * limit;
+        })
+        .map((hourglass) =>
+          `{"id":${JSON.stringify(hourglass.id)},"x":${round2(hourglass.x)},"z":${round2(hourglass.z)},"r":${round2(hourglass.radius)},"dur":${round2(hourglass.duration)},"rem":${round2(hourglass.remaining)}}`,
+        );
+      const temporalHourglassesJson =
+        temporalHourglasses.length > 0 ? `,"hourglasses":[${temporalHourglasses.join(',')}]` : '';
+
+      this.sendRaw(
+        session,
+        `${head}${timerWireJson},"self":${selfJson},"ents":[${r.ents.join(',')}]${frostRingsJson}${temporalHourglassesJson}${keepJson}}`,
+      );
+    }
+
+    return true; // pool handled; caller skips serial path
   }
 
   // The pid list of the viewer's OWN battleground team, or null when the viewer

@@ -30,4 +30,15 @@ await esbuild.build({
   alias: { '#bot-detector': usePrivate ? privateImpl : stubImpl },
 });
 
+// Snapshot worker thread：TypeScript 入口需要被打包成 CJS，否则 Node Worker
+// 无法加载 .ts 依赖。esbuild 会把 ./snapshot_worker_core (以及它的 src/sim 引用)
+// 全部内联到这个 CJS 文件里。
+await esbuild.build({
+  entryPoints: ['server/snapshot_thread.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'dist-server/snapshot_thread.cjs',
+});
+
 console.log(`[build:server] bot detector: ${usePrivate ? 'private' : 'stub (no-op)'}`);
