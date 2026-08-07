@@ -96,23 +96,15 @@ export const DATABASE_URL =
 // Nothing is clamped: a value outside the accepted range FALLS BACK to the
 // default and says so on the console at boot, so a typo can never leave an
 // operator silently running a pool size they did not ask for.
-const DB_POOL_MAX_CLIENTS_DEFAULT = 10;
-// The largest value the parser accepts, taken from the CONNECTION BUDGET of the
-// shipped deployment: stock postgres:16 serves max_connections 100 with 3
-// superuser-reserved, so 97 are usable. Every realm process builds its own pool
-// on the one DATABASE_URL and pools have no cross-process coordination, so
-// realms x DB_POOL_MAX_CLIENTS + tooling is what must stay at or under 97, plus
-// one more per realm for ensureSchema's dedicated boot Client (outside the
-// pool, held while that process applies the schema, and a rolling restart pays
-// it on every realm at once). Past that, logins fail with "too many clients"
-// exactly at peak.
-// Connections are not the binding constraint on the shipped deployment, though:
-// the game process and Postgres share ONE 4-vCPU box, where the database is
-// already the heaviest CPU consumer at peak, so a large pool only buys
-// concurrency the shared cores cannot serve. Raise this knob against a measured
-// pool-exhaustion symptom (handshakes timing out on the checkout wait), a few
-// clients at a time, never toward the budget ceiling because it is allowed.
-const DB_POOL_MAX_CLIENTS_CEILING = 97;
+const DB_POOL_MAX_CLIENTS_DEFAULT = 40;
+// Stock postgres:16 ships max_connections 100 with 3 superuser-reserved (97
+// usable). The self-host launcher raises that to 200 at initdb (-N 200), giving
+// ~197 usable connections under the same three-reserved rule. The ceiling is
+// sized to that budget MINUS a handful for tooling and ensureSchema's dedicated
+// boot Client. Every realm process builds its own pool on one DATABASE_URL, so
+// realms x DB_POOL_MAX_CLIENTS is what must stay under the ceiling. Past that,
+// logins fail with "too many clients" exactly at peak.
+const DB_POOL_MAX_CLIENTS_CEILING = 190;
 export function parseDbPoolMaxClients(raw: string | undefined): number {
   const trimmed = (raw ?? '').trim();
   if (!/^\d+$/.test(trimmed)) return DB_POOL_MAX_CLIENTS_DEFAULT;

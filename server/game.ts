@@ -209,6 +209,7 @@ import { fishingBandLabel, isKoi, isRodFeeRecipe } from './fishing_telemetry';
 import { mergedPrsForLogin } from './github_contributors';
 import { githubForAccount } from './github_db';
 import { forEachGuarded, runGuarded } from './guarded_iter';
+import { SnapshotPool } from './snapshot_pool';
 import {
   type CounterpartyActor,
   type CounterpartyMovement,
@@ -308,6 +309,16 @@ import { hrtimeToMs, TickRateMeter } from './tick_rate_meter';
 import { recordUnstuckEvent } from './unstuck_records';
 import { holderInfoForPubkey } from './woc_balance';
 import { isBackpressureExceeded } from './ws_backpressure';
+
+// Resolves the snapshot-worker count set by the WOC_SNAPSHOT_WORKERS env var
+// (decimal, empty = adaptive).  Returns 0 to keep the serial broadcast path.
+function parseSnapshotWorkers(): number {
+  const raw = (process.env.WOC_SNAPSHOT_WORKERS ?? '').trim();
+  if (raw === '') return -1; // -1 tells SnapshotPool to use adaptive (0 if <4 cpus)
+  if (!/^\d+$/.test(raw)) return 0;
+  const n = Number(raw);
+  return n >= 0 && n < 64 ? n : 0;
+}
 
 const ALDRIC_METEOR_QUEST_ID = 'q_aldrics_fallen_star';
 // Interest management: the client renders entities out to 80yd, so new
@@ -1680,6 +1691,11 @@ export class GameServer {
   private readonly guildBankDeleteWindows = new Set<number>();
   private readonly moderation: ModerationService<ClientSession>;
   private wireCache = new Map<number, EntityWireCache>();
+  // Snapshot broadcast worker pool. When WOC_SNAPSHOT_WORKERS is set (or
+  // adaptive on >= 4 logical CPUs), the per-session snapshot assembly is
+  // fanned out across worker threads so the main loop can stay near 50 ms
+  // at high concurrency.
+  readonly snapshotPool: SnapshotPool;
   // partyFrameAggroTargets / partyFrameIncomingHeals scan the whole entity set and
   // are GLOBAL (identical for every grouped session), yet partyWire runs once for
   // each grouped session. Memoize both for one broadcast so each party does one
@@ -1948,6 +1964,10 @@ export class GameServer {
       build: readBuildVersion(),
       resolveParticipant: (pid) => this.resolveParseParticipant(pid),
     });
+    this.snapshotPool = new SnapshotPool(
+      { workers: parseSnapshotWorkers() },
+      (msg) => console.log(`[snap-pool] ${msg}`),
+    );
   }
 
   // Full participant identity for the parse recorder: stable characterId,
