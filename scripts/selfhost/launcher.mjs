@@ -134,29 +134,48 @@ function generatePassword() {
 function ensurePostgres() {
   ensureDataDir();
   const initialized = fs.existsSync(path.join(PG_DATA, 'PG_VERSION'));
-  if (initialized) return;
-  log('initializing PostgreSQL data directory...');
-  const pwFile = path.join(path.dirname(PG_DATA), 'pg-initpw.txt');
-  const password = generatePassword();
-  fs.writeFileSync(pwFile, password);
-  run(path.join(PG_BIN, 'initdb.exe'), [
-    '-D',
-    PG_DATA,
-    '-U',
-    DB_USER,
-    '--pwfile',
-    pwFile,
-    '-A',
-    'scram-sha-256',
-    '-E',
-    'UTF8',
-    '--locale=C',
-    '-c',
-    'max_connections=200',
-  ]);
-  fs.rmSync(pwFile, { force: true });
-  writeEnvFile(password);
-  log('PostgreSQL initialized, .env written.');
+  if (!initialized) {
+    log('initializing PostgreSQL data directory...');
+    const pwFile = path.join(path.dirname(PG_DATA), 'pg-initpw.txt');
+    const password = generatePassword();
+    fs.writeFileSync(pwFile, password);
+    run(path.join(PG_BIN, 'initdb.exe'), [
+      '-D',
+      PG_DATA,
+      '-U',
+      DB_USER,
+      '--pwfile',
+      pwFile,
+      '-A',
+      'scram-sha-256',
+      '-E',
+      'UTF8',
+      '--locale=C',
+      '-c',
+      'max_connections=200',
+    ]);
+    fs.rmSync(pwFile, { force: true });
+    writeEnvFile(password);
+    log('PostgreSQL initialized, .env written.');
+  }
+
+  // .env may be missing even when the PG data directory survives (e.g.
+  // uninstall kept data/ but dropped .env).  Rebuild it from the saved
+  // password file.  If the password file is also gone, re-init from scratch.
+  if (!fs.existsSync(ENV_FILE)) {
+    try {
+      const password = fs.readFileSync(PG_PASSWORD_FILE, 'utf8').trim();
+      if (password) {
+        writeEnvFile(password);
+        log('.env regenerated from saved password.');
+      }
+    } catch {
+      // Password file lost too — force re-init
+      log('password file missing, re-initializing PostgreSQL...');
+      fs.rmSync(path.join(PG_DATA, 'PG_VERSION'), { force: true });
+      ensurePostgres();
+    }
+  }
 }
 
 function startPostgres() {
