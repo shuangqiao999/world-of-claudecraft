@@ -7872,12 +7872,13 @@ export class GameServer {
     const queryLimitSq = INTEREST_QUERY_RADIUS * INTEREST_QUERY_RADIUS;
     const bgQueryLimitSq = BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS;
 
-    // Parallel path: when the worker pool is active and there are enough sessions
-    // to amortise the data-transfer overhead, fan the per-session snapshot
-    // assembly out across worker threads.
+    // Parallel path: when the worker pool is active AND there are enough
+    // sessions to amortise the data-transfer overhead, fan the per-session
+    // snapshot assembly out across worker threads.  Below ~50 sessions the
+    // serial path is faster (no cross-thread serialization cost).
     if (
       this.snapshotPool.active &&
-      anchors.length >= 8
+      anchors.length >= 50
     ) {
       const parResult = this.buildParallelSnapshots(
         head,
