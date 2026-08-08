@@ -1,12 +1,13 @@
 // Snapshot worker thread pool for the broadcastSnapshots phase.
-// Workers run on separate OS threads; the main loop blocks synchronously
-// via Atomics.wait/notify until every worker has finished its batch.
+// Workers run on separate OS threads; the main loop receives results
+// synchronously via MessageChannel + receiveMessageOnPort, which does
+// NOT require the Node event loop (unlike Atomics.wait + postMessage,
+// which deadlocks because the blocked main thread cannot process
+// worker.on('message') callbacks).
 //
-// Adaptive default: when WOC_SNAPSHOT_WORKERS is unset, the pool uses
-// Math.floor(os.cpus().length / 2) workers (capped at 16).  Set to 0 to
-// disable and keep the serial broadcast path.
+// Adaptive default: Math.floor(os.cpus().length / 2), capped at 16.
 
-import { Worker } from 'node:worker_threads';
+import { MessageChannel, Worker, receiveMessageOnPort } from 'node:worker_threads';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -21,12 +22,13 @@ export interface SnapshotPoolOptions {
   workers?: number;
 }
 
+interface WorkerSlot {
+  worker: Worker;
+  port: any; // Node MessagePort (avoids TS name clash with global Web API MessagePort)
+}
+
 export class SnapshotPool {
-  private workers: Worker[] = [];
-  private pending: SessionResult[] = [];
-  private doneCount = 0;
-  private sab: SharedArrayBuffer | null = null;
-  private barrier: Int32Array | null = null;
+  private slots: WorkerSlot[] = [];
   private log: (msg: string) => void;
 
   constructor(opts: SnapshotPoolOptions, log: (msg: string) => void = () => {}) {
@@ -36,29 +38,18 @@ export class SnapshotPool {
     const workerPath = path.join(__dirname, 'snapshot_thread.cjs');
     for (let i = 0; i < count; i++) {
       const w = new Worker(workerPath);
-      w.on('message', (reply: { results?: SessionResult[]; error?: string }) => {
-        if (reply.results) {
-          for (const r of reply.results) this.pending.push(r);
-        }
-        this.doneCount++;
-        if (this.barrier) {
-          Atomics.add(this.barrier, 0, 1);
-        }
-      });
+      const channel = new MessageChannel();
+      w.postMessage({ type: 'init', port: channel.port2 }, [channel.port2]);
       w.on('error', (err: Error) => {
         this.log(`snapshot worker error: ${err.message}`);
-        this.doneCount++;
-        if (this.barrier) {
-          Atomics.add(this.barrier, 0, 1);
-        }
       });
-      this.workers.push(w);
+      this.slots.push({ worker: w, port: channel.port1 });
     }
     this.log(`snapshot pool: ${count} workers`);
   }
 
   get active(): boolean {
-    return this.workers.length > 0;
+    return this.slots.length > 0;
   }
 
   broadcast(
@@ -67,38 +58,41 @@ export class SnapshotPool {
     tasks: SessionTask[],
   ): SessionResult[] {
     if (!this.active || tasks.length === 0) return [];
-    const batches = splitIntoChunks(tasks, this.workers.length);
-    const n = batches.length;
-    this.pending = [];
-    this.doneCount = 0;
-    this.sab = new SharedArrayBuffer(4);
-    this.barrier = new Int32Array(this.sab);
+    const batches = splitIntoChunks(tasks, this.slots.length);
+    const allResults: SessionResult[] = [];
 
     // Fan work to workers — each gets the full entity map + its batch
-    for (let i = 0; i < n; i++) {
-      this.workers[i].postMessage({
+    for (let i = 0; i < batches.length; i++) {
+      this.slots[i].worker.postMessage({
         ctx,
         entityMap: entityEntries,
         tasks: batches[i],
       });
     }
 
-    // Block until every worker signals completion
-    while (this.doneCount < n) {
-      Atomics.wait(this.barrier!, 0, this.doneCount);
+    // Synchronously collect results from each worker via MessageChannel
+    for (let i = 0; i < batches.length; i++) {
+      const resp = receiveMessageOnPort(this.slots[i].port);
+      if (!resp) {
+        // Worker may have crashed; mark remaining as done
+        continue;
+      }
+      const msg = (resp as any)?.message as { results?: SessionResult[]; error?: string } | undefined;
+      if (msg?.error) {
+        this.log(`snapshot worker error: ${msg.error}`);
+      }
+      if (msg?.results) {
+        allResults.push(...msg.results);
+      }
     }
 
-    const results = this.pending;
-    this.pending = [];
-    this.sab = null;
-    this.barrier = null;
-    return results;
+    return allResults;
   }
 
   async shutdown(): Promise<void> {
-    for (const w of this.workers) {
-      w.unref();
-      await w.terminate();
+    for (const s of this.slots) {
+      s.worker.unref();
+      await s.worker.terminate();
     }
   }
 }
@@ -116,12 +110,9 @@ function splitIntoChunks<T>(arr: T[], chunks: number): T[][] {
   for (let i = 0; i < arr.length; i += per) {
     result.push(arr.slice(i, i + per));
   }
-  if (result.length > chunks) {
-    // Merge extra chunks into the last
-    while (result.length > chunks) {
-      const last = result.pop()!;
-      result[result.length - 1].push(...last);
-    }
+  while (result.length > 1 && result.length > chunks) {
+    const last = result.pop()!;
+    result[result.length - 1].push(...last);
   }
   return result;
 }
