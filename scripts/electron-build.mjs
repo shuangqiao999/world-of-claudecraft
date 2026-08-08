@@ -154,6 +154,10 @@ const config = desktopBuilderConfig({
   epicDeploymentId: process.env.WOC_EPIC_DEPLOYMENT_ID || '',
   epicClientId: process.env.WOC_EPIC_CLIENT_ID || '',
 });
+// Use the locally-installed electron dist instead of downloading a fresh
+// copy during packaging (essential for air-gapped or slow-network builds).
+config.electronDist = path.join(root, 'node_modules', 'electron', 'dist');
+
 const configDir = mkdtempSync(path.join(tmpdir(), 'woc-eb-'));
 const configPath = path.join(configDir, 'electron-builder.json');
 writeFileSync(configPath, JSON.stringify(config, null, 2));
