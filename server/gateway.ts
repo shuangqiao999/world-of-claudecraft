@@ -80,6 +80,15 @@ export class Gateway {
         if (pid && msg.snap) this.broadcastToClient(pid, msg.snap);
         break;
       }
+      case 'chat_relay': {
+        // Cross-zone chat relay: broadcast world/guild chat to all zone processes.
+        // Each zone delivers to its local players who see the channel.
+        this.zoneServer.broadcastToAll({
+          type: 'client_msg',
+          data: { t: 'chat_relay', channel: msg.chatChannel, text: msg.chatText, sender: msg.senderName },
+        });
+        break;
+      }
       case 'transfer_out': {
         if (pid && msg.newZoneId) {
           this.playerRouting.set(pid, msg.newZoneId);

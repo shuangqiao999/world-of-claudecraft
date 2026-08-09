@@ -4226,6 +4226,10 @@ export async function loadMarketState(): Promise<MarketSave | null> {
 
 export async function saveMarketState(save: MarketSave): Promise<void> {
   assertMarketWriteGateOpen();
+  // Advisory lock serializes writes across zone processes sharing one PostgreSQL.
+  // Without this, two processes reading-then-writing the same blob race and the
+  // last writer silently wins. The lock is transaction-scoped (auto-released).
+  await pool.query(`SELECT pg_advisory_xact_lock(hashtext('market_lock'))`);
   await saveWorldState(marketStateKey(REALM), save);
 }
 
@@ -4240,6 +4244,10 @@ export async function loadMailState(): Promise<MailSave | null> {
 }
 
 export async function saveMailState(save: MailSave): Promise<void> {
+  // Advisory lock serializes writes across zone processes (same pattern as market).
+  // Mail writes ride the market write queue in game.ts, so the lock is secondary
+  // but necessary for multi-process deployments where queues are per-process.
+  await pool.query(`SELECT pg_advisory_xact_lock(hashtext('mail_lock'))`);
   await saveWorldState(mailStateKey(REALM), save);
 }
 

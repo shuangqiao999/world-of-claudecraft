@@ -15,11 +15,14 @@ export interface GwToZone {
 // ── Zone Process → Gateway messages ──
 
 export interface ZoneToGw {
-  type: 'broadcast' | 'transfer_out' | 'player_joined' | 'player_left' | 'pong' | 'error';
+  type: 'broadcast' | 'transfer_out' | 'player_joined' | 'player_left' | 'pong' | 'error' | 'chat_relay';
   playerId?: number;
-  snap?: string;          // JSON snapshot for 'broadcast'
-  newZoneId?: string;     // target zone id for 'transfer_out'
-  reason?: string;        // for 'player_left' / 'error'
+  snap?: string;
+  newZoneId?: string;
+  reason?: string;
+  chatText?: string;
+  chatChannel?: string;
+  senderName?: string;
 }
 
 // ── Frame helpers ──

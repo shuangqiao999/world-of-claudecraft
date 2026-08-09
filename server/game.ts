@@ -1705,6 +1705,7 @@ export class GameServer {
   readonly simPool: SimWorkerPool;
   readonly zonePool: ZoneWorkerPool;
   readonly zoneBridge: ZoneProcessBridge | null;
+  readonly zoneFilter: string[] | undefined;
   // partyFrameAggroTargets / partyFrameIncomingHeals scan the whole entity set and
   // are GLOBAL (identical for every grouped session), yet partyWire runs once for
   // each grouped session. Memoize both for one broadcast so each party does one
@@ -1900,6 +1901,7 @@ export class GameServer {
   constructor() {
     const zonesEnv = (process.env.ZONES ?? '').trim();
     const zoneFilter = zonesEnv ? zonesEnv.split(',').map(z => z.trim()).filter(Boolean) : undefined;
+    this.zoneFilter = zoneFilter;
     if (zoneFilter?.length) console.log(`[game] zone filter: ${zoneFilter.join(',')}`);
 
     this.sim = new Sim({
@@ -1999,6 +2001,9 @@ export class GameServer {
       };
       this.zoneBridge.onJoinRequest = (playerId, characterId, token) => {
         this.handleGatewayJoin(playerId, characterId, token);
+      };
+      this.zoneBridge.onChatRelay = (channel, text, sender) => {
+        this.handleCrossZoneChat(channel, text, sender);
       };
       console.log(`[zone-bridge] configured for gateway ${zc.gatewayHost}:${zc.gatewayPort}`);
     } else {
@@ -2790,11 +2795,16 @@ export class GameServer {
     }
   }
 
-  /** Snapshot relay: in zone mode, send through gateway instead of direct WS. */
-  private relayToClient(session: ClientSession, payload: string): void {
-    if (session.ws.readyState === WebSocket.OPEN) {
-      session.ws.send(payload);
+  /** Gateway-relayed cross-zone chat: broadcast to all local players. */
+  private handleCrossZoneChat(channel: string, text: string, sender: string): void {
+    for (const session of this.clients.values()) {
+      this.send(session, { t: 'events', list: [{ type: 'chat', channel, from: sender, text, zone: true }] });
     }
+  }
+
+  /** Relay cross-zone chat from this zone's players to the gateway. */
+  relayWorldChat(channel: string, text: string, senderName: string): void {
+    if (this.zoneBridge) this.zoneBridge.relayChat(channel, text, senderName);
   }
 
   private handleTransferIn(_playerId: number, _state: unknown): void {
@@ -6981,7 +6991,23 @@ export class GameServer {
         break;
       // party
       case 'pinvite':
-        if (typeof msg.id === 'number') sim.partyInvite(msg.id, pid);
+        if (typeof msg.id === 'number') {
+          // In zone-process mode, party members must be in the same zone
+          // (party state is in-memory within one Sim instance).
+          if (this.zoneFilter) {
+            const player = this.sim.entities.get(pid);
+            const target = this.sim.entities.get(msg.id);
+            if (player && target) {
+              const playerZone = zoneAt(player.pos.x, player.pos.z).id;
+              const targetZone = zoneAt(target.pos.x, target.pos.z).id;
+              if (playerZone !== targetZone) {
+                this.send(session, { t: 'events', list: [{ type: 'error', text: 'Players must be in the same region to form a party.' }] });
+                break;
+              }
+            }
+          }
+          sim.partyInvite(msg.id, pid);
+        }
         break;
       case 'paccept':
         sim.partyAccept(pid);

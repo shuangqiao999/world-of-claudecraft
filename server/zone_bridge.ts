@@ -26,6 +26,7 @@ export class ZoneProcessBridge {
 
   onClientFrame: ((playerId: number, data: unknown) => void) | null = null;
   onJoinRequest: ((playerId: number, characterId: number, token: string) => void) | null = null;
+  onChatRelay: ((channel: string, text: string, sender: string) => void) | null = null;
 
   constructor(config: ZoneProcessConfig, log: (msg: string) => void = console.log) {
     this.log = log;
@@ -51,6 +52,9 @@ export class ZoneProcessBridge {
         // Join request: gateway sends { t: 'join', characterId, token }
         if (data?.t === 'join' && data?.characterId) {
           this.onJoinRequest?.(pid, data.characterId, data.token);
+        } else if (data?.t === 'chat_relay') {
+          // Gateway relayed cross-zone chat: deliver to local players
+          this.onChatRelay?.(data.channel ?? 'world', data.text ?? '', data.sender ?? '');
         } else if (data?.t === 'disconnect') {
           this.log(`[bridge] player ${pid} gateway disconnect`);
         } else {
@@ -97,6 +101,11 @@ export class ZoneProcessBridge {
   /** Send a snapshot to the gateway for forwarding to the client. */
   relaySnapshot(playerId: number, snap: string): void {
     this.client.send({ type: 'broadcast', playerId, snap });
+  }
+
+  /** Relay cross-zone world/guild chat through the gateway. */
+  relayChat(channel: string, text: string, senderName: string): void {
+    this.client.send({ type: 'chat_relay', chatChannel: channel, chatText: text, senderName });
   }
 
   start(): void {
