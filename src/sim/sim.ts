@@ -5656,8 +5656,8 @@ export class Sim {
   // Main tick
   // -------------------------------------------------------------------------
 
-  // When true, the next tick() call skips self-only player steps (movement, regen,
-  // timers, mount, combo, breath timer, self-aura durations) because they were
+  // When true, the next tick() call skips self-only player steps (timers,
+  // combo expiry, breath timer for live players) because they were
   // pre-applied via applyPlayerSelfMutations(). Reset to false at tick-end.
   _selfMutsPreApplied = false;
 
@@ -5674,8 +5674,9 @@ export class Sim {
     for (const [id, mut] of muts) {
       const p = this.entities.get(id);
       if (!p) continue;
-      p.hp = mut.hp;
-      p.resource = Math.min(mut.resource, p.maxResource);
+      // hp and resource are handled by updateRegen on the main thread.
+      // cooldowns, breath, mount cast, and combo points below are the
+      // worker-computed self-only mutations.
       p.gcdRemaining = mut.gcdRemaining;
       p.potionCooldownUntil = mut.potionCooldownUntil;
       if (mut.cooldowns.length > 0) {

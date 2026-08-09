@@ -2641,19 +2641,7 @@ export class GameServer {
         zoneId: zoneAt(p.pos.x, p.pos.z).id,
         slice: {
           id: p.id,
-          pos: { x: p.pos.x, y: p.pos.y, z: p.pos.z },
-          prevPos: { x: p.prevPos.x, y: p.prevPos.y, z: p.prevPos.z },
-          vx: p.vx, vy: p.vy, vz: p.vz,
-          facing: p.facing,
-          prevFacing: 0,
-          moveDir: { x: p.moveDir?.x ?? 0, z: p.moveDir?.z ?? 0 },
-          jumpHeld: p.jumpHeld,
-          onGround: p.onGround,
-          jumping: p.jumping,
-          fallStartY: p.fallStartY,
           dead: p.dead,
-          ghost: p.ghost,
-          mounted: p.mountKey != null,
           hp: p.hp,
           maxHp: p.maxHp,
           resource: p.resource,
@@ -2661,12 +2649,9 @@ export class GameServer {
           spirit: p.stats?.spi ?? 0,
           combatTimer: p.combatTimer,
           sitting: p.sitting,
-          eatingTicks: 0,
-          drinkingTicks: 0,
           gcdRemaining: p.gcdRemaining,
           potionCooldownUntil: p.potionCooldownUntil ?? 0,
           cooldowns: Array.from(p.cooldowns?.entries() ?? []),
-          auraDurations: p.auras.map((a, i) => [i, a.remaining, a.tickTimer ?? 0] as [number, number, number]),
           breath: p.breath,
           maxBreath: p.maxBreath,
           fatigueTicks: p.fatigueTicks,
@@ -2674,9 +2659,7 @@ export class GameServer {
           inWater: sim.isSwimming(p),
           mountCastRemaining: p.mountCastRemaining ?? 0,
           mountCastKey: p.mountCastKey ?? '',
-          mountRaceTotal: 0,
           comboPoints: p.comboPoints,
-          hasProtWarriorStance: false,
         },
       });
     }
@@ -2690,14 +2673,14 @@ export class GameServer {
         const applyMap = new Map<number, Parameters<typeof sim.applyPlayerSelfMutations>[0] extends ReadonlyMap<number, infer T> ? T : never>();
         for (const [id, m] of muts) {
           applyMap.set(id, {
-            hp: m.hp, resource: m.resource, gcdRemaining: m.gcdRemaining,
+            hp: 0, resource: 0, gcdRemaining: m.gcdRemaining,
             potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns,
             breath: m.breath, fatigueTicks: m.fatigueTicks,
             breathUsedTicks: m.breathUsedTicks,
             mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
-            mountCastComplete: m.mountCastComplete, comboPoints: m.comboPoints,
-            comboExpired: m.comboExpired, expiredAuraIndices: m.expiredAuraIndices,
-            statsDirty: m.statsDirty,
+            mountCastComplete: false, comboPoints: m.comboPoints,
+            comboExpired: false, expiredAuraIndices: [],
+            statsDirty: false,
           });
         }
         sim.applyPlayerSelfMutations(applyMap, dt);
@@ -2720,10 +2703,14 @@ export class GameServer {
 
     // Build player cell data (all players, all zones — mobs need the full set)
     const playerCells: PlayerCell[] = [];
-    for (const rp of rawPlayers) {
-      const s = rp.slice;
-      if (s.dead) continue;
-      playerCells.push({ id: s.id, x: s.pos.x, z: s.pos.z, stealthed: false, dead: false, level: 1 });
+    for (const meta of sim.players.values()) {
+      const pc = sim.entities.get(meta.entityId);
+      if (!pc || pc.dead) continue;
+      const stealthed = pc.auras.some((a: { kind: string }) => a.kind === 'stealth');
+      playerCells.push({
+        id: pc.id, x: pc.pos.x, z: pc.pos.z,
+        stealthed, dead: false, level: pc.level,
+      });
     }
 
     // Collect idle mob slices sorted by zone
@@ -2737,16 +2724,12 @@ export class GameServer {
         zoneId: zoneAt(e.pos.x, e.pos.z).id,
         slice: {
           id: e.id,
-          kind: 'mob',
+          kind: 'mob' as const,
           pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z },
           dead: e.dead,
           ownerId: e.ownerId ?? null,
           aiState: e.aiState ?? 'idle',
-          aggroTargetId: e.aggroTargetId ?? null,
-          forcedTargetId: e.forcedTargetId ?? null,
-          forcedTargetTimer: e.forcedTargetTimer ?? 0,
           auras: e.auras?.length ?? 0,
-          chaseStall: e.chaseStall ?? 0,
           templateId: e.templateId,
         },
       });
