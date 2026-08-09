@@ -112,7 +112,7 @@ export interface MobSlice {
   forcedTargetId: number | null;
   forcedTargetTimer: number;
   auras: number; // just count (idle mobs with 0 auras)
-  chaseStall: { x: number; z: number; t: number; };
+  chaseStall: number;
   templateId: string;
 }
 
@@ -261,8 +261,9 @@ export function computePlayerSelfOnly(batch: PlayerBatch): PlayerMutation[] {
     }
     mut.cooldowns = cds;
 
-    // ----- Aura timers -----
-    tickAuraTimersPure(mut, p, dt);
+    // Aura timers: durations and expirations are handled by the main thread's
+    // updateAuras() call. The worker only sets statsDirty as an optimization
+    // hint (the main thread still validates).
 
     // ----- Breath -----
     updateBreathPure(mut, p, dt);

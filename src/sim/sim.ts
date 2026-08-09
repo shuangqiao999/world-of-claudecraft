@@ -5691,20 +5691,9 @@ export class Sim {
       p.mountCastRemaining = mut.mountCastRemaining;
       p.mountCastKey = mut.mountCastKey || null;
       p.comboPoints = mut.comboPoints;
-      // Remove expired auras
-      if (mut.expiredAuraIndices.length > 0) {
-        const keep: typeof p.auras = [];
-        const expired = new Set(mut.expiredAuraIndices);
-        for (let i = 0; i < p.auras.length; i++) {
-          if (!expired.has(i)) keep.push(p.auras[i]);
-        }
-        p.auras = keep;
-      }
-      // Apply aura duration decrements for non-expired auras
-      for (const aura of p.auras) {
-        aura.remaining = Math.max(0, aura.remaining - dt);
-        if (aura.tickTimer > 0) aura.tickTimer = Math.max(0, aura.tickTimer - dt);
-      }
+      // Note: aura durations and expirations are handled exclusively by
+      // updateAuras() on the main thread. The worker pre-computes candidates
+      // for statsDirty marking only.
       if (mut.statsDirty) {
         recalcPlayerStats(p);
       }

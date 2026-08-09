@@ -2746,7 +2746,7 @@ export class GameServer {
           forcedTargetId: e.forcedTargetId ?? null,
           forcedTargetTimer: e.forcedTargetTimer ?? 0,
           auras: e.auras?.length ?? 0,
-          chaseStall: e.chaseStall ? { x: e.chaseStall.x, z: e.chaseStall.z, t: e.chaseStall.t } : { x: 0, z: 0, t: 0 },
+          chaseStall: e.chaseStall ?? 0,
           templateId: e.templateId,
         },
       });
