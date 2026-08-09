@@ -5702,7 +5702,6 @@ export class Sim {
 
   /** Apply zone-level mutations from zone-sharding worker pool. */
   applyZoneMutations(
-    zoneId: string,
     auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[],
     auraExpiries: { entityId: number; index: number }[],
   ): void {
@@ -5725,9 +5724,9 @@ export class Sim {
     }
 
     // Apply aura expirations (removes aura BEFORE updateAuras runs).
-    // updateAuras also checks duration, but the worker's detection is
-    // used as a shortcut that avoids the redundant in-loop decrement.
-    for (const ae of auraExpiries) {
+    // Process in descending index order so earlier splices never shift later indices.
+    const sorted = auraExpiries.slice().sort((a, b) => b.index - a.index);
+    for (const ae of sorted) {
       const ent = this.entities.get(ae.entityId);
       if (!ent || ent.dead) continue;
       if (ae.index < ent.auras.length) {

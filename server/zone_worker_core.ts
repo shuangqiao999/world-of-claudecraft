@@ -1,13 +1,9 @@
 // Per-zone entity processing for the zone-sharding worker pool.
 // Each worker receives a batch of entities for one zone and computes
-// aggro proximity scans and aura tick detection.  Mob combat, movement,
-// and AI decision execution remain on the main thread (where they have
-// access to the full `ctx` seam for dealDamage, threat, etc.).
-//
-// RNG: each zone batch includes a deterministic seed.  The worker's
-// mulberry32 is byte-identical to the sim's `src/sim/rng.ts`.
-
-import { Rng } from '../src/sim/rng';
+// aggro proximity scans and aura tick/expriy detection.  Mob combat,
+// movement, and AI decision execution remain on the main thread (where
+// they have access to the full `ctx` seam for dealDamage, threat, etc.).
+// RNG is not used by the worker — all random decisions stay on main thread.
 
 // ---------- Types ----------
 
@@ -53,9 +49,7 @@ export interface ZoneBatch {
   zoneId: string;
   entities: ZoneEntitySlice[];
   playerCells: ZonePlayerCell[];
-  tick: number;
   dt: number;
-  rngSeed: number;
 }
 
 export interface ZoneEntityMutation {
@@ -98,7 +92,6 @@ function dist2dSq(a: Vec3, b: { x: number; z: number }): number {
 function processMob(
   e: ZoneEntitySlice,
   batch: ZoneBatch,
-  rng: Rng,
 ): ZoneEntityMutation {
   const mut: ZoneEntityMutation = {
     id: e.id, hp: e.hp, resource: e.resource, dead: e.dead, auras: [],
@@ -199,7 +192,6 @@ function processObject(
 // ---------- Main entry point ----------
 
 export function computeZoneBatch(batch: ZoneBatch): ZoneResult {
-  const rng = new Rng(batch.rngSeed);
   const mutations: ZoneEntityMutation[] = [];
 
   // Process entities in fixed order (by id) for determinism
@@ -210,7 +202,7 @@ export function computeZoneBatch(batch: ZoneBatch): ZoneResult {
 
     switch (e.kind) {
       case 'mob':
-        mut = processMob(e, batch, rng);
+        mut = processMob(e, batch);
         break;
       case 'npc':
         mut = processNpc(e, batch);

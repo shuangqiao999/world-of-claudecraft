@@ -2726,10 +2726,7 @@ export class GameServer {
 
       if (entities.length === 0) continue;
 
-      // Deterministic RNG seed: hash(global, zone, tick)
-      const rngSeed = hashSeed(sim.cfg.seed, zid, sim.tickCount);
-
-      batches.push({ zoneId: zid, entities, playerCells, tick: sim.tickCount, dt, rngSeed });
+      batches.push({ zoneId: zid, entities, playerCells, dt });
     }
 
     if (batches.length === 0) return;
@@ -2737,10 +2734,11 @@ export class GameServer {
     const results = this.zonePool.computeZones(batches);
 
     // Apply results to the Sim
-    for (const [zid, result] of results) {
-      const auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[] = [];
-      const auraExpiries: { entityId: number; index: number }[] = [];
+    const auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[] = [];
+    const auraExpiries: { entityId: number; index: number }[] = [];
+    const allAggroCandidates = new Map<number, number>();
 
+    for (const [zid, result] of results) {
       for (const mut of result.mutations) {
         for (const am of mut.auras) {
           if (am.kind === 'expire') {
@@ -2755,18 +2753,16 @@ export class GameServer {
           }
         }
       }
-
-      if (auraTicks.length > 0 || auraExpiries.length > 0) {
-        sim.applyZoneMutations(zid, auraTicks, auraExpiries);
+      for (const [mid, pid] of result.aggroCandidates) {
+        if (!allAggroCandidates.has(mid)) allAggroCandidates.set(mid, pid);
       }
+    }
 
-      if (result.aggroCandidates.length > 0) {
-        const candidates = new Map<number, number>();
-        for (const [mid, pid] of result.aggroCandidates) {
-          candidates.set(mid, pid);
-        }
-        sim.applyAggroCandidates(candidates);
-      }
+    if (auraTicks.length > 0 || auraExpiries.length > 0) {
+      sim.applyZoneMutations(auraTicks, auraExpiries);
+    }
+    if (allAggroCandidates.size > 0) {
+      sim.applyAggroCandidates(allAggroCandidates);
     }
   }
 
@@ -10484,15 +10480,4 @@ export class GameServer {
     gameMetricsCounters().wsMessage('out');
     session.ws.send(payload);
   }
-}
-
-function hashSeed(globalSeed: number, zoneId: string, tick: number): number {
-  let h = 0x811c9dc5 ^ (globalSeed >>> 0);
-  for (let i = 0; i < zoneId.length; i++) {
-    h ^= zoneId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  h ^= tick >>> 0;
-  h = Math.imul(h, 0x01000193);
-  return h >>> 0;
 }

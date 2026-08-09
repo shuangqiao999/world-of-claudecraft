@@ -73,6 +73,9 @@ export class ZoneWorkerPool {
 
     // Collect with time-bounded spin: a stuck/dead worker must not hang the server.
     // Each tick is 50ms; we allow 45ms for worker collection, then abandon the rest.
+    const results = new Map<string, ZoneResult>();
+    const pending = new Set(assigned.map(a => a.workerIdx));
+    const collected = new Set<string>();
     const deadline = Date.now() + 45;
     while (pending.size > 0 && collected.size < batches.length && Date.now() < deadline) {
       for (const workerIdx of pending) {
