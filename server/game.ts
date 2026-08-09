@@ -176,7 +176,6 @@ import {
   setCharacterHotbarLayout,
   touchCharacterLogin,
   walletForAccount,
-  getCharacter,
 } from './db';
 import { getDeedBroadcasts } from './deeds_db';
 import {
@@ -1999,8 +1998,8 @@ export class GameServer {
       this.zoneBridge.onClientFrame = (playerId, data) => {
         this.dispatchGatewayMessage(playerId, data);
       };
-      this.zoneBridge.onJoinRequest = (playerId, characterId, token) => {
-        this.handleGatewayJoin(playerId, characterId, token);
+      this.zoneBridge.onJoinRequest = (playerId, characterId, token, accountId, name, cls, state, level) => {
+        this.handleGatewayJoin(playerId, characterId, token, accountId, name, cls, state, level);
       };
       this.zoneBridge.onChatRelay = (channel, text, sender) => {
         this.handleCrossZoneChat(channel, text, sender);
@@ -2772,23 +2771,33 @@ export class GameServer {
     }
   }
 
-  /** Handle a gateway-initiated join. The gateway authenticated the player
-   *  and forwards their character info. Zone process loads state and creates entity. */
-  async handleGatewayJoin(playerId: number, characterId: number, _token: string): Promise<void> {
+  /** Handle a gateway-initiated join. The gateway already authenticated the
+   *  player and forwards full character data. Zone process creates the entity. */
+  async handleGatewayJoin(
+    playerId: number,
+    characterId: number,
+    _token: string,
+    accountId: number,
+    name: string,
+    cls: string,
+    state: any,
+    level: number,
+  ): Promise<void> {
     try {
-      const row = await getCharacter(characterId);
-      if (!row) {
-        console.error(`[game] gateway join failed: character ${characterId} not found`);
-        return;
-      }
-      const ws = this.zoneBridge ? { readyState: 1, send: () => {} } as any : null as any;
-      if (!ws) return;
-      this.join(ws, row.account_id, characterId, row.name, row.class, row.state, false, {});
-      // Map the join's pid back to gateway's playerId
+      // In zone mode, join creates the sim entity. The gateway already
+      // verified the token and owns the WS connection.
+      if (!this.zoneBridge) return;
+
+      // Create a virtual WS for join flow — all sends relay through the bridge
+      const ws = { readyState: 1, send: () => {} } as any;
+      this.join(ws, accountId, characterId, name, cls, state, false, {});
       const session = this.sessionsByCharacterId.get(characterId);
       if (session) {
+        // Map gateway playerId to sim pid so dispatchGatewayMessage works
         this.clients.set(playerId, session);
+        session.level = level;
         if (this.zoneBridge) this.zoneBridge.notifyPlayerJoined(playerId);
+        console.log(`[game] gateway join: ${name} (cid=${characterId}, pid=${session.pid}, lv=${level})`);
       }
     } catch (err: any) {
       console.error(`[game] gateway join error pid=${playerId}:`, err.message);

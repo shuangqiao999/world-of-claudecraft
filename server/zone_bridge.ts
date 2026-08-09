@@ -25,7 +25,8 @@ export class ZoneProcessBridge {
   private ready = false;
 
   onClientFrame: ((playerId: number, data: unknown) => void) | null = null;
-  onJoinRequest: ((playerId: number, characterId: number, token: string) => void) | null = null;
+  onJoinRequest: ((playerId: number, characterId: number, token: string,
+    accountId: number, name: string, cls: string, state: any, level: number) => void) | null = null;
   onChatRelay: ((channel: string, text: string, sender: string) => void) | null = null;
 
   constructor(config: ZoneProcessConfig, log: (msg: string) => void = console.log) {
@@ -51,7 +52,11 @@ export class ZoneProcessBridge {
         }
         // Join request: gateway sends { t: 'join', characterId, token }
         if (data?.t === 'join' && data?.characterId) {
-          this.onJoinRequest?.(pid, data.characterId, data.token);
+          this.onJoinRequest?.(
+            pid, data.characterId, data.token ?? '',
+            data.accountId ?? 0, data.name ?? '', data.class ?? '',
+            data.state ?? {}, data.level ?? 1
+          );
         } else if (data?.t === 'chat_relay') {
           // Gateway relayed cross-zone chat: deliver to local players
           this.onChatRelay?.(data.channel ?? 'world', data.text ?? '', data.sender ?? '');

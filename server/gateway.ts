@@ -56,12 +56,12 @@ export class Gateway {
   }
 
   /** Route a parsed client frame to the player's zone. */
-  routeToZone(data: unknown): void {
-    const msg = data as any;
-    if (!msg?.rid) return;
-    // Determine player from message context (or stored mapping)
-    // For now, we use a simple round-robin approach — each zone
-    // process handles its own players via internal session tracking
+  routeToClient(ws: WebSocket, data: unknown): void {
+    const pid = this.wsToPlayer.get(ws);
+    if (!pid) return;
+    const zoneId = this.playerRouting.get(pid);
+    if (!zoneId) return;
+    this.sendToZone(zoneId, { type: 'client_msg', playerId: pid, data });
   }
 
   /** Forward a snapshot from a zone to the client WebSocket. */
