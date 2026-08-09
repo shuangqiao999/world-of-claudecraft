@@ -5946,6 +5946,11 @@ export interface SimConfig {
   // bet on). Server + offline game enable it; tests/goldens leave it off so the
   // idle timer never perturbs a deterministic scenario.
   valeCupShowcase?: boolean;
+  // When set, the Sim only loads camps, mobs, NPCs, and objects for these zone(s).
+  // Content from zones not in the list is skipped at construction time. Used by
+  // the zone-process sharding pipeline: each process gets its own set of zones.
+  // Unset = load the full world (offline, tests, single-process server).
+  zoneFilter?: string[];
 }
 
 export function emptyMoveInput(): MoveInput {

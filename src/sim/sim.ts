@@ -2192,7 +2192,8 @@ export class Sim {
 
     // NPCs — nudged out of buildings and deep water if their data position is bad
     for (const npcDef of Object.values(worldContent.npcs)) {
-      if (npcDef.dynamic) continue; // spawned on demand by its owning system, not surface-placed
+      if (npcDef.dynamic) continue;
+      if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(npcDef.pos.x, npcDef.pos.z).id)) continue;
       const safe = this.findSafePos(npcDef.pos.x, npcDef.pos.z, waterLevel() + 0.6);
       const npc = createNpc(this.nextId++, npcDef, this.groundPos(safe.x, safe.z));
       this.addEntity(npc);
@@ -2203,6 +2204,7 @@ export class Sim {
 
     // Mobs from camps
     for (const camp of worldContent.camps) {
+      if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(camp.center.x, camp.center.z).id)) continue;
       const template = MOBS[camp.mobId];
       // Aquatic/flagged swimmers may wade in the shallows; everyone else
       // still spawns on dry land even though combat movement can enter water.
@@ -2273,6 +2275,7 @@ export class Sim {
     // Ground objects
     for (const objDef of worldContent.groundObjects) {
       for (const p of objDef.positions) {
+        if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(p.x, p.z).id)) continue;
         const obj = createGroundObject(
           this.nextId++,
           objDef.itemId,

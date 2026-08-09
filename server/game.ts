@@ -213,6 +213,7 @@ import { SnapshotPool } from './snapshot_pool';
 import { SimWorkerPool } from './sim_worker_pool';
 import { ZoneWorkerPool } from './zone_worker_pool';
 import { groupEntitiesByZone } from './zone_config';
+import { ZoneProcessBridge, resolveZoneConfig } from './zone_bridge';
 import type { PlayerSlice } from './sim_worker_core';
 import type { ZoneEntitySlice, ZoneBatch, ZonePlayerCell } from './zone_worker_core';
 import {
@@ -1703,6 +1704,7 @@ export class GameServer {
   readonly snapshotPool: SnapshotPool;
   readonly simPool: SimWorkerPool;
   readonly zonePool: ZoneWorkerPool;
+  readonly zoneBridge: ZoneProcessBridge | null;
   // partyFrameAggroTargets / partyFrameIncomingHeals scan the whole entity set and
   // are GLOBAL (identical for every grouped session), yet partyWire runs once for
   // each grouped session. Memoize both for one broadcast so each party does one
@@ -1896,6 +1898,10 @@ export class GameServer {
   private readonly riftAssets: RiftAssetCoordinator;
 
   constructor() {
+    const zonesEnv = (process.env.ZONES ?? '').trim();
+    const zoneFilter = zonesEnv ? zonesEnv.split(',').map(z => z.trim()).filter(Boolean) : undefined;
+    if (zoneFilter?.length) console.log(`[game] zone filter: ${zoneFilter.join(',')}`);
+
     this.sim = new Sim({
       seed: WORLD_SEED,
       playerClass: 'warrior',
@@ -1946,6 +1952,7 @@ export class GameServer {
         this.simLapMark = t;
       },
       valeCupShowcase: true, // idle Sowfield auto-runs a bot exhibition to watch/bet on
+      zoneFilter, // ZONES env var for process sharding: only load these zones
     });
     this.riftUpgrader = new RiftUpgradeCoordinator(riftUpgraderConfigFromEnv());
     this.riftAssets = new RiftAssetCoordinator(riftAssetConfigFromEnv());
@@ -1983,6 +1990,22 @@ export class GameServer {
       {},
       (msg) => console.log(`[zone-pool] ${msg}`),
     );
+    // Zone-process bridge: connects to gateway for cross-zone routing.
+    const zc = resolveZoneConfig();
+    if (zc) {
+      this.zoneBridge = new ZoneProcessBridge(zc);
+      this.zoneBridge.onClientMessage((playerId, data) => {
+        // Gateway forwarded a client message to this zone process
+        this.dispatchGatewayMessage(playerId, data);
+      });
+      this.zoneBridge.onTransferIncoming((playerId, state) => {
+        this.handleTransferIn(playerId, state);
+      });
+      this.zoneBridge.start();
+      console.log(`[zone-bridge] connected to gateway ${zc.gatewayHost}:${zc.gatewayPort}`);
+    } else {
+      this.zoneBridge = null;
+    }
   }
 
   // Full participant identity for the parse recorder: stable characterId,
@@ -2732,7 +2755,21 @@ export class GameServer {
     sim.applyPlayerSelfMutations(applyMap);
   }
 
+  // Stub handler for gateway-relayed client messages.
+  private dispatchGatewayMessage(_playerId: number, _data: unknown): void {
+    // TODO: parse data, find session, call dispatchMessage(session, data)
+  }
+
+  private handleTransferIn(_playerId: number, _state: unknown): void {
+    // TODO: load character from state, add to sim
+  }
+
   start(): void {
+    if (this.zoneBridge) {
+      this.zoneBridge.notifyPlayerJoined = (playerId) => {
+        // Notify gateway that a player joined - hook for zone process mode
+      };
+    }
     let last = process.hrtime.bigint();
     let acc = 0;
     // Stamp the loop-start clock before the first fire: it is the liveness backstop for

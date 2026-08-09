@@ -1,0 +1,26 @@
+{
+  "gatewayPort": 8787,
+  "internalPort": 9000,
+  "processes": [
+    {
+      "id": 1,
+      "zones": ["eastbrook_vale", "willowfen", "farshore_isle"],
+      "port": 9001
+    },
+    {
+      "id": 2,
+      "zones": ["mirefen_marsh", "galecrest", "thornpeak_heights"],
+      "port": 9002
+    },
+    {
+      "id": 3,
+      "zones": ["veiled_hollow", "palmreach", "evergarden"],
+      "port": 9003
+    },
+    {
+      "id": 4,
+      "zones": ["frostveil", "amberfall", "nightbloom", "wraithwood", "drakelands"],
+      "port": 9004
+    }
+  ]
+}
