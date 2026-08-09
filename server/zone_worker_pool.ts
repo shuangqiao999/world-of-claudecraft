@@ -71,26 +71,28 @@ export class ZoneWorkerPool {
       this.slots[workerIdx].worker.postMessage({ batch });
     }
 
-    // Collect with time-bounded spin: a stuck/dead worker must not hang the server.
-    // Each tick is 50ms; we allow 45ms for worker collection, then abandon the rest.
+    // Collect with time-bounded spin. Track pending by batch index (not by
+    // worker) so that round-robin reuse of a worker for multiple batches
+    // doesn't silently drop results after the first batch is collected.
     const results = new Map<string, ZoneResult>();
-    const pending = new Set(assigned.map(a => a.workerIdx));
+    const pending = new Set<number>(assigned.map((_, i) => i));
     const collected = new Set<string>();
     const deadline = Date.now() + 45;
     while (pending.size > 0 && collected.size < batches.length && Date.now() < deadline) {
-      for (const workerIdx of pending) {
+      for (const batchIdx of pending) {
+        const { workerIdx } = assigned[batchIdx];
         const resp = receiveMessageOnPort(this.slots[workerIdx].port);
         if (!resp) continue;
         const msg = (resp as any)?.message as { result?: ZoneResult; error?: string } | undefined;
         if (msg?.error) {
           this.log(`zone worker error: ${msg.error}`);
-          pending.delete(workerIdx);
+          pending.delete(batchIdx);
           continue;
         }
         if (msg?.result) {
           results.set(msg.result.zoneId, msg.result);
           collected.add(msg.result.zoneId);
-          pending.delete(workerIdx);
+          pending.delete(batchIdx);
         }
       }
     }

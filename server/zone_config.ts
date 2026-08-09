@@ -59,14 +59,17 @@ export function zoneIdFor(x: number, z: number): string | null {
   return null;
 }
 
-/** True when (x,z) is within BORDER_MARGIN_YD of ANY zone boundary. */
+/** True when (x,z) is within BORDER_MARGIN_YD of the boundary of the zone
+ *  that contains it.  If outside all zones, returns false. */
 export function isBorderPosition(x: number, z: number): boolean {
   for (const zone of OPEN_WORLD_ZONES) {
+    if (z < zone.zMin || z >= zone.zMax || x < zone.xMin || x >= zone.xMax) continue;
+    // Found the containing zone — check its margins
     const dxMin = x - (zone.xMin + BORDER_MARGIN_YD);
     const dxMax = (zone.xMax - BORDER_MARGIN_YD) - x;
     const dzMin = z - (zone.zMin + BORDER_MARGIN_YD);
     const dzMax = (zone.zMax - BORDER_MARGIN_YD) - z;
-    if (dxMin <= 0 || dxMax <= 0 || dzMin <= 0 || dzMax <= 0) return true;
+    return dxMin <= 0 || dxMax <= 0 || dzMin <= 0 || dzMax <= 0;
   }
   return false;
 }

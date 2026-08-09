@@ -213,7 +213,7 @@ import { SnapshotPool } from './snapshot_pool';
 import { SimWorkerPool } from './sim_worker_pool';
 import { ZoneWorkerPool } from './zone_worker_pool';
 import { groupEntitiesByZone } from './zone_config';
-import type { MobSlice, PlayerCell, PlayerSlice } from './sim_worker_core';
+import type { PlayerSlice } from './sim_worker_core';
 import type { ZoneEntitySlice, ZoneBatch } from './zone_worker_core';
 import {
   type CounterpartyActor,
@@ -2632,20 +2632,15 @@ export class GameServer {
     }
   }
 
-  /** Process zone-partitioned entities in worker threads.  Entities near zone
-   *  borders remain on the main thread; zone-internal mobs/NPCs/objects are
-   *  fully processed in workers (AI, combat, auras). */
+  /** Process zone-partitioned idle mobs for aggro proximity pre-scans. */
   private tickZonesParallel(): void {
     if (!this.zonePool.active) return;
     const sim = this.sim;
-    const dt = DT;
 
-    // Group all entity ids by open-world zone (null = border margin / instance)
     const { zoneIds, groups } = groupEntitiesByZone(
       (function* () {
         for (const e of sim.entities.values()) {
-          if (e.kind === 'mob' || e.kind === 'npc' || e.kind === 'object') {
-            if (e.dead && e.kind !== 'object') continue;
+          if (e.kind === 'mob' && !e.dead && e.aiState === 'idle' && !(e as any).ownerId) {
             yield e;
           }
         }
@@ -2654,7 +2649,6 @@ export class GameServer {
 
     if (zoneIds.length === 0) return;
 
-    // Build player cell data for aggro scanning in workers
     const playerCells: PlayerCell[] = [];
     for (const meta of sim.players.values()) {
       const pc = sim.entities.get(meta.entityId);
@@ -2663,7 +2657,6 @@ export class GameServer {
       playerCells.push({ id: pc.id, x: pc.pos.x, z: pc.pos.z, stealthed, dead: false, level: pc.level });
     }
 
-    // Build one ZoneBatch per populated zone
     const batches: ZoneBatch[] = [];
     for (const zid of zoneIds) {
       const eids = groups.get(zid);
@@ -2673,94 +2666,31 @@ export class GameServer {
       for (const eid of eids) {
         const e = sim.entities.get(eid);
         if (!e) continue;
-        const slice: ZoneEntitySlice = {
+        entities.push({
           id: e.id,
-          kind: e.kind as 'mob' | 'npc' | 'object',
+          kind: 'mob',
           templateId: e.templateId ?? '',
           pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z },
-          dead: e.dead,
-          hp: e.hp,
-          maxHp: e.maxHp,
-          resource: e.resource ?? 0,
-          maxResource: e.maxResource ?? 0,
-        };
-
-        if (e.kind === 'mob') {
-              slice.mob = {
-                aiState: e.aiState ?? 'idle',
-                aggroTargetId: e.aggroTargetId ?? null,
-                ownerId: e.ownerId ?? null,
-                auras: e.auras.map((a: any) => ({
-                  id: a.id ?? a.name ?? '',
-                  kind: a.kind ?? '',
-                  remaining: a.remaining ?? 0,
-                  tickTimer: a.tickTimer ?? 0,
-                  tickInterval: a.tickInterval ?? 0,
-                  value: a.value ?? 0,
-                  school: a.school ?? '',
-                  sourceId: a.sourceId ?? 0,
-                })),
-              };
-        } else if (e.kind === 'npc') {
-          slice.npc = {
-            auras: e.auras.map((a: any) => ({
-              id: a.id ?? a.name ?? '',
-              kind: a.kind ?? '',
-              remaining: a.remaining ?? 0,
-              tickTimer: a.tickTimer ?? 0,
-              tickInterval: a.tickInterval ?? 0,
-              value: a.value ?? 0,
-              school: a.school ?? '',
-              sourceId: a.sourceId ?? 0,
-            })),
-          };
-        } else if (e.kind === 'object') {
-          slice.obj = {
-            remaining: e.remaining ?? 0,
-            state: e.state ?? '',
-          };
-        }
-
-        entities.push(slice);
+          dead: false,
+          mob: { aiState: 'idle', ownerId: (e as any).ownerId ?? null },
+        });
       }
 
       if (entities.length === 0) continue;
-
-      batches.push({ zoneId: zid, entities, playerCells, dt });
+      batches.push({ zoneId: zid, entities, playerCells, dt: DT });
     }
 
     if (batches.length === 0) return;
 
     const results = this.zonePool.computeZones(batches);
 
-    // Apply results to the Sim
-    const auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[] = [];
     const allAggroCandidates = new Map<number, number>();
-
-    for (const [zid, result] of results) {
-      for (const mut of result.mutations) {
-        for (const am of mut.auras) {
-          if (am.kind === 'tick') {
-            auraTicks.push({
-              entityId: mut.id, index: am.index,
-              value: am.tickValue ?? 0,
-              sourceId: am.sourceId ?? 0,
-              targetId: am.targetId ?? mut.id,
-            });
-          }
-          // Expirations are handled by updateAuras on the main thread
-          // (fade events + stat recalc). The worker's detection is
-          // informational only.
-        }
-      }
+    for (const [_zid, result] of results) {
       for (const [mid, pid] of result.aggroCandidates) {
         if (!allAggroCandidates.has(mid)) allAggroCandidates.set(mid, pid);
       }
     }
 
-    if (auraTicks.length > 0) {
-      sim.applyZoneMutations(auraTicks);
-    }
     if (allAggroCandidates.size > 0) {
       sim.applyAggroCandidates(allAggroCandidates);
     }
@@ -2770,7 +2700,6 @@ export class GameServer {
     if (!this.simPool.active) return;
     const sim = this.sim;
 
-    // ----- Player slices (sorted by zone for locality) -----
     const rawPlayers: { slice: PlayerSlice; zoneId: string }[] = [];
     for (const meta of sim.players.values()) {
       const p = sim.entities.get(meta.entityId);
@@ -2784,93 +2713,23 @@ export class GameServer {
           gcdRemaining: p.gcdRemaining,
           potionCooldownUntil: p.potionCooldownUntil ?? 0,
           cooldowns: Array.from(p.cooldowns?.entries() ?? []),
-          breath: p.breath,
-          maxBreath: p.maxBreath,
-          fatigueTicks: p.fatigueTicks,
-          breathUsedTicks: p.breathUsedTicks ?? 0,
-          inWater: sim.isSwimming(p),
-          mountCastRemaining: p.mountCastRemaining ?? 0,
-          mountCastKey: p.mountCastKey ?? '',
-          comboPoints: p.comboPoints,
         },
       });
     }
     rawPlayers.sort((a, b) => a.zoneId < b.zoneId ? -1 : a.zoneId > b.zoneId ? 1 : 0);
     const playerSlices = rawPlayers.map(r => r.slice);
 
-    if (playerSlices.length > 0) {
-      const batch = { slices: playerSlices, tick: sim.tickCount, dt: DT };
-      const muts = this.simPool.computePlayers(batch);
-      if (muts.size > 0) {
-        const applyMap = new Map<number, Parameters<typeof sim.applyPlayerSelfMutations>[0] extends ReadonlyMap<number, infer T> ? T : never>();
-        for (const [id, m] of muts) {
-          applyMap.set(id, {
-            gcdRemaining: m.gcdRemaining, potionCooldownUntil: m.potionCooldownUntil,
-            cooldowns: m.cooldowns, breath: m.breath, fatigueTicks: m.fatigueTicks,
-            breathUsedTicks: m.breathUsedTicks,
-            mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
-            comboPoints: m.comboPoints,
-          });
-        }
-        sim.applyPlayerSelfMutations(applyMap);
-      }
-    }
+    if (playerSlices.length === 0) return;
 
-    // ----- Mob aggro pre-scan -----
-    const MAX_AGGRO_RADIUS = 20;
-    const mobConfig = { maxAggroRadius: MAX_AGGRO_RADIUS, maxAggroRadiusSq: MAX_AGGRO_RADIUS * MAX_AGGRO_RADIUS };
+    const batch = { slices: playerSlices, tick: sim.tickCount, dt: DT };
+    const muts = this.simPool.computePlayers(batch);
+    if (muts.size === 0) return;
 
-    // Build player cell data (all players, all zones — mobs need the full set)
-    const playerCells: PlayerCell[] = [];
-    for (const meta of sim.players.values()) {
-      const pc = sim.entities.get(meta.entityId);
-      if (!pc || pc.dead) continue;
-      const stealthed = pc.auras.some((a: { kind: string }) => a.kind === 'stealth');
-      playerCells.push({
-        id: pc.id, x: pc.pos.x, z: pc.pos.z,
-        stealthed, dead: false, level: pc.level,
-      });
+    const applyMap = new Map<number, { gcdRemaining: number; potionCooldownUntil: number; cooldowns: [number, number][] }>();
+    for (const [id, m] of muts) {
+      applyMap.set(id, { gcdRemaining: m.gcdRemaining, potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns });
     }
-
-    // Collect idle mob slices sorted by zone
-    const rawMobs: { slice: MobSlice; zoneId: string }[] = [];
-    for (const e of sim.entities.values()) {
-      if (e.kind !== 'mob') continue;
-      if (e.dead || e.ownerId !== null || e.aiState !== 'idle' || e.auras.length > 0) continue;
-      // Already-skipped mobs won't get aggro candidates applied anyway,
-      // but pre-scanning them is cheap and helps when players move near
-      rawMobs.push({
-        zoneId: zoneAt(e.pos.x, e.pos.z).id,
-        slice: {
-          id: e.id,
-          kind: 'mob' as const,
-          pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z },
-          dead: e.dead,
-          ownerId: e.ownerId ?? null,
-          aiState: e.aiState ?? 'idle',
-          auras: e.auras?.length ?? 0,
-          templateId: e.templateId,
-        },
-      });
-    }
-    rawMobs.sort((a, b) => a.zoneId < b.zoneId ? -1 : a.zoneId > b.zoneId ? 1 : 0);
-    const mobSlices = rawMobs.map(r => r.slice);
-
-    if (mobSlices.length > 0 && playerCells.length > 0) {
-      const mobBatch = { slices: mobSlices, playerCells, config: mobConfig, tick: sim.tickCount, dt: DT };
-      const mobMuts = this.simPool.computeMobs(mobBatch);
-      if (mobMuts.size > 0) {
-        const candidates = new Map<number, number>();
-        for (const [id, m] of mobMuts) {
-          if (m.aggroCandidateId > 0) {
-            candidates.set(id, m.aggroCandidateId);
-          }
-        }
-        if (candidates.size > 0) {
-          sim.applyAggroCandidates(candidates);
-        }
-      }
-    }
+    sim.applyPlayerSelfMutations(applyMap);
   }
 
   start(): void {

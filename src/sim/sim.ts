@@ -5657,21 +5657,20 @@ export class Sim {
   // -------------------------------------------------------------------------
 
   // When true, the next tick() call skips self-only player steps (timers,
-  // combo expiry, breath timer for live players) because they were
-  // pre-applied via applyPlayerSelfMutations(). Reset to false at tick-end.
+  // combo expiry) for LIVE players because they were pre-applied via
+  // applyPlayerSelfMutations(). Dead players always run main-thread timers.
+  // Reset to false at tick-end.
   _selfMutsPreApplied = false;
 
-  /** Apply pre-computed player self-only mutations. Call BEFORE tick(). */
+  /** Apply pre-computed self-only mutations (timer countdowns). Live only. */
   applyPlayerSelfMutations(
     muts: ReadonlyMap<number, { gcdRemaining: number; potionCooldownUntil: number;
-      cooldowns: [number, number][]; breath: number; fatigueTicks: number;
-      breathUsedTicks: number; mountCastRemaining: number; mountCastKey: string | null;
-      comboPoints: number }>,
+      cooldowns: [number, number][] }>,
   ): void {
     this._selfMutsPreApplied = true;
     for (const [id, mut] of muts) {
       const p = this.entities.get(id);
-      if (!p) continue;
+      if (!p || p.dead) continue;
       p.gcdRemaining = mut.gcdRemaining;
       p.potionCooldownUntil = mut.potionCooldownUntil;
       if (mut.cooldowns.length > 0) {
@@ -5681,12 +5680,6 @@ export class Sim {
       } else {
         p.cooldowns.clear();
       }
-      p.breath = mut.breath;
-      p.fatigueTicks = mut.fatigueTicks;
-      p.breathUsedTicks = mut.breathUsedTicks;
-      p.mountCastRemaining = mut.mountCastRemaining;
-      p.mountCastKey = mut.mountCastKey || null;
-      p.comboPoints = mut.comboPoints;
     }
   }
 
@@ -5696,26 +5689,6 @@ export class Sim {
       const mob = this.entities.get(mobId);
       if (mob && mob.kind === 'mob' && mob.aiState === 'idle' && !mob.dead) {
         mob._preAggroCandidate = playerId;
-      }
-    }
-  }
-
-  /** Apply zone-level mutations from zone-sharding worker pool. */
-  applyZoneMutations(
-    auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[],
-  ): void {
-    // Apply DoT tick values detected by the worker.  HoT ticks are handled
-    // by updateAuras() on the main thread.  Aura duration management and
-    // expiration (fade events, stat recalc) are entirely owned by updateAuras.
-    for (const at of auraTicks) {
-      const ent = this.entities.get(at.targetId);
-      if (!ent || ent.dead) continue;
-      const aura = ent.auras[at.index];
-      if (!aura) continue;
-      if (aura.kind === 'dot') {
-        const src = this.entities.get(at.sourceId);
-        if (!src) continue;
-        this.ctx.dealDamage(src, ent, at.value, 'physical', false, false, false, false, false);
       }
     }
   }
@@ -5824,7 +5797,7 @@ export class Sim {
       // Show-jumping race driver: per-player, server-authoritative, rng-free
       // (runs after movement so prevPos -> pos is this tick's ridden segment).
       this.ctx.tickMountRace(meta);
-      if (!skipSelf) {
+      if (!skipSelf || p.dead) {
         updateTimers(p);
         updateComboExpiry(this.ctx, p);
       }
