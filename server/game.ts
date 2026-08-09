@@ -212,7 +212,7 @@ import { forEachGuarded, runGuarded } from './guarded_iter';
 import { SnapshotPool } from './snapshot_pool';
 import { SimWorkerPool } from './sim_worker_pool';
 import { ZoneWorkerPool } from './zone_worker_pool';
-import { groupEntitiesByZone, zoneExtentById, BORDER_MARGIN_YD } from './zone_config';
+import { groupEntitiesByZone } from './zone_config';
 import type { MobSlice, PlayerCell, PlayerSlice } from './sim_worker_core';
 import type { ZoneEntitySlice, ZoneBatch } from './zone_worker_core';
 import {
@@ -2686,31 +2686,21 @@ export class GameServer {
         };
 
         if (e.kind === 'mob') {
-          slice.mob = {
-            aiState: e.aiState ?? 'idle',
-            aggroTargetId: e.aggroTargetId ?? null,
-            ownerId: e.ownerId ?? null,
-            weaponMin: e.weapon?.min ?? 1,
-            weaponMax: e.weapon?.max ?? 3,
-            attackPower: (e as any).attackPower ?? 0,
-            hitChance: 0.95,
-            critChance: 0.05,
-            armor: e.armor ?? 0,
-            dodge: e.dodge ?? 0,
-            parry: e.parry ?? 0,
-            block: e.block ?? 0,
-            moveSpeed: e.moveSpeed ?? 6,
-            auras: e.auras.map((a: any) => ({
-              id: a.id ?? a.name ?? '',
-              kind: a.kind ?? '',
-              remaining: a.remaining ?? 0,
-              tickTimer: a.tickTimer ?? 0,
-              tickInterval: a.tickInterval ?? 0,
-              value: a.value ?? 0,
-              school: a.school ?? '',
-              sourceId: a.sourceId ?? 0,
-            })),
-          };
+              slice.mob = {
+                aiState: e.aiState ?? 'idle',
+                aggroTargetId: e.aggroTargetId ?? null,
+                ownerId: e.ownerId ?? null,
+                auras: e.auras.map((a: any) => ({
+                  id: a.id ?? a.name ?? '',
+                  kind: a.kind ?? '',
+                  remaining: a.remaining ?? 0,
+                  tickTimer: a.tickTimer ?? 0,
+                  tickInterval: a.tickInterval ?? 0,
+                  value: a.value ?? 0,
+                  school: a.school ?? '',
+                  sourceId: a.sourceId ?? 0,
+                })),
+              };
         } else if (e.kind === 'npc') {
           slice.npc = {
             auras: e.auras.map((a: any) => ({
@@ -2748,30 +2738,26 @@ export class GameServer {
 
     // Apply results to the Sim
     for (const [zid, result] of results) {
-      const damages: { sourceId: number; targetId: number; amount: number }[] = [];
-      const kills: { sourceId: number; targetId: number }[] = [];
-      const auraTicks: { entityId: number; index: number; remaining: number; tickTimer: number }[] = [];
+      const auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[] = [];
       const auraExpiries: { entityId: number; index: number }[] = [];
 
       for (const mut of result.mutations) {
-        for (const evt of mut.events) {
-          if (evt.kind === 'damage' && evt.amount! > 0) {
-            damages.push({ sourceId: evt.sourceId, targetId: evt.targetId, amount: evt.amount! });
-          } else if (evt.kind === 'death') {
-            kills.push({ sourceId: evt.sourceId, targetId: evt.targetId });
-          }
-        }
         for (const am of mut.auras) {
-          if (am.action === 'expire') {
+          if (am.kind === 'expire') {
             auraExpiries.push({ entityId: mut.id, index: am.index });
-          } else if (am.action === 'tick' && am.remaining !== undefined) {
-            auraTicks.push({ entityId: mut.id, index: am.index, remaining: am.remaining, tickTimer: am.tickTimer ?? 0 });
+          } else if (am.kind === 'tick') {
+            auraTicks.push({
+              entityId: mut.id, index: am.index,
+              value: am.tickValue ?? 0,
+              sourceId: am.sourceId ?? 0,
+              targetId: am.targetId ?? mut.id,
+            });
           }
         }
       }
 
-      if (damages.length > 0 || kills.length > 0 || auraTicks.length > 0 || auraExpiries.length > 0) {
-        sim.applyZoneMutations(zid, damages, kills, auraTicks, auraExpiries);
+      if (auraTicks.length > 0 || auraExpiries.length > 0) {
+        sim.applyZoneMutations(zid, auraTicks, auraExpiries);
       }
 
       if (result.aggroCandidates.length > 0) {

@@ -5700,50 +5700,39 @@ export class Sim {
     }
   }
 
-  /** Apply zone-level mutations from zone-sharding worker pool.
-   *  Handles pending damage events and aura mutations computed by workers. */
+  /** Apply zone-level mutations from zone-sharding worker pool. */
   applyZoneMutations(
     zoneId: string,
-    damages: { sourceId: number; targetId: number; amount: number }[],
-    kills: { sourceId: number; targetId: number }[],
-    auraTicks: { entityId: number; index: number; remaining: number; tickTimer: number; }[],
+    auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[],
     auraExpiries: { entityId: number; index: number }[],
   ): void {
-    // Apply damage (must use ctx seam for side effects: on-hit procs, threat)
-    for (const d of damages) {
-      const src = this.entities.get(d.sourceId);
-      const tgt = this.entities.get(d.targetId);
-      if (!src || !tgt || tgt.dead) continue;
-      this.ctx.dealDamage(
-        src, tgt, d.amount,
-        'physical' as any,
-        false, false, false, false, false,
-      );
-    }
-
-    // Apply kills
-    for (const k of kills) {
-      const src = this.entities.get(k.sourceId);
-      const tgt = this.entities.get(k.targetId);
-      if (!src || !tgt || tgt.dead) continue;
-      handleDeathImpl(this.ctx, tgt, src, null);
-    }
-
-    // Apply aura ticks (non-death-related, purely timer + optional tick value)
+    // Apply aura tick values (DoT damage / HoT heal).  The worker detects
+    // which auras will tick this frame; the main thread applies the actual
+    // cross-entity effects through the ctx seam.
     for (const at of auraTicks) {
-      const e = this.entities.get(at.entityId);
-      if (!e || e.dead) continue;
-      const aura = e.auras[at.index];
+      const ent = this.entities.get(at.targetId);
+      if (!ent || ent.dead) continue;
+      const aura = ent.auras[at.index];
       if (!aura) continue;
-      aura.remaining = at.remaining;
-      aura.tickTimer = at.tickTimer;
+      if (aura.kind === 'dot') {
+        const src = this.entities.get(at.sourceId);
+        if (!src) continue;
+        // Use ctx.applyAuraDamage so threat and on-hit side effects fire
+        this.ctx.dealDamage(src, ent, at.value, 'physical', false, false, false, false, false);
+      }
+      // HoT ticks: the main thread's updateAuras handles healing.
+      // The worker's tick detection is informational only for HoTs.
     }
 
-    // Apply aura expirations (removes aura, stats recalc)
+    // Apply aura expirations (removes aura BEFORE updateAuras runs).
+    // updateAuras also checks duration, but the worker's detection is
+    // used as a shortcut that avoids the redundant in-loop decrement.
     for (const ae of auraExpiries) {
-      const e = this.entities.get(ae.entityId);
-      if (!e || e.dead) continue;
-      e.auras.splice(ae.index, 1);
+      const ent = this.entities.get(ae.entityId);
+      if (!ent || ent.dead) continue;
+      if (ae.index < ent.auras.length) {
+        ent.auras.splice(ae.index, 1);
+      }
     }
   }
 

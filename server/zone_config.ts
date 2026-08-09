@@ -53,19 +53,19 @@ export function zoneExtentById(id: string): ZoneExtent | undefined {
 
 /** Which open-world zone does (x,z) fall into? null if in instance band or void. */
 export function zoneIdFor(x: number, z: number): string | null {
-  for (const z of OPEN_WORLD_ZONES) {
-    if (z >= z.zMin && z < z.zMax && x >= z.xMin && x < z.xMax) return z.id;
+  for (const zone of OPEN_WORLD_ZONES) {
+    if (z >= zone.zMin && z < zone.zMax && x >= zone.xMin && x < zone.xMax) return zone.id;
   }
   return null;
 }
 
 /** True when (x,z) is within BORDER_MARGIN_YD of ANY zone boundary. */
 export function isBorderPosition(x: number, z: number): boolean {
-  for (const z of OPEN_WORLD_ZONES) {
-    const dxMin = x - (z.xMin + BORDER_MARGIN_YD);
-    const dxMax = (z.xMax - BORDER_MARGIN_YD) - x;
-    const dzMin = z - (z.zMin + BORDER_MARGIN_YD);
-    const dzMax = (z.zMax - BORDER_MARGIN_YD) - z;
+  for (const zone of OPEN_WORLD_ZONES) {
+    const dxMin = x - (zone.xMin + BORDER_MARGIN_YD);
+    const dxMax = (zone.xMax - BORDER_MARGIN_YD) - x;
+    const dzMin = z - (zone.zMin + BORDER_MARGIN_YD);
+    const dzMax = (zone.zMax - BORDER_MARGIN_YD) - z;
     if (dxMin <= 0 || dxMax <= 0 || dzMin <= 0 || dzMax <= 0) return true;
   }
   return false;

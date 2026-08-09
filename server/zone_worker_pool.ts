@@ -71,12 +71,10 @@ export class ZoneWorkerPool {
       this.slots[workerIdx].worker.postMessage({ batch });
     }
 
-    // Collect (one result per batch, in any order)
-    const results = new Map<string, ZoneResult>();
-    const pending = new Set(assigned.map(a => a.workerIdx));
-    const collected = new Set<string>();
-
-    while (pending.size > 0 && collected.size < batches.length) {
+    // Collect with time-bounded spin: a stuck/dead worker must not hang the server.
+    // Each tick is 50ms; we allow 45ms for worker collection, then abandon the rest.
+    const deadline = Date.now() + 45;
+    while (pending.size > 0 && collected.size < batches.length && Date.now() < deadline) {
       for (const workerIdx of pending) {
         const resp = receiveMessageOnPort(this.slots[workerIdx].port);
         if (!resp) continue;
@@ -92,6 +90,12 @@ export class ZoneWorkerPool {
           pending.delete(workerIdx);
         }
       }
+    }
+
+    // Any still-pending batches after the deadline are silently dropped.
+    // Their entities stay on the main thread for this tick (no mutations applied).
+    if (pending.size > 0) {
+      this.log(`zone pool: ${pending.size} worker(s) timed out, ${collected.size}/${batches.length} collected`);
     }
 
     return results;
