@@ -1,9 +1,15 @@
-// Zone process communication integration for GameServer.
-// When ZONES env var is set (zone-process mode), the server connects to a
-// gateway via the internal TCP protocol for message relay.
+// Zone Bridge — runs inside a zone process, relays messages between
+// the Gateway and the local GameServer.  When ZONES is set, replaces
+// the browser's WS with an internal TCP channel to the Gateway.
+//
+// Lifecycle:
+//   bridge = new ZoneProcessBridge(getZoneConfig())
+//   bridge.onClientFrame = (pid, data) => game.dispatchGatewayMessage(pid, data)
+//   bridge.onJoinRequest = (pid, cid, token) => game.handleGatewayJoin(pid, cid, token)
+//   bridge.start()
 
-import { ZoneClient, type ZoneClientOptions } from '../server/zone_comm/client';
-import type { GwToZone } from '../server/zone_comm/protocol';
+import { ZoneClient } from '../server/zone_comm/client';
+import type { GwToZone, ZoneToGw } from '../server/zone_comm/protocol';
 
 export interface ZoneProcessConfig {
   gatewayHost: string;
@@ -13,40 +19,64 @@ export interface ZoneProcessConfig {
 
 export class ZoneProcessBridge {
   private client: ZoneClient;
-  private onClientMsg: ((playerId: number, data: unknown) => void) | null = null;
-  private onTransferIn: ((playerId: number, state: unknown) => void) | null = null;
   readonly zones: string[];
+  private log: (msg: string) => void;
+  private queuedMessages: { playerId: number; data: unknown }[] = [];
+  private ready = false;
 
-  constructor(private config: ZoneProcessConfig) {
+  onClientFrame: ((playerId: number, data: unknown) => void) | null = null;
+  onJoinRequest: ((playerId: number, characterId: number, token: string) => void) | null = null;
+
+  constructor(config: ZoneProcessConfig, log: (msg: string) => void = console.log) {
+    this.log = log;
     this.zones = config.zones;
+
     this.client = new ZoneClient({
       gatewayHost: config.gatewayHost,
       gatewayPort: config.gatewayPort,
       onMessage: (msg) => this.handleGatewayMessage(msg),
-      log: console.log,
+      log,
     });
   }
 
   private handleGatewayMessage(msg: GwToZone): void {
     switch (msg.type) {
-      case 'client_msg':
-        if (msg.playerId && msg.data) this.onClientMsg?.(msg.playerId, msg.data);
+      case 'client_msg': {
+        const pid = msg.playerId!;
+        const data = msg.data as any;
+        if (!this.ready) {
+          this.queuedMessages.push({ playerId: pid, data });
+          return;
+        }
+        // Join request: gateway sends { t: 'join', characterId, token }
+        if (data?.t === 'join' && data?.characterId) {
+          this.onJoinRequest?.(pid, data.characterId, data.token);
+        } else if (data?.t === 'disconnect') {
+          this.log(`[bridge] player ${pid} gateway disconnect`);
+        } else {
+          this.onClientFrame?.(pid, data);
+        }
         break;
+      }
       case 'transfer_in':
-        if (msg.playerId && msg.state) this.onTransferIn?.(msg.playerId, msg.state);
+        this.log(`[bridge] transfer_in player ${msg.playerId}`);
         break;
       case 'shutdown':
-        console.log('[zone-bridge] shutdown received');
+        this.log('[bridge] shutdown from gateway');
         break;
     }
   }
 
-  onClientMessage(handler: (playerId: number, data: unknown) => void): void {
-    this.onClientMsg = handler;
-  }
-
-  onTransferIncoming(handler: (playerId: number, state: unknown) => void): void {
-    this.onTransferIn = handler;
+  notifyReady(): void {
+    this.ready = true;
+    // Flush queued join messages received before the sim was ready
+    for (const q of this.queuedMessages) {
+      const data = q.data as any;
+      if (data?.t === 'join' && data?.characterId) {
+        this.onJoinRequest?.(q.playerId, data.characterId, data.token);
+      }
+    }
+    this.queuedMessages.length = 0;
   }
 
   /** Notify gateway that a player joined this zone process. */
@@ -64,8 +94,8 @@ export class ZoneProcessBridge {
     this.client.send({ type: 'transfer_out', playerId, newZoneId });
   }
 
-  /** Send a broadcast message to the gateway (for player snapshots). */
-  sendBroadcast(playerId: number, snap: string): void {
+  /** Send a snapshot to the gateway for forwarding to the client. */
+  relaySnapshot(playerId: number, snap: string): void {
     this.client.send({ type: 'broadcast', playerId, snap });
   }
 
@@ -78,7 +108,7 @@ export class ZoneProcessBridge {
   }
 }
 
-/** Resolve zone-process config from env vars. */
+/** Read zone-process config from env. Returns null if ZONES is not set. */
 export function resolveZoneConfig(): ZoneProcessConfig | null {
   const zones = (process.env.ZONES ?? '').split(',').map(z => z.trim()).filter(Boolean);
   if (zones.length === 0) return null;

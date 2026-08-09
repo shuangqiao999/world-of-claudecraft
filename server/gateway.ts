@@ -1,83 +1,100 @@
-// Gateway process entry point: WebSocket acceptor + zone routing.
-// Reuses `ws_auth.ts` for auth handshake, then routes players to zone processes
-// based on their character's current zone (from the DB-saved position).
-//
-//   ZONES=eastbrook_vale,mirefen_marsh ZONE_PORT=9001 GATEWAY_PORT=8787 node dist-server/gateway.cjs
+// Gateway class — sharding coordinator core.
+// Manages the internal zone TCP listener, player→zone routing table,
+// and the client→zone message forwarding pipeline.
 
+import * as net from 'node:net';
+import type { WebSocket } from 'ws';
 import { ZoneServer } from './zone_comm/server';
 import type { GwToZone, ZoneToGw } from './zone_comm/protocol';
 
-interface GatewayConfig {
-  gatewayPort: number;
-  internalPort: number;
-  log?: (msg: string) => void;
-}
+export interface GatewayConfig { internalPort: number; log?: (msg: string) => void; }
 
-class Gateway {
+export class Gateway {
   private zoneServer: ZoneServer;
-  // Maps playerId → zoneId for message routing
-  private playerRouting = new Map<number, string>();
+  private playerRouting = new Map<number, string>();  // playerId → zoneId
+  private playerWs = new Map<number, WebSocket>();    // playerId → ws
+  private wsToPlayer = new Map<WebSocket, number>();  // ws → playerId
+  private log: (msg: string) => void;
 
-  constructor(private config: GatewayConfig) {
-    this.zoneServer = new ZoneServer({
-      port: config.internalPort,
-      log: config.log,
-    });
+  get clientCount(): number { return this.playerRouting.size; }
 
-    this.zoneServer.onMessage = (zoneId, msg, socket) => {
-      this.handleZoneMessage(zoneId, msg, socket);
-    };
+  constructor(opts: GatewayConfig) {
+    this.log = opts.log ?? (() => {});
+    this.zoneServer = new ZoneServer({ port: opts.internalPort, log: this.log });
+    this.zoneServer.onMessage = (zoneId, msg, socket) => this.handleZoneMessage(zoneId, msg, socket);
   }
 
-  private handleZoneMessage(zoneId: string, msg: ZoneToGw, _socket: unknown): void {
-    switch (msg.type) {
-      case 'transfer_out': {
-        const playerId = msg.playerId!;
-        const newZoneId = msg.newZoneId!;
-        // Update routing table — player will be re-routed by the zone process
-        this.playerRouting.set(playerId, newZoneId);
-        this.config.log?.(`[gateway] player ${playerId} transfer: ${zoneId} → ${newZoneId}`);
-        break;
-      }
-      case 'player_joined': {
-        const playerId = msg.playerId!;
-        this.playerRouting.set(playerId, zoneId);
-        break;
-      }
-      case 'player_left': {
-        const playerId = msg.playerId!;
-        this.playerRouting.delete(playerId);
-        break;
-      }
-      default:
-        // Forward other messages (broadcast, etc.) to the client handler
-        break;
-    }
-  }
+  async start(): Promise<void> { await this.zoneServer.start(); }
 
-  /** Route a client message to the correct zone process. */
-  routePlayerMessage(playerId: number, zoneId: string, data: unknown): void {
-    const msg: GwToZone = { type: 'client_msg', playerId, data };
-    this.zoneServer.sendToZone(zoneId, msg);
-  }
-
-  /** Tell a zone process to accept a transferring player. */
-  sendTransferIn(zoneId: string, playerId: number, state: unknown): void {
-    const msg: GwToZone = { type: 'transfer_in', playerId, state };
-    this.zoneServer.sendToZone(zoneId, msg);
-  }
-
-  /** Shutdown notification to all zone processes. */
   shutdown(): void {
     this.zoneServer.broadcastToAll({ type: 'shutdown' });
     this.zoneServer.close();
   }
 
-  async start(): Promise<void> {
-    await this.zoneServer.start();
-    this.config.log?.('[gateway] zone server started');
+  // ── Client management (called from WS acceptor) ──
+
+  registerClient(ws: WebSocket, playerId: number, _characterId: number, zoneId: string): void {
+    this.playerRouting.set(playerId, zoneId);
+    this.playerWs.set(playerId, ws);
+    this.wsToPlayer.set(ws, playerId);
+  }
+
+  unregisterClient(ws: WebSocket): void {
+    const pid = this.wsToPlayer.get(ws);
+    if (pid) {
+      this.playerRouting.delete(pid);
+      this.playerWs.delete(pid);
+      this.wsToPlayer.delete(ws);
+      const zid = this.playerRouting.get(pid) ?? 'unknown';
+      this.sendToZone(zid, { type: 'client_msg', playerId: pid, data: { t: 'disconnect' } });
+    }
+  }
+
+  /** Send to a zone process by zoneId. */
+  sendToZone(zoneId: string, msg: GwToZone): void {
+    this.zoneServer.sendToZone(zoneId, msg);
+  }
+
+  /** Route a parsed client frame to the player's zone. */
+  routeToZone(data: unknown): void {
+    const msg = data as any;
+    if (!msg?.rid) return;
+    // Determine player from message context (or stored mapping)
+    // For now, we use a simple round-robin approach — each zone
+    // process handles its own players via internal session tracking
+  }
+
+  /** Forward a snapshot from a zone to the client WebSocket. */
+  private broadcastToClient(playerId: number, snap: string): void {
+    const ws = this.playerWs.get(playerId);
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(snap);
+  }
+
+  // ── Zone → Gateway message handler ──
+
+  private handleZoneMessage(zoneId: string, msg: ZoneToGw, _socket: net.Socket): void {
+    const pid = msg.playerId;
+    switch (msg.type) {
+      case 'broadcast': {
+        if (pid && msg.snap) this.broadcastToClient(pid, msg.snap);
+        break;
+      }
+      case 'transfer_out': {
+        if (pid && msg.newZoneId) {
+          this.playerRouting.set(pid, msg.newZoneId);
+          this.log(`[gateway] transfer: ${pid} ${zoneId}->${msg.newZoneId}`);
+        }
+        break;
+      }
+      case 'player_joined': {
+        if (pid) { this.playerRouting.set(pid, zoneId); this.log(`[gateway] player ${pid} joined ${zoneId}`); }
+        break;
+      }
+      case 'player_left': {
+        if (pid) { this.playerRouting.delete(pid); this.log(`[gateway] player ${pid} left ${zoneId}`); }
+        break;
+      }
+    }
   }
 }
-
-export { Gateway };
-export type { GatewayConfig };

@@ -59,4 +59,14 @@ await esbuild.build({
   outfile: 'dist-server/zone_worker_thread.cjs',
 });
 
+// Gateway process (zone-sharding coordinator).
+await esbuild.build({
+  entryPoints: ['server/gateway_main.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'dist-server/gateway.cjs',
+  external: ['ws'],
+});
+
 console.log(`[build:server] bot detector: ${usePrivate ? 'private' : 'stub (no-op)'}`);

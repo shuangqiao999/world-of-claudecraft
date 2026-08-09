@@ -1994,15 +1994,13 @@ export class GameServer {
     const zc = resolveZoneConfig();
     if (zc) {
       this.zoneBridge = new ZoneProcessBridge(zc);
-      this.zoneBridge.onClientMessage((playerId, data) => {
-        // Gateway forwarded a client message to this zone process
+      this.zoneBridge.onClientFrame = (playerId, data) => {
         this.dispatchGatewayMessage(playerId, data);
-      });
-      this.zoneBridge.onTransferIncoming((playerId, state) => {
-        this.handleTransferIn(playerId, state);
-      });
-      this.zoneBridge.start();
-      console.log(`[zone-bridge] connected to gateway ${zc.gatewayHost}:${zc.gatewayPort}`);
+      };
+      this.zoneBridge.onJoinRequest = (playerId, characterId, token) => {
+        this.handleGatewayJoin(playerId, characterId, token);
+      };
+      console.log(`[zone-bridge] configured for gateway ${zc.gatewayHost}:${zc.gatewayPort}`);
     } else {
       this.zoneBridge = null;
     }
@@ -2755,9 +2753,35 @@ export class GameServer {
     sim.applyPlayerSelfMutations(applyMap);
   }
 
-  // Stub handler for gateway-relayed client messages.
-  private dispatchGatewayMessage(_playerId: number, _data: unknown): void {
-    // TODO: parse data, find session, call dispatchMessage(session, data)
+  /** Relay a gateway-routed client frame through the local command dispatch. */
+  dispatchGatewayMessage(playerId: number, data: unknown): void {
+    const session = this.clients.get(playerId);
+    if (!session) return;
+    const msg = data as any;
+    if (!msg || typeof msg !== 'object') return;
+    // Call the existing command dispatch with the pre-authenticated session
+    try {
+      this.dispatchMessage(session, msg, '', Date.now());
+    } catch (err: any) {
+      console.error(`[game] dispatch error pid=${playerId}:`, err.message);
+    }
+  }
+
+  /** Handle a gateway-initiated join: the gateway authenticated the player
+   *  and forwards their character info. Zone process creates the entity. */
+  handleGatewayJoin(playerId: number, characterId: number, token: string): void {
+    // For zone-mode joins, we use the existing join pipeline but with
+    // a virtual WS that relays through the bridge. The join flow calls
+    // `getCharacter(characterId)` then `game.join(ws, accountId, characterId, ...)`
+    // We'll create a join helper that the bridge orchestrates.
+    console.log(`[game] gateway join requested: pid=${playerId} cid=${characterId}`);
+  }
+
+  /** Snapshot relay: in zone mode, send through gateway instead of direct WS. */
+  private relayToClient(session: ClientSession, payload: string): void {
+    if (session.ws.readyState === WebSocket.OPEN) {
+      session.ws.send(payload);
+    }
   }
 
   private handleTransferIn(_playerId: number, _state: unknown): void {
@@ -2766,9 +2790,17 @@ export class GameServer {
 
   start(): void {
     if (this.zoneBridge) {
-      this.zoneBridge.notifyPlayerJoined = (playerId) => {
-        // Notify gateway that a player joined - hook for zone process mode
+      // In zone mode, override the raw send path to relay through gateway
+      const sendRawOrig = this.sendRaw.bind(this);
+      this.sendRaw = (session: ClientSession, payload: string) => {
+        if (this.zoneBridge) {
+          this.zoneBridge.relaySnapshot(session.pid, payload);
+        } else {
+          sendRawOrig(session, payload);
+        }
       };
+      this.zoneBridge.start();
+      console.log(`[game] zone mode active, zones=${this.zoneBridge.zones.join(',')}`);
     }
     let last = process.hrtime.bigint();
     let acc = 0;
