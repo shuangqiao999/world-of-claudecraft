@@ -5703,11 +5703,10 @@ export class Sim {
   /** Apply zone-level mutations from zone-sharding worker pool. */
   applyZoneMutations(
     auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[],
-    auraExpiries: { entityId: number; index: number }[],
   ): void {
-    // Apply aura tick values (DoT damage / HoT heal).  The worker detects
-    // which auras will tick this frame; the main thread applies the actual
-    // cross-entity effects through the ctx seam.
+    // Apply DoT tick values detected by the worker.  HoT ticks are handled
+    // by updateAuras() on the main thread.  Aura duration management and
+    // expiration (fade events, stat recalc) are entirely owned by updateAuras.
     for (const at of auraTicks) {
       const ent = this.entities.get(at.targetId);
       if (!ent || ent.dead) continue;
@@ -5716,21 +5715,7 @@ export class Sim {
       if (aura.kind === 'dot') {
         const src = this.entities.get(at.sourceId);
         if (!src) continue;
-        // Use ctx.applyAuraDamage so threat and on-hit side effects fire
         this.ctx.dealDamage(src, ent, at.value, 'physical', false, false, false, false, false);
-      }
-      // HoT ticks: the main thread's updateAuras handles healing.
-      // The worker's tick detection is informational only for HoTs.
-    }
-
-    // Apply aura expirations (removes aura BEFORE updateAuras runs).
-    // Process in descending index order so earlier splices never shift later indices.
-    const sorted = auraExpiries.slice().sort((a, b) => b.index - a.index);
-    for (const ae of sorted) {
-      const ent = this.entities.get(ae.entityId);
-      if (!ent || ent.dead) continue;
-      if (ae.index < ent.auras.length) {
-        ent.auras.splice(ae.index, 1);
       }
     }
   }

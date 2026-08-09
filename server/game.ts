@@ -2735,15 +2735,12 @@ export class GameServer {
 
     // Apply results to the Sim
     const auraTicks: { entityId: number; index: number; value: number; sourceId: number; targetId: number }[] = [];
-    const auraExpiries: { entityId: number; index: number }[] = [];
     const allAggroCandidates = new Map<number, number>();
 
     for (const [zid, result] of results) {
       for (const mut of result.mutations) {
         for (const am of mut.auras) {
-          if (am.kind === 'expire') {
-            auraExpiries.push({ entityId: mut.id, index: am.index });
-          } else if (am.kind === 'tick') {
+          if (am.kind === 'tick') {
             auraTicks.push({
               entityId: mut.id, index: am.index,
               value: am.tickValue ?? 0,
@@ -2751,6 +2748,9 @@ export class GameServer {
               targetId: am.targetId ?? mut.id,
             });
           }
+          // Expirations are handled by updateAuras on the main thread
+          // (fade events + stat recalc). The worker's detection is
+          // informational only.
         }
       }
       for (const [mid, pid] of result.aggroCandidates) {
@@ -2758,8 +2758,8 @@ export class GameServer {
       }
     }
 
-    if (auraTicks.length > 0 || auraExpiries.length > 0) {
-      sim.applyZoneMutations(auraTicks, auraExpiries);
+    if (auraTicks.length > 0) {
+      sim.applyZoneMutations(auraTicks);
     }
     if (allAggroCandidates.size > 0) {
       sim.applyAggroCandidates(allAggroCandidates);
