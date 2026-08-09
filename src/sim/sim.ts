@@ -5656,6 +5656,62 @@ export class Sim {
   // Main tick
   // -------------------------------------------------------------------------
 
+  // When true, the next tick() call skips self-only player steps (movement, regen,
+  // timers, mount, combo, breath timer, self-aura durations) because they were
+  // pre-applied via applyPlayerSelfMutations(). Reset to false at tick-end.
+  _selfMutsPreApplied = false;
+
+  /** Apply pre-computed player self-only mutations. Call BEFORE tick(). */
+  applyPlayerSelfMutations(
+    muts: ReadonlyMap<number, { hp: number; resource: number; gcdRemaining: number;
+      potionCooldownUntil: number; cooldowns: [number, number][]; breath: number;
+      fatigueTicks: number; mountCastRemaining: number; mountCastKey: string | null;
+      mountCastComplete: boolean; comboPoints: number; comboExpired: boolean;
+      expiredAuraIndices: number[]; statsDirty: boolean }>,
+    dt: number,
+  ): void {
+    this._selfMutsPreApplied = true;
+    for (const [id, mut] of muts) {
+      const p = this.entities.get(id);
+      if (!p) continue;
+      p.hp = mut.hp;
+      p.resource = Math.min(mut.resource, p.maxResource);
+      p.gcdRemaining = mut.gcdRemaining;
+      p.potionCooldownUntil = mut.potionCooldownUntil;
+      if (mut.cooldowns.length > 0) {
+        const kept = new Map<number, number>();
+        for (const [spellId, rem] of mut.cooldowns) { if (rem > 0) kept.set(spellId, rem); }
+        p.cooldowns = kept;
+      } else {
+        p.cooldowns.clear();
+      }
+      p.breath = mut.breath;
+      p.fatigueTicks = mut.fatigueTicks;
+      if (mut.mountCastRemaining <= 0 && mut.mountCastKey === null) {
+        p.mountCastRemaining = 0;
+        p.mountCastKey = null;
+      }
+      if (mut.comboExpired) { p.comboPoints = 0; }
+      // Remove expired auras
+      if (mut.expiredAuraIndices.length > 0) {
+        const keep: typeof p.auras = [];
+        const expired = new Set(mut.expiredAuraIndices);
+        for (let i = 0; i < p.auras.length; i++) {
+          if (!expired.has(i)) keep.push(p.auras[i]);
+        }
+        p.auras = keep;
+      }
+      // Apply aura duration decrements for non-expired auras
+      for (const aura of p.auras) {
+        aura.remaining = Math.max(0, aura.remaining - dt);
+        if (aura.tickTimer > 0) aura.tickTimer = Math.max(0, aura.tickTimer - dt);
+      }
+      if (mut.statsDirty) {
+        recalcPlayerStats(p);
+      }
+    }
+  }
+
   tick(): SimEvent[] {
     // The shared SimContext seam (`this.ctx`, built in the ctor) spans this whole
     // tick: the head/tail phases and the end-of-tick system block all run on the Sim
@@ -5691,18 +5747,26 @@ export class Sim {
     advancePendingProjectiles(this.ctx);
     lap?.('projectiles');
 
+    const skipSelf = this._selfMutsPreApplied;
     for (const meta of this.players.values()) {
       const p = this.entities.get(meta.entityId);
       if (!p) continue;
       if (!p.dead) {
-        ensureWarriorStance(this.ctx, p, meta);
-        this.updatePlayerMovement(p, meta);
-        lap?.('p.move');
-        this.updateDoorTriggers(p);
-        this.updateRiftTriggers(p);
-        updatePortalTriggers(this.ctx, p);
-        updateSwimFatigue(this.ctx, p);
-        lap?.('p.doors');
+        // Self-only steps: skipped when pre-applied via applyPlayerSelfMutations()
+        if (!skipSelf) {
+          ensureWarriorStance(this.ctx, p, meta);
+          this.updatePlayerMovement(p, meta);
+          lap?.('p.move');
+          this.updateDoorTriggers(p);
+          this.updateRiftTriggers(p);
+          updatePortalTriggers(this.ctx, p);
+          updateSwimFatigue(this.ctx, p);
+          lap?.('p.doors');
+          updateRegen(this.ctx, p, meta);
+          lap?.('p.regen');
+          updateMountTransition(this.ctx, p, this.isSwimming(p));
+        }
+        // Cross-entity steps: always run on main thread
         this.updateCasting(p, meta);
         lap?.('p.casting');
         this.updatePlayerAutoAttack(p, meta);
@@ -5710,7 +5774,6 @@ export class Sim {
         // Nature's Fury: the moonwing party-crit pulse (no-op for everyone
         // without the druid row talent).
         tickNaturesFury(this.ctx, p, meta);
-        updateRegen(this.ctx, p, meta);
         // Rested XP feeds one one-shot deed predicate, so only the 0 to
         // positive transition needs a dirty mark (a resting player must not
         // stay perpetually dirty for the tick-tail evaluator).
@@ -5726,20 +5789,16 @@ export class Sim {
         // duration elapses. Draws no rng, so the tick-phase draw order is
         // unchanged.
         if (meta.pendingTownFocus) this.updateTownFocusRespec(meta);
-        // Mount summon/dismount transition: decrement the timer, cancel a summon
-        // on combat/swim, complete a mount/dismount, and force-dismount a mounted
-        // swimmer. Live players only (a dead player is already force-dismounted by
-        // handleDeath). Draws no rng, so the tick-phase draw order is unchanged.
-        updateMountTransition(this.ctx, p, this.isSwimming(p));
-        lap?.('p.regen');
       } else if (p.ghost) {
         // A released spirit only runs (boosted speed via moveSpeedMult); it does not
         // fight, cast, or regen. It CAN walk into a dungeon/raid door to re-enter its
         // instance and resurrect at the entrance (the corpse run under the instance
         // death model), or resurrect at its corpse / an overworld Spirit Healer.
-        this.updatePlayerMovement(p, meta);
-        this.updateDoorTriggers(p);
-        this.updateRiftTriggers(p);
+        if (!skipSelf) {
+          this.updatePlayerMovement(p, meta);
+          this.updateDoorTriggers(p);
+          this.updateRiftTriggers(p);
+        }
         lap?.('p.move');
       }
       // Breath runs for DEAD players too, and must: updateBreath's own reset
@@ -5754,12 +5813,14 @@ export class Sim {
       // phase and ends a dead/ghost player's IN_PROGRESS lesson, so death never
       // strands the session. Finishing the race credits success. Draws no rng,
       // so the tick-phase draw order is unchanged.
-      this.ctx.tickMountTraining(meta);
+      if (!skipSelf) this.ctx.tickMountTraining(meta);
       // Show-jumping race driver: per-player, server-authoritative, rng-free
       // (runs after movement so prevPos -> pos is this tick's ridden segment).
-      this.ctx.tickMountRace(meta);
-      updateTimers(p);
-      updateComboExpiry(this.ctx, p);
+      if (!skipSelf) this.ctx.tickMountRace(meta);
+      if (!skipSelf) {
+        updateTimers(p);
+        updateComboExpiry(this.ctx, p);
+      }
       updateAuras(this.ctx, p);
       lap?.('p.auras');
     }
@@ -5914,6 +5975,7 @@ export class Sim {
 
     const out = this.events;
     this.events = [];
+    this._selfMutsPreApplied = false;
     return out;
   }
 

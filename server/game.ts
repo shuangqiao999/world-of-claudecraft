@@ -210,6 +210,8 @@ import { mergedPrsForLogin } from './github_contributors';
 import { githubForAccount } from './github_db';
 import { forEachGuarded, runGuarded } from './guarded_iter';
 import { SnapshotPool } from './snapshot_pool';
+import { SimWorkerPool } from './sim_worker_pool';
+import type { PlayerSlice } from './sim_worker_core';
 import {
   type CounterpartyActor,
   type CounterpartyMovement,
@@ -1696,6 +1698,7 @@ export class GameServer {
   // fanned out across worker threads so the main loop can stay near 50 ms
   // at high concurrency.
   readonly snapshotPool: SnapshotPool;
+  readonly simPool: SimWorkerPool;
   // partyFrameAggroTargets / partyFrameIncomingHeals scan the whole entity set and
   // are GLOBAL (identical for every grouped session), yet partyWire runs once for
   // each grouped session. Memoize both for one broadcast so each party does one
@@ -1967,6 +1970,10 @@ export class GameServer {
     this.snapshotPool = new SnapshotPool(
       { workers: parseSnapshotWorkers() },
       (msg) => console.log(`[snap-pool] ${msg}`),
+    );
+    this.simPool = new SimWorkerPool(
+      {},
+      (msg) => console.log(`[sim-pool] ${msg}`),
     );
   }
 
@@ -2617,6 +2624,79 @@ export class GameServer {
     }
   }
 
+  /** Pre-tick: fan player self-only mutations to worker threads. */
+  private tickSelfOnlyParallel(): void {
+    if (!this.simPool.active) return;
+    const sim = this.sim;
+    const dt = 1 / 20;
+    const slices: PlayerSlice[] = [];
+
+    for (const meta of sim.players.values()) {
+      const p = sim.entities.get(meta.entityId);
+      if (!p) continue;
+      slices.push({
+        id: p.id,
+        pos: { x: p.pos.x, y: p.pos.y, z: p.pos.z },
+        prevPos: { x: p.prevPos.x, y: p.prevPos.y, z: p.prevPos.z },
+        vx: p.vx, vy: p.vy, vz: p.vz,
+        facing: p.facing,
+        prevFacing: 0,
+        moveDir: { x: p.moveDir?.x ?? 0, z: p.moveDir?.z ?? 0 },
+        jumpHeld: p.jumpHeld,
+        onGround: p.onGround,
+        jumping: p.jumping,
+        fallStartY: p.fallStartY,
+        dead: p.dead,
+        ghost: p.ghost,
+        mounted: p.mountKey != null,
+        hp: p.hp,
+        maxHp: p.maxHp,
+        resource: p.resource,
+        maxResource: p.maxResource,
+        spirit: p.stats?.spi ?? 0,
+        combatTimer: p.combatTimer,
+        sitting: p.sitting,
+        eatingTicks: 0,
+        drinkingTicks: 0,
+        gcdRemaining: p.gcdRemaining,
+        potionCooldownUntil: p.potionCooldownUntil ?? 0,
+        cooldowns: Array.from(p.cooldowns?.entries() ?? []),
+        auraDurations: p.auras.map((a, i) => [i, a.remaining, a.tickTimer ?? 0] as [number, number, number]),
+        breath: p.breath,
+        maxBreath: p.maxBreath,
+        fatigueTicks: p.fatigueTicks,
+        breathUsedTicks: p.breathUsedTicks ?? 0,
+        inWater: sim.isSwimming(p),
+        mountCastRemaining: p.mountCastRemaining ?? 0,
+        mountCastKey: p.mountCastKey ?? '',
+        mountRaceTotal: 0,
+        comboPoints: p.comboPoints,
+        hasProtWarriorStance: false,
+      });
+    }
+
+    if (slices.length === 0) return;
+
+    const batch = { slices, tick: sim.tickCount, dt };
+    const muts = this.simPool.computePlayers(batch);
+    if (muts.size === 0) return;
+
+    // Convert pool mutations to the shape Sim expects
+    const applyMap = new Map<number, Parameters<typeof sim.applyPlayerSelfMutations>[0] extends ReadonlyMap<number, infer T> ? T : never>();
+    for (const [id, m] of muts) {
+      applyMap.set(id, {
+        hp: m.hp, resource: m.resource, gcdRemaining: m.gcdRemaining,
+        potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns,
+        breath: m.breath, fatigueTicks: m.fatigueTicks,
+        mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
+        mountCastComplete: m.mountCastComplete, comboPoints: m.comboPoints,
+        comboExpired: m.comboExpired, expiredAuraIndices: m.expiredAuraIndices,
+        statsDirty: m.statsDirty,
+      });
+    }
+    sim.applyPlayerSelfMutations(applyMap, dt);
+  }
+
   start(): void {
     let last = process.hrtime.bigint();
     let acc = 0;
@@ -2660,6 +2740,7 @@ export class GameServer {
             this.riftUpgrader.drain(this.sim.ctx);
             this.riftAssets.drain(this.sim.ctx);
             if (this.perfDetailActive) this.simLapMark = process.hrtime.bigint();
+            this.tickSelfOnlyParallel();
             const events = this.sim.tick();
             this.riftUpgrader.observe(this.sim.ctx);
             this.riftAssets.observe(this.sim.ctx);
@@ -2865,6 +2946,7 @@ export class GameServer {
     if (this.playtimeInterval) clearInterval(this.playtimeInterval);
     if (this.dailyRewardActivityInterval) clearInterval(this.dailyRewardActivityInterval);
     if (this.keepaliveInterval) clearInterval(this.keepaliveInterval);
+    this.simPool.shutdown().catch(() => {});
   }
 
   /**
