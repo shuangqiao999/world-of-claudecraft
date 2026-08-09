@@ -2693,6 +2693,7 @@ export class GameServer {
             hp: m.hp, resource: m.resource, gcdRemaining: m.gcdRemaining,
             potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns,
             breath: m.breath, fatigueTicks: m.fatigueTicks,
+            breathUsedTicks: m.breathUsedTicks,
             mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
             mountCastComplete: m.mountCastComplete, comboPoints: m.comboPoints,
             comboExpired: m.comboExpired, expiredAuraIndices: m.expiredAuraIndices,

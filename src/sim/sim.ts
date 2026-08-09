@@ -5665,9 +5665,9 @@ export class Sim {
   applyPlayerSelfMutations(
     muts: ReadonlyMap<number, { hp: number; resource: number; gcdRemaining: number;
       potionCooldownUntil: number; cooldowns: [number, number][]; breath: number;
-      fatigueTicks: number; mountCastRemaining: number; mountCastKey: string | null;
-      mountCastComplete: boolean; comboPoints: number; comboExpired: boolean;
-      expiredAuraIndices: number[]; statsDirty: boolean }>,
+      fatigueTicks: number; breathUsedTicks: number; mountCastRemaining: number;
+      mountCastKey: string | null; mountCastComplete: boolean; comboPoints: number;
+      comboExpired: boolean; expiredAuraIndices: number[]; statsDirty: boolean }>,
     dt: number,
   ): void {
     this._selfMutsPreApplied = true;
@@ -5687,11 +5687,10 @@ export class Sim {
       }
       p.breath = mut.breath;
       p.fatigueTicks = mut.fatigueTicks;
-      if (mut.mountCastRemaining <= 0 && mut.mountCastKey === null) {
-        p.mountCastRemaining = 0;
-        p.mountCastKey = null;
-      }
-      if (mut.comboExpired) { p.comboPoints = 0; }
+      p.breathUsedTicks = mut.breathUsedTicks;
+      p.mountCastRemaining = mut.mountCastRemaining;
+      p.mountCastKey = mut.mountCastKey || null;
+      p.comboPoints = mut.comboPoints;
       // Remove expired auras
       if (mut.expiredAuraIndices.length > 0) {
         const keep: typeof p.auras = [];
