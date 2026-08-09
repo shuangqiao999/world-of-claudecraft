@@ -5762,20 +5762,22 @@ export class Sim {
       const p = this.entities.get(meta.entityId);
       if (!p) continue;
       if (!p.dead) {
-        // Self-only steps: skipped when pre-applied via applyPlayerSelfMutations()
-        if (!skipSelf) {
-          ensureWarriorStance(this.ctx, p, meta);
-          this.updatePlayerMovement(p, meta);
-          lap?.('p.move');
-          this.updateDoorTriggers(p);
-          this.updateRiftTriggers(p);
-          updatePortalTriggers(this.ctx, p);
-          updateSwimFatigue(this.ctx, p);
-          lap?.('p.doors');
-          updateRegen(this.ctx, p, meta);
-          lap?.('p.regen');
-          updateMountTransition(this.ctx, p, this.isSwimming(p));
-        }
+        // Self-only steps ALWAYS run: movement, triggers, mount transition are
+        // NOT handled by the worker pool and still need main-thread execution.
+        ensureWarriorStance(this.ctx, p, meta);
+        this.updatePlayerMovement(p, meta);
+        lap?.('p.move');
+        this.updateDoorTriggers(p);
+        this.updateRiftTriggers(p);
+        updatePortalTriggers(this.ctx, p);
+        updateSwimFatigue(this.ctx, p);
+        lap?.('p.doors');
+        // updateRegen handles eating/drinking Consuming state; always cheap,
+        // always on main thread (worker pool doesn't replicate its full logic).
+        updateRegen(this.ctx, p, meta);
+        lap?.('p.regen');
+        // Mount transition emits state-change events; must run on main thread
+        updateMountTransition(this.ctx, p, this.isSwimming(p));
         // Cross-entity steps: always run on main thread
         this.updateCasting(p, meta);
         lap?.('p.casting');
@@ -5804,29 +5806,26 @@ export class Sim {
         // fight, cast, or regen. It CAN walk into a dungeon/raid door to re-enter its
         // instance and resurrect at the entrance (the corpse run under the instance
         // death model), or resurrect at its corpse / an overworld Spirit Healer.
-        if (!skipSelf) {
-          this.updatePlayerMovement(p, meta);
-          this.updateDoorTriggers(p);
-          this.updateRiftTriggers(p);
-        }
+        this.updatePlayerMovement(p, meta);
+        this.updateDoorTriggers(p);
+        this.updateRiftTriggers(p);
         lap?.('p.move');
       }
-      // Breath runs for DEAD players too, and must: updateBreath's own reset
-      // branch is what starts the corpse run with full lungs, so gating this on
-      // !p.dead leaves a drowned player's spent breath and drown clock intact
-      // and resumes the damage the instant they resurrect at the corpse. Draws
-      // rng only through the drown pulse's dealDamage, which cannot fire for a
-      // dead player (the reset returns first), so the tick-phase draw order is
-      // unchanged for everyone who is not actively drowning.
-      updateBreath(this.ctx, p);
+      // Breath runs for DEAD players too: the reset branch refills lungs for a
+      // corpse run. For live players with pre-applied self-muts, skip the timer
+      // countdown (already handled by worker) but NOT the drown pulse (cross-entity
+      // fallback still fires inside updateBreath).
+      if (!skipSelf || p.dead) {
+        updateBreath(this.ctx, p);
+      }
       // Riding-lesson driver: server-authoritative; tracks the training-steed
       // phase and ends a dead/ghost player's IN_PROGRESS lesson, so death never
       // strands the session. Finishing the race credits success. Draws no rng,
       // so the tick-phase draw order is unchanged.
-      if (!skipSelf) this.ctx.tickMountTraining(meta);
+      this.ctx.tickMountTraining(meta);
       // Show-jumping race driver: per-player, server-authoritative, rng-free
       // (runs after movement so prevPos -> pos is this tick's ridden segment).
-      if (!skipSelf) this.ctx.tickMountRace(meta);
+      this.ctx.tickMountRace(meta);
       if (!skipSelf) {
         updateTimers(p);
         updateComboExpiry(this.ctx, p);
