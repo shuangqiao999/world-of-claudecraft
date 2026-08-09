@@ -2630,7 +2630,6 @@ export class GameServer {
   private tickSelfOnlyParallel(): void {
     if (!this.simPool.active) return;
     const sim = this.sim;
-    const dt = 1 / 20;
 
     // ----- Player slices (sorted by zone for locality) -----
     const rawPlayers: { slice: PlayerSlice; zoneId: string }[] = [];
@@ -2642,13 +2641,7 @@ export class GameServer {
         slice: {
           id: p.id,
           dead: p.dead,
-          hp: p.hp,
-          maxHp: p.maxHp,
-          resource: p.resource,
-          maxResource: p.maxResource,
-          spirit: p.stats?.spi ?? 0,
           combatTimer: p.combatTimer,
-          sitting: p.sitting,
           gcdRemaining: p.gcdRemaining,
           potionCooldownUntil: p.potionCooldownUntil ?? 0,
           cooldowns: Array.from(p.cooldowns?.entries() ?? []),
@@ -2667,39 +2660,26 @@ export class GameServer {
     const playerSlices = rawPlayers.map(r => r.slice);
 
     if (playerSlices.length > 0) {
-      const batch = { slices: playerSlices, tick: sim.tickCount, dt };
+      const batch = { slices: playerSlices, tick: sim.tickCount, dt: DT };
       const muts = this.simPool.computePlayers(batch);
       if (muts.size > 0) {
         const applyMap = new Map<number, Parameters<typeof sim.applyPlayerSelfMutations>[0] extends ReadonlyMap<number, infer T> ? T : never>();
         for (const [id, m] of muts) {
           applyMap.set(id, {
-            hp: 0, resource: 0, gcdRemaining: m.gcdRemaining,
-            potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns,
-            breath: m.breath, fatigueTicks: m.fatigueTicks,
+            gcdRemaining: m.gcdRemaining, potionCooldownUntil: m.potionCooldownUntil,
+            cooldowns: m.cooldowns, breath: m.breath, fatigueTicks: m.fatigueTicks,
             breathUsedTicks: m.breathUsedTicks,
             mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
-            mountCastComplete: false, comboPoints: m.comboPoints,
-            comboExpired: false, expiredAuraIndices: [],
-            statsDirty: false,
+            comboPoints: m.comboPoints,
           });
         }
-        sim.applyPlayerSelfMutations(applyMap, dt);
+        sim.applyPlayerSelfMutations(applyMap);
       }
     }
 
     // ----- Mob aggro pre-scan -----
     const MAX_AGGRO_RADIUS = 20;
-    const maxAggroRadiusSq = MAX_AGGRO_RADIUS * MAX_AGGRO_RADIUS;
-    const mobConfig = {
-      maxAggroRadius: MAX_AGGRO_RADIUS,
-      maxAggroRadiusSq,
-      idleWanderRadius: 9,
-      idleWanderRadiusSq: 81,
-      minWanderRadius: 2,
-      chaseSpeedMult: 1,
-      meleeRange: 5,
-      meleeRangeSq: 25,
-    };
+    const mobConfig = { maxAggroRadius: MAX_AGGRO_RADIUS, maxAggroRadiusSq: MAX_AGGRO_RADIUS * MAX_AGGRO_RADIUS };
 
     // Build player cell data (all players, all zones — mobs need the full set)
     const playerCells: PlayerCell[] = [];
@@ -2738,7 +2718,7 @@ export class GameServer {
     const mobSlices = rawMobs.map(r => r.slice);
 
     if (mobSlices.length > 0 && playerCells.length > 0) {
-      const mobBatch = { slices: mobSlices, playerCells, config: mobConfig, tick: sim.tickCount, dt };
+      const mobBatch = { slices: mobSlices, playerCells, config: mobConfig, tick: sim.tickCount, dt: DT };
       const mobMuts = this.simPool.computeMobs(mobBatch);
       if (mobMuts.size > 0) {
         const candidates = new Map<number, number>();

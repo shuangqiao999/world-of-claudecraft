@@ -24,13 +24,7 @@ export interface Vec3 { x: number; y: number; z: number; }
 export interface PlayerSlice {
   id: number;
   dead: boolean;
-  hp: number;
-  maxHp: number;
-  resource: number;
-  maxResource: number;
-  spirit: number;
   combatTimer: number;
-  sitting: boolean;
   gcdRemaining: number;
   potionCooldownUntil: number;
   cooldowns: [number, number][];

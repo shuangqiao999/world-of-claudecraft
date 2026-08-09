@@ -5663,20 +5663,15 @@ export class Sim {
 
   /** Apply pre-computed player self-only mutations. Call BEFORE tick(). */
   applyPlayerSelfMutations(
-    muts: ReadonlyMap<number, { hp: number; resource: number; gcdRemaining: number;
-      potionCooldownUntil: number; cooldowns: [number, number][]; breath: number;
-      fatigueTicks: number; breathUsedTicks: number; mountCastRemaining: number;
-      mountCastKey: string | null; mountCastComplete: boolean; comboPoints: number;
-      comboExpired: boolean; expiredAuraIndices: number[]; statsDirty: boolean }>,
-    dt: number,
+    muts: ReadonlyMap<number, { gcdRemaining: number; potionCooldownUntil: number;
+      cooldowns: [number, number][]; breath: number; fatigueTicks: number;
+      breathUsedTicks: number; mountCastRemaining: number; mountCastKey: string | null;
+      comboPoints: number }>,
   ): void {
     this._selfMutsPreApplied = true;
     for (const [id, mut] of muts) {
       const p = this.entities.get(id);
       if (!p) continue;
-      // hp and resource are handled by updateRegen on the main thread.
-      // cooldowns, breath, mount cast, and combo points below are the
-      // worker-computed self-only mutations.
       p.gcdRemaining = mut.gcdRemaining;
       p.potionCooldownUntil = mut.potionCooldownUntil;
       if (mut.cooldowns.length > 0) {
@@ -5692,12 +5687,6 @@ export class Sim {
       p.mountCastRemaining = mut.mountCastRemaining;
       p.mountCastKey = mut.mountCastKey || null;
       p.comboPoints = mut.comboPoints;
-      // Note: aura durations and expirations are handled exclusively by
-      // updateAuras() on the main thread. The worker pre-computes candidates
-      // for statsDirty marking only.
-      if (mut.statsDirty) {
-        recalcPlayerStats(p);
-      }
     }
   }
 
