@@ -214,7 +214,7 @@ import { SimWorkerPool } from './sim_worker_pool';
 import { ZoneWorkerPool } from './zone_worker_pool';
 import { groupEntitiesByZone } from './zone_config';
 import type { PlayerSlice } from './sim_worker_core';
-import type { ZoneEntitySlice, ZoneBatch } from './zone_worker_core';
+import type { ZoneEntitySlice, ZoneBatch, ZonePlayerCell } from './zone_worker_core';
 import {
   type CounterpartyActor,
   type CounterpartyMovement,
@@ -2649,7 +2649,7 @@ export class GameServer {
 
     if (zoneIds.length === 0) return;
 
-    const playerCells: PlayerCell[] = [];
+    const playerCells: ZonePlayerCell[] = [];
     for (const meta of sim.players.values()) {
       const pc = sim.entities.get(meta.entityId);
       if (!pc || pc.dead) continue;

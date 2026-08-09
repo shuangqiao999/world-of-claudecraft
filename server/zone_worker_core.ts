@@ -31,10 +31,6 @@ export interface ZoneBatch {
   dt: number;
 }
 
-export interface ZoneEntityMutation {
-  id: number;
-}
-
 export interface ZoneResult {
   zoneId: string;
   aggroCandidates: [number, number][];

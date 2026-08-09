@@ -5782,13 +5782,11 @@ export class Sim {
         this.updateRiftTriggers(p);
         lap?.('p.move');
       }
-      // Breath runs for DEAD players too: the reset branch refills lungs for a
-      // corpse run. For live players with pre-applied self-muts, skip the timer
-      // countdown (already handled by worker) but NOT the drown pulse (cross-entity
-      // fallback still fires inside updateBreath).
-      if (!skipSelf || p.dead) {
-        updateBreath(this.ctx, p);
-      }
+      // Breath runs for every player every tick.  Dead players need the reset
+      // branch (fills lungs for corpse run); live players need the full
+      // underwater / recovery / drown-pulse logic.  The worker pool does NOT
+      // handle breath, so this must never be gated behind skipSelf.
+      updateBreath(this.ctx, p);
       // Riding-lesson driver: server-authoritative; tracks the training-steed
       // phase and ends a dead/ghost player's IN_PROGRESS lesson, so death never
       // strands the session. Finishing the race credits success. Draws no rng,
