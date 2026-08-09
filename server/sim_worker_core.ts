@@ -120,10 +120,8 @@ export interface MobSlice {
 
 export interface MobMutation {
   id: number;
-  // Idle wander
-  wanderTargetX: number | null;
-  wanderTargetZ: number | null;
-  wanderTimer: number;
+  aggroCandidateId: number; // -1 if no candidate found (-1 to avoid accidental 0-entity lookup)
+  aggroCandidateDistSq: number;
 }
 
 // ---------- Player playerCells for aggro scan ----------
@@ -133,6 +131,8 @@ export interface PlayerCell {
   z: number;
   id: number;
   stealthed: boolean;
+  dead: boolean;
+  level: number;
 }
 
 // ---------- Batch types ----------
@@ -351,36 +351,27 @@ export function computeMobSelfOnly(batch: MobBatch): MobMutation[] {
   for (const m of batch.slices) {
     const mut: MobMutation = {
       id: m.id,
-      wanderTargetX: null,
-      wanderTargetZ: null,
-      wanderTimer: 0,
+      aggroCandidateId: -1,
+      aggroCandidateDistSq: Infinity,
     };
 
-    // Skip dead, owned, non-idle mobs
     if (m.dead || m.ownerId !== null || m.aiState !== 'idle' || m.auras > 0) {
       out.push(mut);
       continue;
     }
 
-    // Idle mob: check if any player is within aggro radius
     const cfg = batch.config;
-    let closestDistSq = Infinity;
-    let closestPlayerId = -1;
 
     for (const pc of batch.playerCells) {
-      if (pc.stealthed) continue;
+      if (pc.dead || pc.stealthed) continue;
       const dx = pc.x - m.pos.x;
       const dz = pc.z - m.pos.z;
       const d2 = dx * dx + dz * dz;
-      if (d2 < cfg.maxAggroRadiusSq && d2 < closestDistSq) {
-        closestDistSq = d2;
-        closestPlayerId = pc.id;
+      if (d2 < cfg.maxAggroRadiusSq && d2 < mut.aggroCandidateDistSq) {
+        mut.aggroCandidateDistSq = d2;
+        mut.aggroCandidateId = pc.id;
       }
     }
-
-    // Note: actual aggro would require RNG for stealth detection checks.
-    // The main thread will apply aggro based on the closest candidate
-    // using the shared RNG stream.
 
     out.push(mut);
   }

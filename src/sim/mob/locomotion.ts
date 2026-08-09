@@ -363,6 +363,20 @@ export function updateMob(ctx: SimContext, mob: Entity): void {
         mob.facing = Math.PI;
         mob.prevFacing = Math.PI;
         const template = MOBS[mob.templateId];
+        // Pre-computed aggro candidate from worker pool pre-scan: if the
+        // server pre-set this transient field, validate and apply it as a
+        // shortcut, skipping the expensive playerGrid spatial scan. The
+        // aggroMob call still handles threat init + combat entry, and the
+        // candidate passes the same validation (alive, non-trivial) as the
+        // scan path below. Cleared after use so the next tick re-evaluates.
+        if (mob._preAggroCandidate !== undefined) {
+          const candidate = ctx.entities.get(mob._preAggroCandidate);
+          delete mob._preAggroCandidate;
+          if (candidate && !candidate.dead && !isTrivialTo(mob, candidate)) {
+            ctx.aggroMob(mob, candidate, true);
+            return;
+          }
+        }
         let detected: Entity | null = null;
         let detectedD = Infinity;
         // Resolved once per scan, not per candidate: the ctx member is a live getter

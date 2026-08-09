@@ -5712,6 +5712,16 @@ export class Sim {
     }
   }
 
+  /** Apply pre-computed mob aggro candidates from worker pool pre-scan. */
+  applyAggroCandidates(cands: ReadonlyMap<number, number>): void {
+    for (const [mobId, playerId] of cands) {
+      const mob = this.entities.get(mobId);
+      if (mob && mob.kind === 'mob' && mob.aiState === 'idle' && !mob.dead) {
+        mob._preAggroCandidate = playerId;
+      }
+    }
+  }
+
   tick(): SimEvent[] {
     // The shared SimContext seam (`this.ctx`, built in the ctor) spans this whole
     // tick: the head/tail phases and the end-of-tick system block all run on the Sim

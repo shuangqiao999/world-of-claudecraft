@@ -129,7 +129,7 @@ function resolveWorkerCount(explicit?: number): number {
   if (explicit !== undefined && explicit >= 0) return explicit;
   const logical = os.cpus?.()?.length ?? 1;
   if (logical < 4) return 0; // fallback to serial for small machines
-  return Math.min(Math.floor(logical / 2), 8);
+  return Math.min(logical, 32);
 }
 
 function splitIntoChunks<T>(arr: T[], chunks: number): T[][] {

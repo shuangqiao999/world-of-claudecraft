@@ -211,7 +211,7 @@ import { githubForAccount } from './github_db';
 import { forEachGuarded, runGuarded } from './guarded_iter';
 import { SnapshotPool } from './snapshot_pool';
 import { SimWorkerPool } from './sim_worker_pool';
-import type { PlayerSlice } from './sim_worker_core';
+import type { MobSlice, PlayerCell, PlayerSlice } from './sim_worker_core';
 import {
   type CounterpartyActor,
   type CounterpartyMovement,
@@ -2624,77 +2624,150 @@ export class GameServer {
     }
   }
 
-  /** Pre-tick: fan player self-only mutations to worker threads. */
+  /** Pre-tick: fan player self-only mutations and mob aggro pre-scans to worker threads.
+   *  Entity slices are sorted by zone before chunking so each worker processes a contiguous
+   *  zone group (cache-locality win; future zone-pinned workers will make this deterministic). */
   private tickSelfOnlyParallel(): void {
     if (!this.simPool.active) return;
     const sim = this.sim;
     const dt = 1 / 20;
-    const slices: PlayerSlice[] = [];
 
+    // ----- Player slices (sorted by zone for locality) -----
+    const rawPlayers: { slice: PlayerSlice; zoneId: string }[] = [];
     for (const meta of sim.players.values()) {
       const p = sim.entities.get(meta.entityId);
       if (!p) continue;
-      slices.push({
-        id: p.id,
-        pos: { x: p.pos.x, y: p.pos.y, z: p.pos.z },
-        prevPos: { x: p.prevPos.x, y: p.prevPos.y, z: p.prevPos.z },
-        vx: p.vx, vy: p.vy, vz: p.vz,
-        facing: p.facing,
-        prevFacing: 0,
-        moveDir: { x: p.moveDir?.x ?? 0, z: p.moveDir?.z ?? 0 },
-        jumpHeld: p.jumpHeld,
-        onGround: p.onGround,
-        jumping: p.jumping,
-        fallStartY: p.fallStartY,
-        dead: p.dead,
-        ghost: p.ghost,
-        mounted: p.mountKey != null,
-        hp: p.hp,
-        maxHp: p.maxHp,
-        resource: p.resource,
-        maxResource: p.maxResource,
-        spirit: p.stats?.spi ?? 0,
-        combatTimer: p.combatTimer,
-        sitting: p.sitting,
-        eatingTicks: 0,
-        drinkingTicks: 0,
-        gcdRemaining: p.gcdRemaining,
-        potionCooldownUntil: p.potionCooldownUntil ?? 0,
-        cooldowns: Array.from(p.cooldowns?.entries() ?? []),
-        auraDurations: p.auras.map((a, i) => [i, a.remaining, a.tickTimer ?? 0] as [number, number, number]),
-        breath: p.breath,
-        maxBreath: p.maxBreath,
-        fatigueTicks: p.fatigueTicks,
-        breathUsedTicks: p.breathUsedTicks ?? 0,
-        inWater: sim.isSwimming(p),
-        mountCastRemaining: p.mountCastRemaining ?? 0,
-        mountCastKey: p.mountCastKey ?? '',
-        mountRaceTotal: 0,
-        comboPoints: p.comboPoints,
-        hasProtWarriorStance: false,
+      rawPlayers.push({
+        zoneId: zoneAt(p.pos.x, p.pos.z).id,
+        slice: {
+          id: p.id,
+          pos: { x: p.pos.x, y: p.pos.y, z: p.pos.z },
+          prevPos: { x: p.prevPos.x, y: p.prevPos.y, z: p.prevPos.z },
+          vx: p.vx, vy: p.vy, vz: p.vz,
+          facing: p.facing,
+          prevFacing: 0,
+          moveDir: { x: p.moveDir?.x ?? 0, z: p.moveDir?.z ?? 0 },
+          jumpHeld: p.jumpHeld,
+          onGround: p.onGround,
+          jumping: p.jumping,
+          fallStartY: p.fallStartY,
+          dead: p.dead,
+          ghost: p.ghost,
+          mounted: p.mountKey != null,
+          hp: p.hp,
+          maxHp: p.maxHp,
+          resource: p.resource,
+          maxResource: p.maxResource,
+          spirit: p.stats?.spi ?? 0,
+          combatTimer: p.combatTimer,
+          sitting: p.sitting,
+          eatingTicks: 0,
+          drinkingTicks: 0,
+          gcdRemaining: p.gcdRemaining,
+          potionCooldownUntil: p.potionCooldownUntil ?? 0,
+          cooldowns: Array.from(p.cooldowns?.entries() ?? []),
+          auraDurations: p.auras.map((a, i) => [i, a.remaining, a.tickTimer ?? 0] as [number, number, number]),
+          breath: p.breath,
+          maxBreath: p.maxBreath,
+          fatigueTicks: p.fatigueTicks,
+          breathUsedTicks: p.breathUsedTicks ?? 0,
+          inWater: sim.isSwimming(p),
+          mountCastRemaining: p.mountCastRemaining ?? 0,
+          mountCastKey: p.mountCastKey ?? '',
+          mountRaceTotal: 0,
+          comboPoints: p.comboPoints,
+          hasProtWarriorStance: false,
+        },
       });
     }
+    rawPlayers.sort((a, b) => a.zoneId < b.zoneId ? -1 : a.zoneId > b.zoneId ? 1 : 0);
+    const playerSlices = rawPlayers.map(r => r.slice);
 
-    if (slices.length === 0) return;
+    if (playerSlices.length > 0) {
+      const batch = { slices: playerSlices, tick: sim.tickCount, dt };
+      const muts = this.simPool.computePlayers(batch);
+      if (muts.size > 0) {
+        const applyMap = new Map<number, Parameters<typeof sim.applyPlayerSelfMutations>[0] extends ReadonlyMap<number, infer T> ? T : never>();
+        for (const [id, m] of muts) {
+          applyMap.set(id, {
+            hp: m.hp, resource: m.resource, gcdRemaining: m.gcdRemaining,
+            potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns,
+            breath: m.breath, fatigueTicks: m.fatigueTicks,
+            mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
+            mountCastComplete: m.mountCastComplete, comboPoints: m.comboPoints,
+            comboExpired: m.comboExpired, expiredAuraIndices: m.expiredAuraIndices,
+            statsDirty: m.statsDirty,
+          });
+        }
+        sim.applyPlayerSelfMutations(applyMap, dt);
+      }
+    }
 
-    const batch = { slices, tick: sim.tickCount, dt };
-    const muts = this.simPool.computePlayers(batch);
-    if (muts.size === 0) return;
+    // ----- Mob aggro pre-scan -----
+    const MAX_AGGRO_RADIUS = 20;
+    const maxAggroRadiusSq = MAX_AGGRO_RADIUS * MAX_AGGRO_RADIUS;
+    const mobConfig = {
+      maxAggroRadius: MAX_AGGRO_RADIUS,
+      maxAggroRadiusSq,
+      idleWanderRadius: 9,
+      idleWanderRadiusSq: 81,
+      minWanderRadius: 2,
+      chaseSpeedMult: 1,
+      meleeRange: 5,
+      meleeRangeSq: 25,
+    };
 
-    // Convert pool mutations to the shape Sim expects
-    const applyMap = new Map<number, Parameters<typeof sim.applyPlayerSelfMutations>[0] extends ReadonlyMap<number, infer T> ? T : never>();
-    for (const [id, m] of muts) {
-      applyMap.set(id, {
-        hp: m.hp, resource: m.resource, gcdRemaining: m.gcdRemaining,
-        potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns,
-        breath: m.breath, fatigueTicks: m.fatigueTicks,
-        mountCastRemaining: m.mountCastRemaining, mountCastKey: m.mountCastKey,
-        mountCastComplete: m.mountCastComplete, comboPoints: m.comboPoints,
-        comboExpired: m.comboExpired, expiredAuraIndices: m.expiredAuraIndices,
-        statsDirty: m.statsDirty,
+    // Build player cell data (all players, all zones — mobs need the full set)
+    const playerCells: PlayerCell[] = [];
+    for (const rp of rawPlayers) {
+      const s = rp.slice;
+      if (s.dead) continue;
+      playerCells.push({ id: s.id, x: s.pos.x, z: s.pos.z, stealthed: false, dead: false, level: 1 });
+    }
+
+    // Collect idle mob slices sorted by zone
+    const rawMobs: { slice: MobSlice; zoneId: string }[] = [];
+    for (const e of sim.entities.values()) {
+      if (e.kind !== 'mob') continue;
+      if (e.dead || e.ownerId !== null || e.aiState !== 'idle' || e.auras.length > 0) continue;
+      // Already-skipped mobs won't get aggro candidates applied anyway,
+      // but pre-scanning them is cheap and helps when players move near
+      rawMobs.push({
+        zoneId: zoneAt(e.pos.x, e.pos.z).id,
+        slice: {
+          id: e.id,
+          kind: 'mob',
+          pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z },
+          dead: e.dead,
+          ownerId: e.ownerId ?? null,
+          aiState: e.aiState ?? 'idle',
+          aggroTargetId: e.aggroTargetId ?? null,
+          forcedTargetId: e.forcedTargetId ?? null,
+          forcedTargetTimer: e.forcedTargetTimer ?? 0,
+          auras: e.auras?.length ?? 0,
+          chaseStall: e.chaseStall ? { x: e.chaseStall.x, z: e.chaseStall.z, t: e.chaseStall.t } : { x: 0, z: 0, t: 0 },
+          templateId: e.templateId,
+        },
       });
     }
-    sim.applyPlayerSelfMutations(applyMap, dt);
+    rawMobs.sort((a, b) => a.zoneId < b.zoneId ? -1 : a.zoneId > b.zoneId ? 1 : 0);
+    const mobSlices = rawMobs.map(r => r.slice);
+
+    if (mobSlices.length > 0 && playerCells.length > 0) {
+      const mobBatch = { slices: mobSlices, playerCells, config: mobConfig, tick: sim.tickCount, dt };
+      const mobMuts = this.simPool.computeMobs(mobBatch);
+      if (mobMuts.size > 0) {
+        const candidates = new Map<number, number>();
+        for (const [id, m] of mobMuts) {
+          if (m.aggroCandidateId > 0) {
+            candidates.set(id, m.aggroCandidateId);
+          }
+        }
+        if (candidates.size > 0) {
+          sim.applyAggroCandidates(candidates);
+        }
+      }
+    }
   }
 
   start(): void {

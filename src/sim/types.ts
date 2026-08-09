@@ -3369,6 +3369,11 @@ export interface Entity extends ClientMirroredEntityFields {
   // Transient talent-proc counters and internal cooldowns (combat/talent_procs.ts).
   // Never serialized; reset on death.
   procState?: { counters: Record<string, number>; icds: Record<string, number> };
+  // Pre-computed aggro candidate player id set by a sim-worker-pool pre-scan
+  // and consumed by the idle mob AI handler to skip the per-mob playerGrid scan.
+  // Runtime-only: never serialized, wired, or pinned by the parity digest.
+  // Deleted after use (single-tick lifetime).
+  _preAggroCandidate?: number;
   // Set when a cast consumes a next_cast_free / next_execute_free /
   // next_cast_instant / next_cast_cheap aura (combat/empower_next.ts), read and
   // cleared by that cast's onCastCompleted so an empowered cast never advances
