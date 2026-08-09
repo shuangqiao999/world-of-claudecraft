@@ -5700,6 +5700,53 @@ export class Sim {
     }
   }
 
+  /** Apply zone-level mutations from zone-sharding worker pool.
+   *  Handles pending damage events and aura mutations computed by workers. */
+  applyZoneMutations(
+    zoneId: string,
+    damages: { sourceId: number; targetId: number; amount: number }[],
+    kills: { sourceId: number; targetId: number }[],
+    auraTicks: { entityId: number; index: number; remaining: number; tickTimer: number; }[],
+    auraExpiries: { entityId: number; index: number }[],
+  ): void {
+    // Apply damage (must use ctx seam for side effects: on-hit procs, threat)
+    for (const d of damages) {
+      const src = this.entities.get(d.sourceId);
+      const tgt = this.entities.get(d.targetId);
+      if (!src || !tgt || tgt.dead) continue;
+      this.ctx.dealDamage(
+        src, tgt, d.amount,
+        'physical' as any,
+        false, false, false, false, false,
+      );
+    }
+
+    // Apply kills
+    for (const k of kills) {
+      const src = this.entities.get(k.sourceId);
+      const tgt = this.entities.get(k.targetId);
+      if (!src || !tgt || tgt.dead) continue;
+      handleDeathImpl(this.ctx, tgt, src, null);
+    }
+
+    // Apply aura ticks (non-death-related, purely timer + optional tick value)
+    for (const at of auraTicks) {
+      const e = this.entities.get(at.entityId);
+      if (!e || e.dead) continue;
+      const aura = e.auras[at.index];
+      if (!aura) continue;
+      aura.remaining = at.remaining;
+      aura.tickTimer = at.tickTimer;
+    }
+
+    // Apply aura expirations (removes aura, stats recalc)
+    for (const ae of auraExpiries) {
+      const e = this.entities.get(ae.entityId);
+      if (!e || e.dead) continue;
+      e.auras.splice(ae.index, 1);
+    }
+  }
+
   tick(): SimEvent[] {
     // The shared SimContext seam (`this.ctx`, built in the ctor) spans this whole
     // tick: the head/tail phases and the end-of-tick system block all run on the Sim

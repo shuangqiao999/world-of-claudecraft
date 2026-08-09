@@ -211,7 +211,10 @@ import { githubForAccount } from './github_db';
 import { forEachGuarded, runGuarded } from './guarded_iter';
 import { SnapshotPool } from './snapshot_pool';
 import { SimWorkerPool } from './sim_worker_pool';
+import { ZoneWorkerPool } from './zone_worker_pool';
+import { groupEntitiesByZone, zoneExtentById, BORDER_MARGIN_YD } from './zone_config';
 import type { MobSlice, PlayerCell, PlayerSlice } from './sim_worker_core';
+import type { ZoneEntitySlice, ZoneBatch } from './zone_worker_core';
 import {
   type CounterpartyActor,
   type CounterpartyMovement,
@@ -1699,6 +1702,7 @@ export class GameServer {
   // at high concurrency.
   readonly snapshotPool: SnapshotPool;
   readonly simPool: SimWorkerPool;
+  readonly zonePool: ZoneWorkerPool;
   // partyFrameAggroTargets / partyFrameIncomingHeals scan the whole entity set and
   // are GLOBAL (identical for every grouped session), yet partyWire runs once for
   // each grouped session. Memoize both for one broadcast so each party does one
@@ -1974,6 +1978,10 @@ export class GameServer {
     this.simPool = new SimWorkerPool(
       {},
       (msg) => console.log(`[sim-pool] ${msg}`),
+    );
+    this.zonePool = new ZoneWorkerPool(
+      {},
+      (msg) => console.log(`[zone-pool] ${msg}`),
     );
   }
 
@@ -2624,9 +2632,158 @@ export class GameServer {
     }
   }
 
-  /** Pre-tick: fan player self-only mutations and mob aggro pre-scans to worker threads.
-   *  Entity slices are sorted by zone before chunking so each worker processes a contiguous
-   *  zone group (cache-locality win; future zone-pinned workers will make this deterministic). */
+  /** Process zone-partitioned entities in worker threads.  Entities near zone
+   *  borders remain on the main thread; zone-internal mobs/NPCs/objects are
+   *  fully processed in workers (AI, combat, auras). */
+  private tickZonesParallel(): void {
+    if (!this.zonePool.active) return;
+    const sim = this.sim;
+    const dt = DT;
+
+    // Group all entity ids by open-world zone (null = border margin / instance)
+    const { zoneIds, groups } = groupEntitiesByZone(
+      (function* () {
+        for (const e of sim.entities.values()) {
+          if (e.kind === 'mob' || e.kind === 'npc' || e.kind === 'object') {
+            if (e.dead && e.kind !== 'object') continue;
+            yield e;
+          }
+        }
+      })()
+    );
+
+    if (zoneIds.length === 0) return;
+
+    // Build player cell data for aggro scanning in workers
+    const playerCells: PlayerCell[] = [];
+    for (const meta of sim.players.values()) {
+      const pc = sim.entities.get(meta.entityId);
+      if (!pc || pc.dead) continue;
+      const stealthed = pc.auras.some((a: { kind: string }) => a.kind === 'stealth');
+      playerCells.push({ id: pc.id, x: pc.pos.x, z: pc.pos.z, stealthed, dead: false, level: pc.level });
+    }
+
+    // Build one ZoneBatch per populated zone
+    const batches: ZoneBatch[] = [];
+    for (const zid of zoneIds) {
+      const eids = groups.get(zid);
+      if (!eids || eids.length === 0) continue;
+
+      const entities: ZoneEntitySlice[] = [];
+      for (const eid of eids) {
+        const e = sim.entities.get(eid);
+        if (!e) continue;
+        const slice: ZoneEntitySlice = {
+          id: e.id,
+          kind: e.kind as 'mob' | 'npc' | 'object',
+          templateId: e.templateId ?? '',
+          pos: { x: e.pos.x, y: e.pos.y, z: e.pos.z },
+          dead: e.dead,
+          hp: e.hp,
+          maxHp: e.maxHp,
+          resource: e.resource ?? 0,
+          maxResource: e.maxResource ?? 0,
+        };
+
+        if (e.kind === 'mob') {
+          slice.mob = {
+            aiState: e.aiState ?? 'idle',
+            aggroTargetId: e.aggroTargetId ?? null,
+            ownerId: e.ownerId ?? null,
+            weaponMin: e.weapon?.min ?? 1,
+            weaponMax: e.weapon?.max ?? 3,
+            attackPower: (e as any).attackPower ?? 0,
+            hitChance: 0.95,
+            critChance: 0.05,
+            armor: e.armor ?? 0,
+            dodge: e.dodge ?? 0,
+            parry: e.parry ?? 0,
+            block: e.block ?? 0,
+            moveSpeed: e.moveSpeed ?? 6,
+            auras: e.auras.map((a: any) => ({
+              id: a.id ?? a.name ?? '',
+              kind: a.kind ?? '',
+              remaining: a.remaining ?? 0,
+              tickTimer: a.tickTimer ?? 0,
+              tickInterval: a.tickInterval ?? 0,
+              value: a.value ?? 0,
+              school: a.school ?? '',
+              sourceId: a.sourceId ?? 0,
+            })),
+          };
+        } else if (e.kind === 'npc') {
+          slice.npc = {
+            auras: e.auras.map((a: any) => ({
+              id: a.id ?? a.name ?? '',
+              kind: a.kind ?? '',
+              remaining: a.remaining ?? 0,
+              tickTimer: a.tickTimer ?? 0,
+              tickInterval: a.tickInterval ?? 0,
+              value: a.value ?? 0,
+              school: a.school ?? '',
+              sourceId: a.sourceId ?? 0,
+            })),
+          };
+        } else if (e.kind === 'object') {
+          slice.obj = {
+            remaining: e.remaining ?? 0,
+            state: e.state ?? '',
+          };
+        }
+
+        entities.push(slice);
+      }
+
+      if (entities.length === 0) continue;
+
+      // Deterministic RNG seed: hash(global, zone, tick)
+      const rngSeed = hashSeed(sim.cfg.seed, zid, sim.tickCount);
+
+      batches.push({ zoneId: zid, entities, playerCells, tick: sim.tickCount, dt, rngSeed });
+    }
+
+    if (batches.length === 0) return;
+
+    const results = this.zonePool.computeZones(batches);
+
+    // Apply results to the Sim
+    for (const [zid, result] of results) {
+      const damages: { sourceId: number; targetId: number; amount: number }[] = [];
+      const kills: { sourceId: number; targetId: number }[] = [];
+      const auraTicks: { entityId: number; index: number; remaining: number; tickTimer: number }[] = [];
+      const auraExpiries: { entityId: number; index: number }[] = [];
+
+      for (const mut of result.mutations) {
+        for (const evt of mut.events) {
+          if (evt.kind === 'damage' && evt.amount! > 0) {
+            damages.push({ sourceId: evt.sourceId, targetId: evt.targetId, amount: evt.amount! });
+          } else if (evt.kind === 'death') {
+            kills.push({ sourceId: evt.sourceId, targetId: evt.targetId });
+          }
+        }
+        for (const am of mut.auras) {
+          if (am.action === 'expire') {
+            auraExpiries.push({ entityId: mut.id, index: am.index });
+          } else if (am.action === 'tick' && am.remaining !== undefined) {
+            auraTicks.push({ entityId: mut.id, index: am.index, remaining: am.remaining, tickTimer: am.tickTimer ?? 0 });
+          }
+        }
+      }
+
+      if (damages.length > 0 || kills.length > 0 || auraTicks.length > 0 || auraExpiries.length > 0) {
+        sim.applyZoneMutations(zid, damages, kills, auraTicks, auraExpiries);
+      }
+
+      if (result.aggroCandidates.length > 0) {
+        const candidates = new Map<number, number>();
+        for (const [mid, pid] of result.aggroCandidates) {
+          candidates.set(mid, pid);
+        }
+        sim.applyAggroCandidates(candidates);
+      }
+    }
+  }
+
   private tickSelfOnlyParallel(): void {
     if (!this.simPool.active) return;
     const sim = this.sim;
@@ -2777,6 +2934,7 @@ export class GameServer {
             this.riftUpgrader.drain(this.sim.ctx);
             this.riftAssets.drain(this.sim.ctx);
             if (this.perfDetailActive) this.simLapMark = process.hrtime.bigint();
+            this.tickZonesParallel();
             this.tickSelfOnlyParallel();
             const events = this.sim.tick();
             this.riftUpgrader.observe(this.sim.ctx);
@@ -2984,6 +3142,7 @@ export class GameServer {
     if (this.dailyRewardActivityInterval) clearInterval(this.dailyRewardActivityInterval);
     if (this.keepaliveInterval) clearInterval(this.keepaliveInterval);
     this.simPool.shutdown().catch(() => {});
+    this.zonePool.shutdown().catch(() => {});
   }
 
   /**
@@ -10339,4 +10498,15 @@ export class GameServer {
     gameMetricsCounters().wsMessage('out');
     session.ws.send(payload);
   }
+}
+
+function hashSeed(globalSeed: number, zoneId: string, tick: number): number {
+  let h = 0x811c9dc5 ^ (globalSeed >>> 0);
+  for (let i = 0; i < zoneId.length; i++) {
+    h ^= zoneId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h ^= tick >>> 0;
+  h = Math.imul(h, 0x01000193);
+  return h >>> 0;
 }
