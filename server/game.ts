@@ -166,7 +166,6 @@ import {
   openPlaySession,
   pool,
   releaseCharacterLease,
-  revokeAccountMechChroma,
   saveCharacterAndGuildBankState,
   saveCharacterAndMarketState,
   saveCharacterState,
@@ -177,6 +176,7 @@ import {
   setCharacterHotbarLayout,
   touchCharacterLogin,
   walletForAccount,
+  getCharacter,
 } from './db';
 import { getDeedBroadcasts } from './deeds_db';
 import {
@@ -2767,14 +2767,27 @@ export class GameServer {
     }
   }
 
-  /** Handle a gateway-initiated join: the gateway authenticated the player
-   *  and forwards their character info. Zone process creates the entity. */
-  handleGatewayJoin(playerId: number, characterId: number, token: string): void {
-    // For zone-mode joins, we use the existing join pipeline but with
-    // a virtual WS that relays through the bridge. The join flow calls
-    // `getCharacter(characterId)` then `game.join(ws, accountId, characterId, ...)`
-    // We'll create a join helper that the bridge orchestrates.
-    console.log(`[game] gateway join requested: pid=${playerId} cid=${characterId}`);
+  /** Handle a gateway-initiated join. The gateway authenticated the player
+   *  and forwards their character info. Zone process loads state and creates entity. */
+  async handleGatewayJoin(playerId: number, characterId: number, _token: string): Promise<void> {
+    try {
+      const row = await getCharacter(characterId);
+      if (!row) {
+        console.error(`[game] gateway join failed: character ${characterId} not found`);
+        return;
+      }
+      const ws = this.zoneBridge ? { readyState: 1, send: () => {} } as any : null as any;
+      if (!ws) return;
+      this.join(ws, row.account_id, characterId, row.name, row.class, row.state, false, {});
+      // Map the join's pid back to gateway's playerId
+      const session = this.sessionsByCharacterId.get(characterId);
+      if (session) {
+        this.clients.set(playerId, session);
+        if (this.zoneBridge) this.zoneBridge.notifyPlayerJoined(playerId);
+      }
+    } catch (err: any) {
+      console.error(`[game] gateway join error pid=${playerId}:`, err.message);
+    }
   }
 
   /** Snapshot relay: in zone mode, send through gateway instead of direct WS. */
@@ -2799,6 +2812,9 @@ export class GameServer {
           sendRawOrig(session, payload);
         }
       };
+      // In zone mode, market/mail writes are per-zone with eventual consistency
+      // via the shared PostgreSQL world_state blob. Party is restricted to same
+      // zone (members must share a process). World/whisper chat is zone-local.
       this.zoneBridge.start();
       console.log(`[game] zone mode active, zones=${this.zoneBridge.zones.join(',')}`);
     }

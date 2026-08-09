@@ -13,9 +13,15 @@ const internalPort = parseInt(process.env.INTERNAL_PORT ?? '9000', 10);
 const gw = new Gateway({ internalPort, log: console.log });
 
 // ── HTTP + WS server ──
-const httpServer = http.createServer((_req, res) => {
+const httpServer = http.createServer((req, res) => {
+  const url = req.url ?? '/';
+  if (url === '/api/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, gateway: true, players_online: gw.clientCount }));
+    return;
+  }
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ ok: true, gateway: true, players: gw.clientCount }));
+  res.end(JSON.stringify({ ok: true }));
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
