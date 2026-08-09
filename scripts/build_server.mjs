@@ -41,4 +41,22 @@ await esbuild.build({
   outfile: 'dist-server/snapshot_thread.cjs',
 });
 
+// Sim worker thread (P1-P3 player self-only timers).
+await esbuild.build({
+  entryPoints: ['server/sim_worker_thread.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'dist-server/sim_worker_thread.cjs',
+});
+
+// Zone worker thread (Zone-sharding aggro pre-scan).
+await esbuild.build({
+  entryPoints: ['server/zone_worker_thread.ts'],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  outfile: 'dist-server/zone_worker_thread.cjs',
+});
+
 console.log(`[build:server] bot detector: ${usePrivate ? 'private' : 'stub (no-op)'}`);
