@@ -58,7 +58,7 @@ function M.moveSpeedMult(e, extraSpeedPct)
             speed = math.max(speed, 1.1)
         end
     end
-    if e.mountKey then speed = speed + 0.4 end
+    if e.mountKey then speed = speed + (require("world.mount").mountMoveSpeedPct(e.mountKey)) end
     if extraSpeedPct then speed = speed + extraSpeedPct end
     return slow * speed
 end

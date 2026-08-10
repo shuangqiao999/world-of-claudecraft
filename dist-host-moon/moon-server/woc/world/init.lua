@@ -1301,6 +1301,11 @@ pcall(function()
     vendor.loadFromProto()
 end)
 
+-- 加载坐骑数据 (从 proto/mounts.json)
+pcall(function()
+    mount.loadFromProto()
+end)
+
 -- 生成 NPC 实体 (从 proto/npcs.json)
 pcall(function()
     require("world.npc_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
@@ -1354,6 +1359,11 @@ mobLifecycle.registerSpawn("starting_zone", "wild_boar", 2, 20, {
 mobLifecycle.registerSpawn("starting_zone_boss", "gorrak", 1, 60, {
     { x = 50, y = 0, z = 50 },
 })
+
+-- 从 proto/camps.json 加载世界营地 (全图 mob 刷新)
+pcall(function()
+    mobLifecycle.loadCampsFromProto()
+end)
 
 moon.async(function()
     moon.sleep(1500)
