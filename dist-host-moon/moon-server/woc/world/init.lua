@@ -1,0 +1,1323 @@
+-- World of ClaudeCraft — World Service
+-- 核心仿真: tick 循环、实体管理、命令调度
+-- 对应原项目 server/game.ts GameServer + src/sim/sim.ts tick()
+-- 确定性协议: 所有随机调用使用共享 simrng 单例
+
+local moon = require("moon")
+local json = require("json")
+local config = require("config")
+local Entity = require("world.entity")
+local simrng = require("world.simrng")
+local move = require("world.movement")
+local grid = require("world.grid")
+local chat = require("world.chat")
+local snapshot = require("world.snapshot")
+local jh = require("shared.json_helpers")
+local playerStats = require("world.player_stats")
+
+-- 战斗模块
+local damage = require("world.combat.damage")
+local healMod = require("world.combat.heal")
+local castSys = require("world.combat.cast")
+local aura = require("world.combat.aura")
+local autoAttack = require("world.combat.auto_attack")
+local fxDispatch = require("world.combat.effect_dispatch")
+local spirit = require("world.spirit")
+local abilities = require("world.abilities")
+
+-- 高级战斗模块 (Batch A+B)
+local ccDr = require("world.combat.cc_dr")
+local spellResist = require("world.combat.spell_resist")
+local rage = require("world.combat.rage")
+local formSwing = require("world.combat.form_swing")
+local setProcs = require("world.combat.set_procs")
+local exclusiveAura = require("world.combat.exclusive_aura")
+local empower = require("world.combat.empower")
+
+-- 物理引擎 (Batch C)
+local physics = require("world.physics")
+local terrain = require("world.terrain")
+
+-- Mob AI 模块
+local mobAI = require("world.mob.ai")
+local mobLifecycle = require("world.mob.lifecycle")
+local mobProfile = require("world.mob.combat_profile")
+local threatMod = require("world.mob.threat")
+local targetingMod = require("world.mob.targeting")
+
+-- Phase 5-6 模块
+local inventory = require("world.inventory")
+local vendor = require("world.vendor")
+local quest = require("world.quest")
+local talent = require("world.talent")
+local partyMod = require("world.party")
+local tradeMod = require("world.trade")
+local duelMod = require("world.duel")
+local friendMod = require("world.friend")
+local bankMod = require("world.bank")
+local guildMod = require("world.guild")
+local profession = require("world.profession.crafting")
+local instanceMod = require("world.instance.instance")
+
+-- Phase 2 新模块
+local regen = require("world.regen")
+local warriorStance = require("world.warrior_stance")
+local restedXp = require("world.rested_xp")
+local worldBoss = require("world.world_boss")
+local arena = require("world.arena")
+local battleground = require("world.battleground")
+
+-- Batch 1: 地面AoE + 飞行物 + 宠物AI + 裂隙
+local groundAoE = require("world.ground_aoe")
+local projectile = require("world.projectile")
+local petAI = require("world.pet_ai")
+local rift = require("world.rift")
+
+-- Batch 2: Delve + 地下城查找器 + 卡牌决斗 + 战利品 + 就位检查
+local delve = require("world.delve")
+local dungeonFinder = require("world.dungeon_finder")
+local cardDuel = require("world.card_duel")
+local lootRoll = require("world.loot_roll")
+local readyCheck = require("world.ready_check")
+
+-- Batch 3: 功勋 + PvP + 公会金库 + 团队锁定
+local deeds = require("world.deeds")
+local pvpHonor = require("world.pvp_honor")
+local guildBank = require("world.guild_bank")
+local raidLockout = require("world.raid_lockout")
+
+-- Batch 4: 钓鱼 + 坐骑 + 寻路 + 解除卡死 + 复活提议 + 英雄副本 + Raid
+local fishing = require("world.fishing")
+local mount = require("world.mount")
+local pathfind = require("world.pathfind")
+local unstuck = require("world.unstuck")
+local resurrectionOffer = require("world.resurrection_offer")
+local heroicDungeon = require("world.heroic_dungeon")
+local nythraxis = require("world.nythraxis")
+
+-- Phase C 新模块: breath/frozenOrbs/despawnDecay
+local breath = require("world.breath")
+local frozenOrb = require("world.frozen_orb")
+local despawnDecay = require("world.despawn_decay")
+local delayedEvents = require("world.delayed_events")
+local xp = require("world.xp")
+local swimFatigue = require("world.swim_fatigue")
+local dragonkinBrood = require("world.dragonkin_brood")
+local doorTriggers = require("world.door_triggers")
+
+local entities = {}     -- id → Entity
+local players = {}      -- pid → PlayerMeta
+local simTime = 0
+local tick = 0
+local running = false
+local nextId = 10000
+
+local function allocId() nextId = nextId + 1; return nextId end
+
+-- 服务查找
+local function dbSvc() return moon.queryservice("db") end
+local function gateSvc() return moon.queryservice("gate") end
+
+-- 帮助函数
+local function noteEvents(evs)
+    if gateSvc() and evs and #evs > 0 then
+        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = jh.buildEventsFrame(evs) })
+    end
+end
+
+local function findNearestEnemy(e)
+    local best, bestDistSq = nil, math.huge
+    for id, other in pairs(entities) do
+        if other.kind == "mob" and not other.dead then
+            local dx = e.pos.x - other.pos.x
+            local dz = e.pos.z - other.pos.z
+            local dsq = dx * dx + dz * dz
+            if dsq < bestDistSq then
+                best = other; bestDistSq = dsq
+            end
+        end
+    end
+    return best
+end
+
+----------------------------------------------
+-- 实体管理
+----------------------------------------------
+
+local function createPlayerEntity(pid, cls, name, level, stateData)
+    local pos = { x = 0, y = 0, z = 0 }
+    if stateData and stateData.pos then
+        pos = { x = stateData.pos.x or 0, y = stateData.pos.y or 0, z = stateData.pos.z or 0 }
+    end
+
+    local e = Entity.new(pid, "player", cls, name, level, pos)
+
+    -- 恢复状态
+    if stateData then
+        e.facing = stateData.facing or 0
+        e.hp = stateData.hp or e.maxHp
+        e.dead = stateData.dead or false
+        e.ghost = stateData.ghost or false
+    end
+
+    -- 调用 recalcPlayerStats 计算完整属性
+    -- (装备和物品数据后面在 stateData 中有 inventory/equipment)
+    local eq = stateData and stateData.equipment or {}
+    playerStats.recalcPlayerStats(e, cls, eq, nil, nil)
+    playerStats.fullVitals(e, cls)
+
+    -- 确保 HP 等于 maxHp (除非是死亡状态)
+    if not e.dead then
+        e.hp = e.maxHp
+    end
+
+    return e
+end
+
+local function createMobEntity(templateId, name, level, pos)
+    local id = allocId()
+    local e = Entity.new(id, "mob", templateId, name, level, pos)
+    e.hostile = true
+    e.spawnPos = { x = pos.x, y = pos.y, z = pos.z }
+    mobAI.initMob(e, templateId, pos)
+    return e
+end
+
+local function joinPlayer(pid, characterId, accountId, name, cls, level, state, leaseNonce)
+    local e = createPlayerEntity(pid, cls, name, level, state)
+    entities[pid] = e
+    local meta = {
+        characterId = characterId, accountId = accountId,
+        name = name, class = cls, level = level or 1,
+        leaseNonce = leaseNonce,
+        xp = (state and state.xp) or 0,
+        copper = (state and state.copper) or 0,
+        lifetimeXp = (state and state.lifetimeXp) or 0,
+        restedXp = (state and state.restedXp) or 0,
+        prestigeRank = (state and state.prestigeRank) or 0,
+        inventory = (state and state.inventory) or {},
+        equipment = (state and state.equipment) or {},
+        lastAcknowledgedSeq = 0,
+    }
+    players[pid] = meta
+    -- 实体持有 meta 引用, 供 aura 施加/过期时重算属性
+    e.meta = meta
+    grid.insert(e)
+    deeds.initPlayer(pid)
+    pvpHonor.initPlayer(pid)
+    print(string.format("[World] Player joined: pid=%d name=%s cls=%s lv=%d str=%d ap=%d hp=%d",
+        pid, name, cls, level, e.stats.str, e.attackPower, e.maxHp))
+end
+
+local function leavePlayer(pid)
+    local meta = players[pid]; local e = entities[pid]
+    if not meta then return end
+    grid.remove(e)
+    aura.cleanupDRTracker(pid)
+    deeds.cleanupPlayer(pid)
+    if dbSvc() and meta.leaseNonce then
+        local st = serializeCharacter(pid)
+        local dbs = dbSvc()
+        if st then moon.async(function()
+            moon.call("lua", dbs, { op = "saveCharacterState", args = { meta.characterId, meta.level, st, meta.leaseNonce } })
+            moon.call("lua", dbs, { op = "releaseLease", args = { meta.characterId, meta.leaseNonce } })
+        end) end
+    end
+    entities[pid] = nil; players[pid] = nil
+    print(string.format("[World] Player left: pid=%d name=%s", pid, meta.name))
+end
+
+local function serializeCharacter(pid)
+    local e = entities[pid]; local meta = players[pid]
+    if not e or not meta then return nil end
+    return {
+        level = meta.level or 1, xp = meta.xp or 0, copper = meta.copper or 0,
+        restedXp = meta.restedXp or 0, prestigeRank = meta.prestigeRank or 0,
+        pos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }, facing = e.facing or 0,
+        hp = e.hp or 100, dead = e.dead or false, ghost = e.ghost or false,
+        inventory = meta.inventory or {}, equipment = meta.equipment or {},
+    }
+end
+
+----------------------------------------------
+-- 战斗 Tick (Phase 3-4: 确定性 RNG 驱动)
+----------------------------------------------
+
+-- 解析施法效果 (供瞬发 + 投射物命中复用; 含怒气/威胁/套装)
+local function resolveCastEffects(e, target, ability, combatEvents, entities, simTime)
+    if not ability then return end
+    local evs = fxDispatch.execute(e, target, ability, entities, simTime)
+    for _, ev in ipairs(evs) do
+        table.insert(combatEvents, ev)
+        if ev.type == "combat_damage" and target then
+            if e.resourceType == "rage" then
+                local rageGain = rage.rageFromDealing(ev.hp or 0, e.level)
+                e.resource = math.min(e.maxResource, e.resource + rageGain)
+            end
+            setProcs.applySetProcs(e, target, "on_attack", simTime)
+            threatMod.addThreat(target.id, e.id, ev.hp or 0, ability.school, e)
+        elseif ev.type == "combat_heal" then
+            local healedTarget = entities[ev.pid]
+            if healedTarget then
+                healMod.healingThreat(e, healedTarget, ev.hp or 0, entities, threatMod)
+            end
+        end
+    end
+    setProcs.applySetProcs(e, target, "on_spell_cast", simTime)
+    if target and spirit.checkDeath(target) then
+        table.insert(combatEvents, { type = "death", pid = target.id })
+    end
+end
+
+local function combatTick(dt)
+    local combatEvents = {}
+
+    -- 玩家施法 + 自动攻击
+    for pid, e in pairs(entities) do
+        if players[pid] and not e.dead then
+            -- TS updateTimers: 每 tick 递增 fiveSecondRule/combatTimer/gcd/药水cd
+            regen.updateTimers(e, dt)
+            castSys.updateCooldowns(e, dt)
+            -- 连击点过期 (TS updateComboExpiry)
+            if e.comboUntil and e.comboUntil > 0 and simTime >= e.comboUntil then
+                e.comboPoints = 0
+                e.comboUntil = -1
+            end
+
+            local castingAbility = e.castingAbility
+            local castResult = castSys.updateCast(e, dt)
+
+            -- 排队施法: updateCast 返回排队技能表 (TS fireQueuedCast 重跑 gate)
+            if type(castResult) == "table" then
+                local queuedAbility = castResult
+                local qtarget = entities[e.targetId] or findNearestEnemy(e)
+                local qok, qct = castSys.startCast(e, queuedAbility, qtarget)
+                if qok then
+                    -- 瞬发直接执行
+                    if qct == 0 then
+                        local qevs = fxDispatch.execute(e, qtarget, queuedAbility, entities, simTime)
+                        for _, ev in ipairs(qevs) do table.insert(combatEvents, ev) end
+                    end
+                end
+                goto continue_player_cast
+            end
+
+            -- 通道 tick: 执行一次通道效果
+            if castResult == "channel_tick" and castingAbility then
+                local ctTarget = entities[e.targetId] or findNearestEnemy(e)
+                local ctEvs = fxDispatch.execute(e, ctTarget, castingAbility, entities, simTime)
+                for _, ev in ipairs(ctEvs) do
+                    table.insert(combatEvents, ev)
+                    if ev.type == "combat_damage" and ctTarget then
+                        threatMod.addThreat(ctTarget.id, pid, ev.hp or 0)
+                    end
+                end
+            end
+
+            if castResult == "complete" and castingAbility then
+                local target = entities[e.targetId]
+                if not target then target = findNearestEnemy(e) end
+
+                -- TS applyAbility: 非物理法术默认作为投射物发射 (fireball 有飞行时间)
+                local isSpell = castingAbility.school and castingAbility.school ~= "physical"
+                local firesProjectile = castingAbility.projectile
+                    or (isSpell and not castingAbility.noProjectile)
+
+                if firesProjectile and target and target ~= e then
+                    -- 投射物: 命中时解析 (TS scheduleProjectile)
+                    projectile.launch(e.id, target.id, castingAbility.id, e.pos, target.pos,
+                        function(src, tgt)
+                            local pEvents = {}
+                            -- 命中时法术抵抗
+                            if isSpell then
+                                if spellResist.isSpellResisted(src.level, tgt.level, src.hitBonus or 0) then
+                                    table.insert(pEvents, { type = "spell_resisted", pid = pid, sid = src.id, targetId = tgt.id })
+                                    regen.enterCombat(src, tgt)
+                                    return pEvents
+                                end
+                            end
+                            -- 在命中时刻解析效果 (捕获 combatEvents)
+                            resolveCastEffects(src, tgt, castingAbility, pEvents, entities, simTime)
+                            return pEvents
+                        end)
+                    -- 施法完成触发 (投射物仍在飞行)
+                    setProcs.applySetProcs(e, target, "on_spell_cast", simTime)
+                else
+                    -- 瞬发/近战: 立即解析 (TS applyAbility 1986-2024)
+                    -- TS 1895-1925: 友善目标法术永不落空 (heal/buff 跳过抵抗)
+                    local isFriendly = false
+                    if castingAbility.effects then
+                        for _, ef in ipairs(castingAbility.effects) do
+                            if ef.type == "heal" or ef.type == "aoeHeal" or ef.type == "hot" or
+                               (ef.type == "buff" and ef.target == "self") or ef.target == "friendly" then
+                                isFriendly = true
+                                break
+                            end
+                        end
+                    end
+                    if isSpell and target and not isFriendly then
+                        local resisted = false
+                        if e.kind == "mob" and e.hostile then
+                            resisted = spellResist.isMobSpellResisted(e, target, e.hitBonus or 0)
+                        else
+                            resisted = spellResist.isSpellResisted(e.level, target.level, e.hitBonus or 0)
+                        end
+                        if resisted then
+                            table.insert(combatEvents, { type = "spell_resisted", pid = pid, sid = e.id, targetId = target.id })
+                            regen.enterCombat(e, target)
+                            goto continue_player_cast
+                        end
+                    end
+                    resolveCastEffects(e, target, castingAbility, combatEvents, entities, simTime)
+                end
+            end
+            ::continue_player_cast::
+
+            -- 自动攻击 (使用命中表 + 形态速度 + 怒气)
+            local aaResult = autoAttack.update(e, entities, dt, simTime)
+            if aaResult then
+                if aaResult.damage > 0 then
+                    -- 怒气生成
+                    if e.resourceType == "rage" then
+                        local rageGain = rage.rageFromDealing(aaResult.damage, e.level)
+                        local rageMult = rage.rageGenAuraMult(e.auras)
+                        e.resource = math.min(e.maxResource, e.resource + rageGain * rageMult)
+                    end
+                    -- 套装触发
+                    setProcs.applySetProcs(e, entities[e.targetId], "on_attack", simTime)
+                end
+                table.insert(combatEvents, {
+                    type = "auto_attack", pid = pid, targetId = e.targetId,
+                    dmg = aaResult.damage, crit = aaResult.crit,
+                    blocked = aaResult.blocked, dodged = aaResult.dodged, missed = aaResult.missed,
+                })
+                if e.targetId then threatMod.addThreat(e.targetId, pid, aaResult.damage) end
+                local target = entities[e.targetId]
+                if target and spirit.checkDeath(target) then
+                    table.insert(combatEvents, { type = "death", pid = target.id })
+                end
+            end
+        end
+    end
+
+    -- 光环更新 (传递 simTime 用于 DR)
+    local auraEvents = aura.updateAll(entities, players, dt, simTime)
+    for _, ev in ipairs(auraEvents) do table.insert(combatEvents, ev) end
+
+    -- Mob AI 更新
+    for _, e in pairs(entities) do
+        if e.kind == "mob" and not e.dead then
+            local mobEvents = mobAI.updateMob(e, entities, players, dt)
+            for _, ev in ipairs(mobEvents) do table.insert(combatEvents, ev) end
+        end
+    end
+
+    -- Mob 刷新检查
+    local spawned = mobLifecycle.checkRespawn(entities, createMobEntity, grid, simTime)
+    for _, mob in ipairs(spawned) do
+        entities[mob.id] = mob
+        grid.insert(mob)
+        table.insert(combatEvents, { type = "mob_spawn", mobId = mob.id, name = mob.name, level = mob.level })
+    end
+
+    -- 死亡检查 + 掉落 + 社交仇恨
+    for _, e in pairs(entities) do
+        if spirit.checkDeath(e) then
+            -- TS handleDeath: 清除施法/采集/钓鱼状态
+            e.castingAbility = nil
+            e.castTargetId = nil
+            e.gatherCastNodeId = ""
+            e.craftCastRecipeId = ""
+            e.fishBiteAtTick = 0
+            e.fishCastZoneId = ""
+
+            if e.kind == "player" then
+                -- 保存尸体位置
+                e.corpsePos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }
+                -- 强制下马 + 清除战斗状态 (TS 1175-1200)
+                e.mountKey = nil
+                e.mountCastRemaining = nil
+                e.mountCastKey = nil
+                e.autoAttack = false
+                e.queuedOnSwing = nil
+                e.queuedCastAbility = nil
+                e.comboPoints = 0
+                e.eating = nil
+                e.drinking = nil
+                e.sitting = false
+                e.chargeTargetId = nil
+                e.followTargetId = nil
+                table.insert(combatEvents, { type = "death", pid = e.id, x = e.pos.x, z = e.pos.z })
+                print(string.format("[World] Player died: pid=%d name=%s hp=0", e.id, e.name or "?"))
+            else
+                -- mob 死亡: 设置尸体/重生计时 (TS 1240-1250)
+                e.aiState = "dead"
+                e.corpseTimer = 60
+                e.respawnTimer = 60
+                table.insert(combatEvents, { type = "death", pid = e.id })
+            end
+
+            -- 从所有 mob 仇恨表移除死亡实体 (TS 1164-1172)
+            for _, m in pairs(entities) do
+                if m.kind == "mob" and m.id ~= e.id and m.threat then
+                    m.threat[e.id] = nil
+                    if m.forcedTargetId == e.id then
+                        m.forcedTargetId = nil
+                        m.forcedTargetTimer = 0
+                    end
+                end
+            end
+
+            if e.kind == "mob" then
+                mobAI.cleanup(e.id)
+                mobLifecycle.onMobDeath(e.id, entities)
+                local loot = mobLifecycle.getLoot(e)
+                if loot and #loot > 0 then
+                    for _, item in ipairs(loot) do
+                        table.insert(combatEvents, { type = "loot", mobId = e.id, item = item })
+                    end
+                end
+                local killer = e.targetId
+                if killer and players[killer] then
+                    mobLifecycle.socialAggro(e.id, killer, entities, mobAI)
+                    local qUpdates = quest.onKill(players[killer], e.templateId)
+                    for _, qu in ipairs(qUpdates) do
+                        table.insert(combatEvents, { type = "quest_progress", pid = killer,
+                            questId = qu.questId, current = qu.current, required = qu.required })
+                    end
+                    -- 功勋追踪: Boss/通用击杀
+                    deeds.onKill(killer, e.templateId)
+                    -- 击杀 XP (TS mobXpValue: 45+5*level, 等级差缩放 + elite ×2)
+                    local kMeta = players[killer]
+                    local kEnt = entities[killer]
+                    if kMeta and kEnt then
+                        local mobXpVal = xp.mobXpValue(e.level, kEnt.level)
+                        if e.isBoss or (e.templateId and (e.templateId:find("boss") or e.templateId:find("nythraxis"))) then
+                            mobXpVal = mobXpVal * 2  -- elite mult
+                        end
+                        local xpEvents = xp.grantXp(mobXpVal, kMeta, kEnt, { fromKill = true },
+                            playerStats.recalcPlayerStats,
+                            function(m, ent)
+                                talent.recomputeForLevel(m, ent, m.class or ent.templateId)
+                            end)
+                        for _, xev in ipairs(xpEvents) do table.insert(combatEvents, xev) end
+                    end
+                    -- 团队副本锁定: Boss 击杀
+                    if e.templateId and (e.templateId:find("boss") or e.templateId:find("nythraxis")) then
+                        local meta = players[killer]
+                        if meta then
+                            raidLockout.lock(meta.characterId, e.dungeonId or "world")
+                        end
+                    end
+                    -- 副本 Boss 击杀追踪
+                    if e.dungeonId then
+                        deeds.onDungeonComplete(killer)
+                        local bossMeta = players[killer]
+                        if bossMeta then heroicDungeon.awardHeroicMarks(bossMeta.characterId, 1) end
+                    end
+                end
+            elseif e.kind == "player" then
+                -- PvP 击杀: 找到最后造成伤害的玩家
+                local killerPid = e.targetId
+                if killerPid and players[killerPid] and killerPid ~= e.id then
+                    pvpHonor.awardHonor(killerPid, e.level)
+                end
+            end
+        end
+    end
+
+    -- 战斗外威胁清理 (TS: 不衰减, 只在 mob 回到 idle/evade 时 clearThreat)
+    for _, e in pairs(entities) do
+        if e.kind == "mob" and (e.aiState == "idle" or e.aiState == "returning") then
+            threatMod.clearThreat(e.id)
+        end
+    end
+
+    return combatEvents
+end
+
+----------------------------------------------
+-- Tick 循环 (完整相位: 对应 src/sim/sim.ts tick())
+----------------------------------------------
+
+local inputQueue = {}
+local saveTimer = 0
+
+local function processInputs()
+    for pid, input in pairs(inputQueue) do
+        local e = entities[pid]
+        if e and (not e.dead or e.ghost) then
+            -- 使用原有移动引擎 (已验证可用)
+            move.applyInput(e, input.mi, input.facing, config.DT)
+            grid.update(e)
+        end
+        inputQueue[pid] = nil
+    end
+end
+
+local function broadcastSnapshot()
+    if not gateSvc() then return end
+    local frame = snapshot.buildBroadcast(entities, players, tick, simTime)
+    if frame then
+        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = frame })
+    end
+end
+
+local function sendCombatEvents(combatEvents)
+    if not gateSvc() or #combatEvents == 0 then return end
+    moon.send("lua", gateSvc(), { t = "broadcastSnap", data = jh.buildEventsFrame(combatEvents) })
+end
+
+local function autosave()
+    local dbs = dbSvc()
+    if not dbs then return end
+    local count = 0
+    for pid, meta in pairs(players) do
+        local st = serializeCharacter(pid)
+        if st and meta.leaseNonce then
+            moon.send("lua", dbs, { op = "saveCharacterState", args = { meta.characterId, meta.level, st, meta.leaseNonce } })
+            -- 同时更新租约心跳
+            moon.send("lua", dbs, { op = "heartbeatLeases", args = {} })
+            count = count + 1
+        end
+    end
+    if count > 0 then print(string.format("[World] Autosave: %d players", count)) end
+end
+
+-- 断线宽限期清理 (5 分钟)
+local function sweepLinkdead()
+    local now = os.time()
+    for pid, meta in pairs(players) do
+        if meta.linkdeadSince then
+            local elapsed = now - meta.linkdeadSince
+            if elapsed * 1000 >= config.LINKDEAD_GRACE_MS then
+                print(string.format("[World] Linkdead expired: pid=%d name=%s", pid, meta.name))
+                leavePlayer(pid)
+            end
+        end
+    end
+end
+
+local function doGameTick()
+    simTime = simTime + config.DT
+    tick = tick + 1
+
+    if tick <= 3 then
+        print(string.format("[World] Tick #%d — simTime=%.1f", tick, simTime))
+    end
+
+    processInputs()
+
+    -- Phase: 门触发器 (TS updateDoorTriggers: 移动后检测副本入口)
+    pcall(function()
+        for pid, e in pairs(entities) do
+            if players[pid] and not e.dead and not e.dungeonId then
+                local doorEvents = doorTriggers.checkPlayerDoors(e, entities, players, simTime)
+                for _, ev in ipairs(doorEvents) do
+                    table.insert(combatEvents, ev)
+                end
+            end
+        end
+    end)
+
+    local combatEvents = {}
+
+    local function safeCall(modName, fn)
+        local ok, result = pcall(fn)
+        if not ok then
+            print(string.format("[World] TICK ERROR in %s: %s", modName, tostring(result)))
+        end
+        return ok and result or {}
+    end
+
+    -- Phase: 序章 (TS tick 顺序: respawns → worldBosses → groundAoEs → frozenOrbs → despawnDecay → projectiles)
+    local worldBossEvents = safeCall("worldBoss.tick", function() return worldBoss.tick(entities, players, createMobEntity, grid, simTime) end)
+    local groundAoEEvents = safeCall("groundAoE.tick", function() return groundAoE.tick(entities, config.DT) end)
+    local frozenOrbEvents = safeCall("frozenOrb.tick", function() return frozenOrb.tick(entities, config.DT, simrng) end)
+    local despawnToRemove = safeCall("despawnDecay.tick", function() return despawnDecay.tick(entities, config.DT) end)
+    local projectileEvents = safeCall("projectile.tick", function() return projectile.tick(entities, config.DT) end)
+    local riftEvents = safeCall("rift.update", function() return rift.update(simTime, entities, players, config.DT) end)
+
+    -- 清理 despawn 的实体
+    if despawnToRemove then
+        for id, _ in pairs(despawnToRemove) do
+            if entities[id] then
+                grid.remove(entities[id])
+                entities[id] = nil
+            end
+        end
+    end
+
+    -- Phase: 玩家状态更新 (TS per-player loop: ensureWarriorStance → movement → doors → swimFatigue → regen → mountTransition → casting → autoAttack → breath → auras)
+    for pid, e in pairs(entities) do
+        local meta = players[pid]
+        if meta and not e.dead then
+            pcall(function() warriorStance.ensureWarriorStance(e, meta) end)
+            pcall(function()
+                local regenEvents = regen.updateRegen(e, meta, tick)
+                for _, ev in ipairs(regenEvents) do table.insert(combatEvents, ev) end
+            end)
+            pcall(function() restedXp.updateRested(e, meta, config.DT) end)
+            pcall(function() mount.update(e, config.DT, false) end)
+            pcall(function()
+                local fishEvent = fishing.update(e, config.DT, tick)
+                if fishEvent then table.insert(combatEvents, fishEvent) end
+            end)
+            -- 呼吸/溺水 (TS updateBreath: 水下 60s 肺 + 溺水 10%/s)
+            pcall(function()
+                local isSubmerged = e.pos.y < -1.5
+                local drown = breath.updateBreath(e, isSubmerged)
+                if drown and drown.dmg then
+                    e.hp = math.max(0, e.hp - drown.dmg)
+                    table.insert(combatEvents, { type = "drown", pid = pid, dmg = drown.dmg })
+                    if e.hp <= 0 then e.dead = true end
+                end
+            end)
+            -- 泳者疲劳 (TS fatigue.ts: 远海距离时钟)
+            pcall(function()
+                local fatigueEvents = swimFatigue.updateSwimFatigue(e, e.pos)
+                for _, ev in ipairs(fatigueEvents) do
+                    table.insert(combatEvents, ev)
+                end
+            end)
+            -- 坠落伤害事件 (movement.lua 垂直状态机)
+            pcall(function()
+                if e._fallDamage and e._fallDamage > 0 then
+                    table.insert(combatEvents, { type = "combat_damage", hp = e._fallDamage, pid = pid, school = "physical" })
+                    e._fallDamage = nil
+                end
+            end)
+        end
+    end
+
+    -- Phase: 宠物 AI 更新
+    for pid, e in pairs(entities) do
+        local meta = players[pid]
+        if meta and e.kind == "player" then
+            pcall(function()
+                local _, petEvents = petAI.updatePet(e, entities, config.DT)
+                if petEvents then
+                    for _, ev in ipairs(petEvents) do table.insert(combatEvents, ev) end
+                end
+            end)
+        end
+    end
+
+    -- Phase: 战斗
+    local cEvents = safeCall("combatTick", function() return combatTick(config.DT) end)
+    for _, ev in ipairs(cEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(worldBossEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(groundAoEEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(frozenOrbEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(projectileEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(riftEvents) do table.insert(combatEvents, ev) end
+
+    -- Phase: 社交系统 (竞技场/战场)
+    local arenaEvents = safeCall("arena.update", function() return arena.update(simTime, config.DT, entities) end)
+    local bgEvents = safeCall("battleground.update", function() return battleground.update(simTime, entities) end)
+    for _, ev in ipairs(arenaEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(bgEvents) do table.insert(combatEvents, ev) end
+
+    -- Phase: 深层系统
+    local delveEvents = safeCall("delve.update", function() return delve.update(simTime, entities, players, config.DT) end)
+    local dfEvents = safeCall("dungeonFinder.update", function() return dungeonFinder.update(simTime) end)
+    local cdEvents = safeCall("cardDuel.update", function() return cardDuel.update(simTime, entities, config.DT) end)
+    local lrEvents = safeCall("lootRoll.update", function() return lootRoll.update(config.DT) end)
+    local rcEvents = safeCall("readyCheck.update", function() return readyCheck.update(config.DT) end)
+    for _, ev in ipairs(delveEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(dfEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(cdEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(lrEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(rcEvents) do table.insert(combatEvents, ev) end
+
+    -- Phase: 功勋 + 解除卡死 + 复活提议 + Raid Boss
+    for pid, meta in pairs(players) do
+        local deedEvents = safeCall("deeds.update", function() return deeds.update(pid) end)
+        for _, ev in ipairs(deedEvents) do table.insert(combatEvents, ev) end
+    end
+    local unstuckEvents = safeCall("unstuck.update", function() return unstuck.update(config.DT, entities) end)
+    local roEvents = safeCall("resurrectionOffer.update", function() return resurrectionOffer.update(config.DT) end)
+    local nythEvents = safeCall("nythraxis.update", function() return nythraxis.update(entities, players, config.DT) end)
+    for _, ev in ipairs(unstuckEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(roEvents) do table.insert(combatEvents, ev) end
+    for _, ev in ipairs(nythEvents) do table.insert(combatEvents, ev) end
+
+    -- Phase: 延迟事件清空 (TS drainDelayedEvents: tick 尾部, 在 deeds 之前)
+    local delayedDue = safeCall("delayedEvents.drain", function() return delayedEvents.drain(simTime) end)
+    for _, ev in ipairs(delayedDue) do table.insert(combatEvents, ev) end
+
+    -- Phase: 广播 — 每 tick 发快照+事件 (20Hz)
+    pcall(broadcastSnapshot)
+    pcall(function() sendCombatEvents(combatEvents) end)
+
+    -- Phase: Dragonkin Brood (TS sim.ts 5836: 龙蛋靠近偷袭/孵化, 在 engaged pass 之前)
+    local broodEvents = safeCall("dragonkinBrood.update", function()
+        return dragonkinBrood.update(entities, players, createMobEntity, grid, config.DT)
+    end)
+    for _, ev in ipairs(broodEvents) do table.insert(combatEvents, ev) end
+
+    -- Phase: EngagedPids pass (TS sim.ts 5840-5867)
+    local engagedPids = {}
+    for _, e in pairs(entities) do
+        if e.kind ~= "mob" or e.dead then goto continue_engaged end
+        -- 野怪积极参战: 目标及其宠物主人保持战斗
+        if e.ownerId == nil then
+            local state = e.aiState
+            if (state == "chasing" or state == "combat" or state == "fleeing") and e.aggroTargetId then
+                engagedPids[e.aggroTargetId] = true
+                local tgt = entities[e.aggroTargetId]
+                if tgt and tgt.ownerId then
+                    engagedPids[tgt.ownerId] = true
+                end
+            end
+        else
+            -- 玩家的宠物正在打架: 主人保持战斗 (combatTimer < PET_COMBAT_LINGER)
+            if e.aggroTargetId and e.combatTimer < 5 then
+                engagedPids[e.ownerId] = true
+            end
+        end
+        ::continue_engaged::
+    end
+    for pid, meta in pairs(players) do
+        local p = entities[pid]
+        if p then
+            p.inCombat = engagedPids[pid] or (p.combatTimer or 0) < 5
+        end
+    end
+
+    -- Phase: NPC aura cleanse + object respawn
+    for _, e in pairs(entities) do
+        if e.kind == "npc" then
+            -- 清理友好 NPC 的光环
+            if e.auras then
+                local toRemove = {}
+                for id, a in pairs(e.auras) do
+                    if a.isDebuff then table.insert(toRemove, id) end
+                end
+                for _, id in ipairs(toRemove) do e.auras[id] = nil end
+            end
+        elseif e.kind == "object" and not e.lootable then
+            e.respawnTimer = (e.respawnTimer or 0) - config.DT
+            if e.respawnTimer <= 0 then e.lootable = true end
+        end
+    end
+
+    -- Phase: 网格刷新 (TS: 必须在所有实体位置更新后执行)
+    grid.refresh(entities)
+
+    -- Phase: 保存
+    saveTimer = saveTimer + config.DT
+    if saveTimer >= config.AUTOSAVE_SECONDS then
+        saveTimer = 0; pcall(autosave)
+    end
+
+    -- Phase: 断线宽限期清理 (每 10 秒检查)
+    if tick % (config.TICK_RATE * 10) == 0 then
+        pcall(sweepLinkdead)
+    end
+
+    -- 周期性状态日志
+    if tick % (config.TICK_RATE * 10) == 0 then
+        local n = 0; for _ in pairs(players) do n = n + 1 end
+        print(string.format("[World] t=%d time=%.1f players=%d", tick, simTime, n))
+    end
+end
+
+local function gameTick()
+    if not running then return end
+
+    local start = os.clock()
+    local ok, err = pcall(doGameTick)
+    if not ok then
+        print(string.format("[World] TICK CRASH: %s", tostring(err)))
+    end
+    local elapsed = os.clock() - start
+
+    -- Next tick at exactly DT seconds from start (not from end)
+    local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
+    moon.timeout(delay, gameTick)
+end
+
+----------------------------------------------
+-- 消息处理
+----------------------------------------------
+
+moon.dispatch("lua", function(sender, session, msg)
+    if type(msg) ~= "table" then return end
+    local t = msg.t
+
+    if t == "joinPlayer" then
+        joinPlayer(msg.pid, msg.characterId, msg.accountId, msg.name, msg.cls, msg.level, msg.state, msg.leaseNonce)
+        moon.response("lua", sender, session, { ok = true })
+    elseif t == "playerLeave" then
+        leavePlayer(msg.pid)
+        moon.response("lua", sender, session, { ok = true })
+    elseif t == "playerDisconnected" then
+        local meta = players[msg.pid]
+        if meta then
+            meta.linkdeadSince = os.time()
+            print(string.format("[World] Linkdead: pid=%d name=%s (sweep in %ds)", msg.pid, meta.name, math.floor(config.LINKDEAD_GRACE_MS / 1000)))
+        end
+    elseif t == "playerInput" then
+        local pid = msg.pid
+        local e = entities[pid]
+        if e and (not e.dead or e.ghost) then
+            inputQueue[pid] = { mi = msg.mi, facing = msg.facing, seq = msg.seq }
+        end
+    elseif t == "playerCommand" then
+        local hc = moon.exports.handleCommand
+        if hc then hc(msg.pid, msg.msg) end
+    elseif t == "getPlayerCount" then
+        local n = 0; for _ in pairs(players) do n = n + 1 end
+        moon.response("lua", sender, session, { ok = true, data = n })
+    end
+end)
+
+----------------------------------------------
+-- 命令处理 (通过 moon.exports 暴露)
+----------------------------------------------
+
+moon.exports.handleCommand = function(pid, cmd)
+    if not pid or not cmd or not cmd.cmd then return end
+    local e = entities[pid]
+    if not e then return end
+    local cname = cmd.cmd
+
+    -- 战斗命令
+    if cname == "chat" and cmd.text then
+        noteEvents(chat.processMessage(entities, players, pid, cmd.text, cmd.channel or "say", cmd.target))
+
+    elseif cname == "emote" then
+        chat.processEmote(entities, players, pid, cmd.emote)
+
+    elseif cname == "attack" then
+        if not e.dead then
+            local nearest = findNearestEnemy(e)
+            if nearest then e.targetId = nearest.id end
+            autoAttack.startAutoAttack(e, nearest)
+        end
+
+    elseif cname == "stopattack" then
+        autoAttack.stopAutoAttack(e)
+
+    elseif cname == "cast" or cname == "castSlot" then
+        if e.dead then return end
+        local abilityId = cmd.ability or cmd[0]
+        if type(abilityId) == "number" then abilityId = tostring(abilityId) end
+        local ability = abilities.ABILITIES[abilityId]
+        if not ability then
+            noteEvents({{ type = "log", text = "Unknown ability: " .. tostring(abilityId), pid = pid }})
+            return
+        end
+        if castSys.isOnCooldown(e, ability) then
+            noteEvents({{ type = "log", text = "Ability is on cooldown", pid = pid }})
+            return
+        end
+        local targetId = cmd.target
+        local target = targetId and entities[tonumber(targetId)]
+        if not target then target = findNearestEnemy(e) end
+        if not target and ability.effects and ability.effects[1] then
+            local et = ability.effects[1].target
+            if et == "self" then target = e
+            elseif et == "enemy" or et == "single" then target = findNearestEnemy(e)
+            end
+        end
+
+        -- TS applyAbility 1805-1864: 目标射程重验 (+2 码 slack)
+        if ability.requiresTarget and target and target ~= e then
+            local maxRange = (ability.range and ability.range > 0) and ability.range or config.MELEE_RANGE
+            local dx = e.pos.x - target.pos.x
+            local dz = e.pos.z - target.pos.z
+            if math.sqrt(dx * dx + dz * dz) > maxRange + 2 then
+                noteEvents({{ type = "log", text = "Out of range.", pid = pid }})
+                return
+            end
+        end
+
+        local ok, ct = castSys.startCast(e, ability, target)
+        if ok then
+            if ct == 0 then
+                -- 瞬发: 法术抵抗 + CC DR + 免费施法检查
+                if ability.school and ability.school ~= "physical" and target and target ~= e then
+                    if spellResist.isSpellResisted(e.level, target.level, e.hitBonus or 0) then
+                        noteEvents({{ type = "log", text = "Resisted!", pid = pid }})
+                        return
+                    end
+                end
+                -- CC DR 检查
+                if ability.effects then
+                    for _, ef in ipairs(ability.effects) do
+                        if ef.mechanic then
+                            local dur = ccDr.applyDiminishingReturns(target.id, ability.id, ef.mechanic, ef.duration or 0, simTime)
+                            if dur <= 0 then
+                                noteEvents({{ type = "log", text = "Target immune! (DR)", pid = pid }})
+                                return
+                            end
+                            ef.duration = dur
+                        end
+                    end
+                end
+
+                -- 资源/empower 已在 startCast 处理 (含免费施法)
+
+                local evs = fxDispatch.execute(e, target, ability, entities, simTime)
+                noteEvents(evs)
+                -- 怒气生成
+                for _, ev in ipairs(evs) do
+                    if ev.type == "combat_damage" and e.resourceType == "rage" then
+                        e.resource = math.min(e.maxResource, e.resource + rage.rageFromDealing(ev.hp or 0, e.level))
+                    end
+                end
+                setProcs.applySetProcs(e, target, "on_spell_cast", simTime)
+                if target and spirit.checkDeath(target) then
+                    noteEvents({{ type = "death", pid = target.id }})
+                end
+            end
+        else
+            noteEvents({{ type = "log", text = "Cannot cast " .. abilityId, pid = pid }})
+        end
+
+    elseif cname == "cancel_aura" then
+        aura.removeAura(e, cmd.auraId)
+
+    -- 死亡/灵魂
+    elseif cname == "release" then
+        if e.dead and not e.ghost then
+            spirit.releaseSpirit(e)
+            noteEvents({{ type = "release_spirit", pid = pid }})
+            print(string.format("[World] Spirit released: pid=%d", pid))
+        end
+    elseif cname == "resurrect_corpse" then
+        if e.dead and e.ghost then
+            local corpsePos = e.corpsePos or e.pos
+            local ok = spirit.resurrectCorpse(e, corpsePos)
+            if ok then
+                noteEvents({{ type = "resurrect", pid = pid, pos = corpsePos }})
+                print(string.format("[World] Player resurrected: pid=%d", pid))
+            else
+                noteEvents({{ type = "log", text = "You are too far from your corpse", pid = pid }})
+            end
+        end
+    elseif cname == "resurrect_healer" then
+        if not e.dead then
+            local targetId = cmd.target
+            local target = targetId and entities[tonumber(targetId)]
+            if target and target.dead then
+                spirit.resurrectHealer(target)
+                noteEvents({{ type = "resurrect", pid = target.id, sid = pid }})
+            end
+        end
+
+    -- 背包/装备
+    elseif cname == "inv_move" then
+        inventory.invMove(players[pid], tonumber(cmd.from) or 0, tonumber(cmd.to) or 0)
+    elseif cname == "equip" then
+        local ok, msg = inventory.equipItem(players[pid], e, tonumber(cmd.slot) or 0, cmd.equipSlot or "")
+        if ok then
+            -- 装备改变后重算属性
+            playerStats.recalcPlayerStats(e, players[pid].class, players[pid].equipment, nil, nil)
+        end
+        noteEvents({{ type = "log", text = ok and "Equipped" or (msg or "Failed"), pid = pid }})
+    elseif cname == "unequip_item" then
+        inventory.unequipItem(players[pid], e, cmd.slot or "")
+        playerStats.recalcPlayerStats(e, players[pid].class, players[pid].equipment, nil, nil)
+    elseif cname == "use" then
+        inventory.useItem(players[pid], e, tonumber(cmd.slot) or 0)
+    elseif cname == "discard" then
+        inventory.discardItem(players[pid], tonumber(cmd.slot) or 0)
+
+    -- 商店
+    elseif cname == "buy" then
+        local ok, result = vendor.buyItem(players[pid], e, cmd.itemId or "")
+        noteEvents({{ type = "log", text = ok and ("Bought " .. (result.name or "")) or (result or "Failed"), pid = pid }})
+    elseif cname == "sell" then
+        local ok, result = vendor.sellItem(players[pid], tonumber(cmd.slot) or 0)
+        noteEvents({{ type = "log", text = ok and ("Sold for " .. (result.price or 0)) or (result or "Failed"), pid = pid }})
+    elseif cname == "buyback" then
+        noteEvents({{ type = "log", text = "Buyback not implemented", pid = pid }})
+    elseif cname == "sell_all_junk" then
+        local total = vendor.sellAllJunk(players[pid])
+        noteEvents({{ type = "log", text = "Sold junk for " .. total .. " copper", pid = pid }})
+
+    -- 任务
+    elseif cname == "accept" then
+        local ok, result = quest.acceptQuest(players[pid], cmd.questId or "")
+        noteEvents({{ type = "log", text = ok and ("Accepted: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
+    elseif cname == "turnin" then
+        local ok, result = quest.turninQuest(players[pid], cmd.questId or "")
+        if ok then
+            local meta = players[pid]
+            local oldLevel = meta.level
+            noteEvents({{ type = "log", text = "Quest complete! +" .. (result.copper or 0) .. " copper", pid = pid }})
+            -- 任务 XP (无 rested 加成, TS: fromKill 才有)
+            local qXp = result.xp or 0
+            if qXp > 0 and meta then
+                local xpEvents = xp.grantXp(qXp, meta, e, nil,
+                    playerStats.recalcPlayerStats,
+                    function(m, ent) talent.recomputeForLevel(m, ent, m.class or ent.templateId) end)
+                for _, xev in ipairs(xpEvents) do noteEvents({xev}) end
+            end
+            -- 功勋追踪: 升级
+            if meta.level > oldLevel then
+                deeds.onLevelUp(pid, meta.level)
+            end
+            -- 功勋追踪: 财富
+            deeds.onCopperChange(pid, meta.copper or 0)
+        end
+    elseif cname == "abandon" then
+        quest.abandonQuest(players[pid], cmd.questId or "")
+
+    -- 天赋
+    elseif cname == "applyTalents" then
+        local ok, result = talent.applyTalents(players[pid], e, cmd.talentId or "")
+        if ok then
+            playerStats.recalcPlayerStats(e, players[pid].class, players[pid].equipment, players[pid].talentMods, nil)
+        end
+        noteEvents({{ type = "log", text = ok and ("Learned: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
+    elseif cname == "respec" then
+        talent.respec(players[pid], e, e.templateId or "warrior")
+        noteEvents({{ type = "log", text = "Respecced!", pid = pid }})
+
+    -- 社交
+    elseif cname == "pinvite" then
+        partyMod.invite(pid, tonumber(cmd.target) or 0, entities)
+    elseif cname == "paccept" then
+        partyMod.accept(pid)
+    elseif cname == "pleave" then
+        partyMod.leave(pid)
+    elseif cname == "friend_add" then
+        local target = entities[tonumber(cmd.target) or 0]
+        friendMod.addFriend(players[pid], tonumber(cmd.target) or 0, target and target.name or "")
+    elseif cname == "friend_remove" then
+        friendMod.removeFriend(players[pid], tonumber(cmd.target) or 0)
+
+    -- 决斗
+    elseif cname == "duel_req" then
+        duelMod.requestDuel(pid, tonumber(cmd.target) or 0, entities)
+    elseif cname == "duel_accept" then
+        duelMod.acceptDuel(pid, cmd.duelId or "")
+
+    -- 交易
+    elseif cname == "trade_req" then
+        tradeMod.requestTrade(pid, tonumber(cmd.target) or 0, entities)
+    elseif cname == "trade_offer_item" then
+        tradeMod.offerItem(players[pid], tonumber(cmd.slot) or 0)
+
+    -- 银行
+    elseif cname == "bank_deposit" then
+        bankMod.deposit(players[pid], tonumber(cmd.slot) or 0)
+    elseif cname == "bank_withdraw" then
+        bankMod.withdraw(players[pid], tonumber(cmd.slot) or 0)
+    elseif cname == "bank_buy_slots" then
+        bankMod.buySlots(players[pid], tonumber(cmd.count) or 1)
+
+    -- 工会
+    elseif cname == "guild_create" then
+        local ok, result = guildMod.create(pid, cmd.name or "", e.name or "", config.getRealm())
+        if ok then
+            guildBank.createGuildBank(result, cmd.name)
+        end
+        noteEvents({{ type = "log", text = ok and ("Guild created: " .. result) or (result or "Failed"), pid = pid }})
+    elseif cname == "guild_invite" then
+        guildMod.invite(pid, tonumber(cmd.target) or 0)
+
+    -- 专业
+    elseif cname == "harvest_node" then
+        local ok, result = profession.harvestNode(players[pid], e, cmd.nodeType or "herb")
+        noteEvents({{ type = "log", text = ok and ("Harvested " .. (result.item or "")) or (result or "Failed"), pid = pid }})
+    elseif cname == "craft_item" then
+        local ok, result = profession.craftItem(players[pid], cmd.recipeId or "")
+        noteEvents({{ type = "log", text = ok and ("Crafted " .. (result.name or "")) or (result or "Failed"), pid = pid }})
+
+    -- 副本
+    elseif cname == "enter_dungeon" then
+        instanceMod.enterDungeon(pid, cmd.dungeonId or "test", cmd.difficulty or "normal", entities)
+    elseif cname == "leave_dungeon" then
+        instanceMod.leaveInstance(pid)
+        -- 传送回副本门口 (door trigger 出口偏移)
+        local exitEvents = doorTriggers.exitDungeon(e)
+        for _, ev in ipairs(exitEvents) do noteEvents({ev}) end
+
+    -- ======== 竞技场 ========
+    elseif cname == "arena_queue" then
+        local teamId = arena.createTeam(pid, tonumber(cmd.partner) or 0)
+        if teamId then
+            arena.queueTeam(teamId, simTime)
+            noteEvents({{ type = "log", text = "Joined arena queue", pid = pid }})
+        end
+
+    -- ======== 战场 ========
+    elseif cname == "bg_join" then
+        battleground.queuePlayer(pid, simTime)
+        noteEvents({{ type = "log", text = "Joined battleground queue", pid = pid }})
+
+    -- ======== 裂隙 ========
+    elseif cname == "rift_enter" then
+        local ok, result = rift.enterRift(pid, cmd.portalId or "rift_portal_1", entities)
+        noteEvents({{ type = "log", text = ok and ("Entered rift: " .. (result or "")) or (result or "Failed"), pid = pid }})
+    elseif cname == "rift_leave" then
+        rift.leaveRift(pid, entities)
+        noteEvents({{ type = "log", text = "Left rift", pid = pid }})
+
+    -- ======== 深入探索 ========
+    elseif cname == "delve_enter" then
+        local ok, result = delve.enterDelve(pid, cmd.delveId or "drowned_litany", entities)
+        noteEvents({{ type = "log", text = ok and ("Entered: " .. result) or result, pid = pid }})
+    elseif cname == "delve_leave" then
+        delve.leaveDelve(pid, entities)
+    elseif cname == "delve_lockpick" then
+        local ok, remaining = delve.attemptLockpick(pid)
+        noteEvents({{ type = "log", text = ok and ("Picked! (" .. remaining .. " left)") or "Failed", pid = pid }})
+    elseif cname == "delve_advance" then
+        local ok, result = delve.advanceRoom(pid)
+        noteEvents({{ type = "log", text = ok and ("Room: " .. result) or "Cannot advance", pid = pid }})
+
+    -- ======== 地下城查找器 ========
+    elseif cname == "df_join" then
+        dungeonFinder.joinQueue(pid, cmd.role or "dps", e.level, entities)
+        noteEvents({{ type = "log", text = "Joined dungeon finder", pid = pid }})
+    elseif cname == "df_leave" then
+        dungeonFinder.leaveQueue(pid)
+
+    -- ======== 卡牌决斗 ========
+    elseif cname == "card_duel_req" then
+        cardDuel.startDuel(pid, tonumber(cmd.target) or 0, entities)
+    elseif cname == "card_play" then
+        local ok, val = cardDuel.playCard(pid, tonumber(cmd.index) or 0)
+        noteEvents({{ type = "log", text = ok and ("Played: " .. val) or "Failed", pid = pid }})
+    elseif cname == "card_end_turn" then
+        cardDuel.endTurn(pid)
+
+    -- ======== 战利品 ========
+    elseif cname == "roll_loot" then
+        local ok, val = lootRoll.rollLoot(cmd.rollId or "", pid)
+        noteEvents({{ type = "log", text = ok and ("Rolled: " .. val) or "Failed", pid = pid }})
+
+    -- ======== 就位检查 ========
+    elseif cname == "ready_check" then
+        local rcId = readyCheck.startReadyCheck(pid, {pid})
+        noteEvents({{ type = "log", text = "Ready check started", pid = pid }})
+    elseif cname == "ready" then
+        readyCheck.respond(pid, true)
+
+    -- ======== 宠物 ========
+    elseif cname == "pet_attack" then
+        petAI.commandAttack(e, tonumber(cmd.target) or 0, entities)
+    elseif cname == "pet_follow" then
+        petAI.commandFollow(e, entities)
+    elseif cname == "pet_passive" then
+        petAI.setMode(e, "passive", entities)
+    elseif cname == "pet_defensive" then
+        petAI.setMode(e, "defensive", entities)
+
+    -- ======== 钓鱼 ========
+    elseif cname == "fish_start" then
+        fishing.startFishing(e, "lake")
+    elseif cname == "fish_reel" then
+        local caught, fish = fishing.reel(e)
+        noteEvents({{ type = "log", text = caught and ("Caught: " .. (fish.name or "")) or "Nothing", pid = pid }})
+
+    -- ======== 坐骑 ========
+    elseif cname == "mount_summon" then
+        mount.startMount(e, cmd.mountId or "brown_horse")
+    elseif cname == "mount_dismount" then
+        mount.dismount(e)
+
+    -- ======== 解除卡死 ========
+    elseif cname == "unstuck" then
+        local ok, msg = unstuck.startUnstuck(pid, entities)
+        noteEvents({{ type = "log", text = ok and "Unstuck countdown..." or (msg or "Failed"), pid = pid }})
+
+    -- ======== 复活提议 ========
+    elseif cname == "resurrect_accept" then
+        resurrectionOffer.acceptResurrection(pid, entities, spirit)
+    elseif cname == "resurrect_decline" then
+        resurrectionOffer.declineResurrection(pid)
+
+    -- ======== 英雄副本/军需官 ========
+    elseif cname == "heroic_set" then
+        heroicDungeon.setDifficulty(cmd.dungeonId or "", "heroic")
+    elseif cname == "heroic_buy" then
+        local ok, result = heroicDungeon.buyItem(pid, cmd.itemId or "")
+        noteEvents({{ type = "log", text = ok and ("Bought: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
+
+    -- ======== 公会金库 ========
+    elseif cname == "gbank_deposit" then
+        guildBank.depositItem(cmd.guildId or "", pid, cmd.item, 0)
+    elseif cname == "gbank_withdraw" then
+        guildBank.withdrawItem(cmd.guildId or "", pid, tonumber(cmd.slot) or 0, 0)
+
+    -- Dev 命令
+    elseif cname == "dev_give" and config.getAllowDevCommands() then
+        local level = tonumber(cmd.level) or 1
+        local pos = { x = e.pos.x + 3, y = 0, z = e.pos.z }
+        local mob = createMobEntity("forest_wolf", "Test Wolf", level, pos)
+        entities[mob.id] = mob
+        grid.insert(mob)
+        noteEvents({{ type = "log", text = "Spawned mob id=" .. mob.id .. " lv=" .. level, pid = pid }})
+    end
+end
+
+-- 启动
+running = true
+
+-- 加载内容数据表 (proto/*.json)
+pcall(function()
+    require("proto.load").load()
+end)
+
+-- 加载副本门触发器 (依赖 proto dungeons)
+pcall(function()
+    doorTriggers.loadDoors()
+end)
+
+-- 初始化确定性 RNG (使用固定种子确保可重现)
+simrng.init(42)
+print(string.format("[World] SimRNG initialized seed=%d", simrng.getSeed()))
+
+-- 绑定移动内核依赖 (TS PlayerMotionDeps)
+move.bindDeps({
+    seed = 0,
+    dt = config.DT,
+    cancelCast = function(e) castSys.cancelCast(e) end,
+    standUp = function(e) e.sitting = false end,
+    dealDamage = function(p, dmg)
+        p.hp = math.max(0, p.hp - dmg)
+        p._fallDamage = dmg
+    end,
+})
+
+-- 初始化裂隙传送门 (依赖 simrng)
+rift.initWorldPortals()
+print("[World] Rift portals initialized")
+
+-- 初始化 Nythraxis 传送门 (仅注册)
+print("[World] All modules loaded — starting tick loop")
+
+-- 注册默认 mob 刷新区域 (使用 TS 真实模板 ID)
+mobLifecycle.registerSpawn("starting_zone", "forest_wolf", 2, 15, {
+    { x = 35, y = 0, z = 35 },
+    { x = -35, y = 0, z = 40 },
+    { x = 40, y = 0, z = -30 },
+    { x = -40, y = 0, z = -35 },
+})
+mobLifecycle.registerSpawn("starting_zone", "webwood_spider", 1, 20, {
+    { x = 50, y = 0, z = 50 },
+    { x = -50, y = 0, z = -40 },
+})
+mobLifecycle.registerSpawn("starting_zone", "wild_boar", 2, 20, {
+    { x = 40, y = 0, z = 5 },
+    { x = -40, y = 0, z = 10 },
+})
+mobLifecycle.registerSpawn("starting_zone_boss", "gorrak", 1, 60, {
+    { x = 50, y = 0, z = 50 },
+})
+
+moon.async(function()
+    moon.sleep(1500)
+    local db = dbSvc(); local gs = gateSvc()
+    if db then print(string.format("[World] DB=0x%X", db)) end
+    if gs then print(string.format("[World] Gate=0x%X", gs)) end
+end)
+moon.timeout(1000, gameTick)
+print("[World] Service ready")
