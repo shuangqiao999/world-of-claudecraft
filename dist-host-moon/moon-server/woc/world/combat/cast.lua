@@ -56,9 +56,18 @@ function M.canCast(caster, ability)
     if caster.dead then return false, "dead" end
     if ability.usableWhileControlled then return true, nil end
     if isStunned(caster) then return false, "stunned" end
+    -- 缴械: 物理伤害能力禁用 (TS cc)
+    if ability.school == "physical" and ability.damage and ability.damage > 0 then
+        local aura = require("world.combat.aura")
+        if aura.isDisarmed(caster) then return false, "disarmed" end
+    end
     if ability.school and ability.school ~= "physical" then
         if isSilenced(caster) then return false, "silenced" end
         if isLockedOut(caster, ability.school) then return false, "silenced" end
+        -- blind / tongues (TS cc)
+        local aura = require("world.combat.aura")
+        local block = aura.isCastingBlocked(caster, ability.school)
+        if block then return false, block end
     end
     return true, nil
 end

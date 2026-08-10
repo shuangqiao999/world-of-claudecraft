@@ -145,11 +145,16 @@ function M.updateAll(entities, players, dt, simTime)
 
         local statsDirty = false
 
-        -- 遍历快照 (避免中途修改 auras 的问题)
+        -- 遍历快照 (避免中途修改 auras 的问题; 按 order 排序保证确定性)
         local snapshot = {}
         for auraId, a in pairs(e.auras) do
             table.insert(snapshot, { id = auraId, aura = a })
         end
+        table.sort(snapshot, function(x, y)
+            local ox, oy = x.aura.order or 0, y.aura.order or 0
+            if ox ~= oy then return ox < oy end
+            return x.id < y.id
+        end)
 
         for _, entry in ipairs(snapshot) do
             local auraId = entry.id
@@ -313,9 +318,48 @@ function M.hasControlAura(e)
     if not e.auras then return false end
     for _, a in pairs(e.auras) do
         local m = a.mechanic
-        if m == "stun" or m == "root" or m == "silence" or m == "fear" or m == "disorient" then
+        if m == "stun" or m == "root" or m == "silence" or m == "fear" or m == "disorient"
+           or m == "disarm" or m == "lockout" or m == "blind" or m == "tongues" then
             return true
         end
+    end
+    return false
+end
+
+--- 施法是否被阻止 (TS cc predicates: silence/lockout/blind/tongues)
+--- @param e Entity
+--- @param school string|nil 施法学派
+function M.isCastingBlocked(e, school)
+    for _, a in pairs(e.auras or {}) do
+        local m = a.mechanic
+        if m == "silence" then return "silenced" end
+        if m == "blind" then return "blinded" end
+        if m == "tongues" then return "tongues" end
+        if m == "lockout" and (not a.school or a.school == school) then return "locked_out" end
+    end
+    return nil
+end
+
+--- 是否被缴械 (物理伤害能力禁用)
+function M.isDisarmed(e)
+    for _, a in pairs(e.auras or {}) do
+        if a.mechanic == "disarm" then return true end
+    end
+    return false
+end
+
+--- 不可破控制 (TS hasUnbreakableMovementLock)
+function M.isUnbreakableControlAura(aura)
+    if aura.kind == "stasis" then return true end
+    if aura.kind == "encounter_lock" then return true end
+    if aura.kind == "nythraxis_lock" then return true end
+    return false
+end
+
+--- 冰封 (ice_block): 无敌 + 移动锁定
+function M.isIceBlocked(e)
+    for _, a in pairs(e.auras or {}) do
+        if a.kind == "ice_block" or a.kind == "stasis" then return true end
     end
     return false
 end
