@@ -6,12 +6,35 @@ local simrng = require("world.simrng")
 local config = require("config")
 local M = {}
 
--- 地下城列表
-local DUNGEON_LIST = {
-    { id = "deadmines", name = "The Deadmines", minLevel = 8, maxLevel = 12, roles = {tank=1, healer=1, dps=3} },
-    { id = "shadowfang", name = "Shadowfang Keep", minLevel = 12, maxLevel = 16, roles = {tank=1, healer=1, dps=3} },
-    { id = "scarlet_halls", name = "Scarlet Halls", minLevel = 15, maxLevel = 20, roles = {tank=1, healer=1, dps=3} },
-}
+-- 地下城列表 (从 proto/dungeons.json 加载)
+local DUNGEON_LIST = {}
+local dfLoaded = false
+
+function M.loadFromProto()
+    if dfLoaded then return end
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if not ok then return end
+    local dungeons = proto.getDungeons()
+    if not dungeons then return end
+    local idx = 0
+    for id, dg in pairs(dungeons) do
+        if (dg.suggestedPlayers or 0) >= 5 and dg.index ~= nil then
+            table.insert(DUNGEON_LIST, {
+                id = id,
+                name = dg.name or id,
+                minLevel = (dg.spawns and #dg.spawns > 0) and 8 or 8,
+                maxLevel = 20,
+                roles = { tank = 1, healer = 1, dps = 3 },
+                suggestedPlayers = dg.suggestedPlayers,
+            })
+            idx = idx + 1
+        end
+    end
+    -- 按 index 排序
+    table.sort(DUNGEON_LIST, function(a, b) return (a.suggestedPlayers or 0) > (b.suggestedPlayers or 0) end)
+    dfLoaded = true
+    print(string.format("[DungeonFinder] Loaded %d dungeons from proto", #DUNGEON_LIST))
+end
 
 -- 角色类型
 local ROLE = { TANK = "tank", HEALER = "healer", DPS = "dps" }

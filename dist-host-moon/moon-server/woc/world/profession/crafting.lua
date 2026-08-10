@@ -1,5 +1,5 @@
 -- World of ClaudeCraft — Profession System
--- harvest_node, craft_item, 简化版采集+制造
+-- harvest_node, craft_item (从 proto/recipes.json 加载配方)
 
 local M = {}
 
@@ -10,15 +10,38 @@ local NODES = {
     wood = { name = "Wood", skill = "woodcutting", minSkill = 1, xp = 10, item = "Wood" },
 }
 
--- 制造配方
-local RECIPES = {
-    health_potion_brew = { name = "Brew Health Potion", skill = "alchemy", minSkill = 1, xp = 20,
-        reagents = { { item = "Herb", count = 2 } }, result = { id = "health_potion", name = "Health Potion", type = "consume", hp = 50, value = 5 } },
-    mana_potion_brew = { name = "Brew Mana Potion", skill = "alchemy", minSkill = 1, xp = 20,
-        reagents = { { item = "Herb", count = 1 } }, result = { id = "mana_potion", name = "Mana Potion", type = "consume", resource = 50, value = 5 } },
-    ingot_smelt = { name = "Smelt Ingot", skill = "blacksmithing", minSkill = 1, xp = 15,
-        reagents = { { item = "Ore", count = 2 } }, result = { id = "iron_ingot", name = "Iron Ingot", type = "reagent", value = 3 } },
-}
+-- 制造配方 (从 proto/recipes.json 加载)
+local RECIPES = {}
+local recipesLoaded = false
+
+function M.loadFromProto()
+    if recipesLoaded then return end
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if not ok then return end
+    local recipes = proto.recipesById
+    if not recipes then return end
+    for rid, r in pairs(recipes) do
+        if type(r) == "table" and r.id then
+            local reagents = {}
+            for _, rg in ipairs(r.reagents or {}) do
+                table.insert(reagents, { item = rg.itemId or rg.item, count = rg.count or 1 })
+            end
+            RECIPES[rid] = {
+                id = rid,
+                name = r.name or rid,
+                skill = r.professionId or "crafting",
+                minSkill = r.skillReq or 0,
+                xp = 15,
+                reagents = reagents,
+                result = { id = r.resultItemId, name = r.resultItemId, count = r.resultCount or 1 },
+                resultItemId = r.resultItemId,
+                resultCount = r.resultCount or 1,
+            }
+        end
+    end
+    recipesLoaded = true
+    print(string.format("[Crafting] Loaded %d recipes from proto", #RECIPES))
+end
 
 --- 初始化专业技能
 function M.initProfessions(meta)
@@ -49,12 +72,12 @@ function M.craftItem(meta, recipeId)
     local recipe = RECIPES[recipeId]
     if not recipe then return false, "Unknown recipe" end
 
-    -- 检查材料
+    -- 检查材料 (TS: reagents 用 itemId 匹配)
     local inv = meta.inventory or {}
     for _, req in ipairs(recipe.reagents) do
         local found = 0
         for slot, item in pairs(inv) do
-            if item.name == req.item then found = found + 1 end
+            if (item.id == req.item) or (item.name == req.item) then found = found + 1 end
         end
         if found < req.count then return false, "Missing reagent: " .. req.item end
     end
@@ -63,16 +86,23 @@ function M.craftItem(meta, recipeId)
     for _, req in ipairs(recipe.reagents) do
         local toRemove = req.count
         for slot, item in pairs(inv) do
-            if item.name == req.item and toRemove > 0 then
+            if (item.id == req.item or item.name == req.item) and toRemove > 0 then
                 inv[slot] = nil
                 toRemove = toRemove - 1
             end
         end
     end
 
-    -- 制造
+    -- 制造 (解析 resultItemId → 完整物品)
     local inventory = require("world.inventory")
-    inventory.addItem(meta, recipe.result)
+    local resultItem = recipe.result
+    local itemDef = nil
+    local okp, proto = pcall(function() return require("proto.load") end)
+    if okp and recipe.resultItemId then itemDef = proto.getItem(recipe.resultItemId) end
+    if itemDef then
+        resultItem = inventory.createItem(recipe.resultItemId, itemDef.name or recipe.resultItemId, itemDef.kind or "misc", itemDef)
+    end
+    inventory.addItem(meta, resultItem)
 
     -- 增加技能
     meta.professions.skills[recipe.skill] = (meta.professions.skills[recipe.skill] or 0) + 1

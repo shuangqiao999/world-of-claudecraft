@@ -1332,6 +1332,21 @@ pcall(function()
     abilities.loadFromProto()
 end)
 
+-- 加载地下城查找器列表 (从 proto/dungeons.json)
+pcall(function()
+    dungeonFinder.loadFromProto()
+end)
+
+-- 加载 Delve 定义 (从 proto/delves.json)
+pcall(function()
+    delve.loadFromProto()
+end)
+
+-- 加载制造配方 (从 proto/recipes.json)
+pcall(function()
+    profession.loadFromProto()
+end)
+
 -- 生成 NPC 实体 (从 proto/npcs.json)
 pcall(function()
     require("world.npc_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)

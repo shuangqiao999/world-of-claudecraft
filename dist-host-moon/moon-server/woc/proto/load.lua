@@ -9,7 +9,7 @@ local loaded = false
 local ALL_FILES = {
     "abilities", "items", "classes", "quests", "quest_order", "mobs",
     "npcs", "camps", "zones", "gather_nodes", "roads", "dungeons",
-    "delves", "item_sets", "props", "mounts", "dungeon_layouts",
+    "delves", "item_sets", "props", "mounts", "dungeon_layouts", "recipes",
 }
 
 function M.load()
@@ -71,6 +71,14 @@ function M.buildIndexes()
 
     -- dungeons (already keyed by id)
     M.dungeonsById = M.dungeons or {}
+
+    -- recipes (array)
+    M.recipesById = {}
+    if M.recipes then
+        for _, r in ipairs(M.recipes) do
+            M.recipesById[r.id] = r
+        end
+    end
 end
 
 --- Lookup helpers

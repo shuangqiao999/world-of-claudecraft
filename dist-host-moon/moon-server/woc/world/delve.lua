@@ -1,23 +1,43 @@
--- World of ClaudeCraft — Delve System (Drowned Litany)
+-- World of ClaudeCraft — Delve System
 -- 深入探索: 房间谜题、同伴AI、开锁
 -- 对应原项目 src/sim/delves/runs.ts + src/sim/delves/companion.ts
+-- Delve 定义从 proto/delves.json 加载
 
 local simrng = require("world.simrng")
 local deeds = require("world.deeds")
 local M = {}
 
--- Delve 定义
-local DELVES = {
-    drowned_litany = {
-        id = "drowned_litany",
-        name = "Drowned Litany",
-        minLevel = 15,
-        maxPlayers = 5,
-        rooms = {"antechamber", "flooded_hall", "whispering_gallery", "sister_nhalia"},
-        totalRooms = 4,
-        rewardMultiplier = 1.5,
-    },
-}
+-- Delve 定义 (从 proto 填充)
+local DELVES = {}
+local delvesLoaded = false
+
+function M.loadFromProto()
+    if delvesLoaded then return end
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if not ok then return end
+    local raw = proto.delves
+    if not raw then return end
+    for id, dg in pairs(raw) do
+        DELVES[id] = {
+            id = id,
+            name = dg.name or id,
+            minLevel = dg.minLevel or 7,
+            maxPlayers = dg.maxPlayers or 2,
+            suggestedPlayers = dg.suggestedPlayers or 2,
+            modules = dg.modules or {},
+            moduleCount = dg.moduleCount or { 3, 3 },
+            totalRooms = (dg.moduleCount and dg.moduleCount[1]) or 3,
+            finaleModuleId = dg.finaleModuleId,
+            bosses = dg.bosses or {},
+            objective = dg.objective or "kill_boss",
+            boardNpcId = dg.boardNpcId,
+            autoCompanionId = dg.autoCompanionId,
+            rewardMultiplier = 1.5,
+        }
+    end
+    delvesLoaded = true
+    print(string.format("[Delve] Loaded %d delves from proto", #DELVES))
+end
 
 -- 活跃的 Delve 实例: { readonly = {pid, currentRoom, roomTimer, companionHp} }
 local activeDelves = {}

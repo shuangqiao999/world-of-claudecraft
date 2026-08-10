@@ -91,6 +91,12 @@ async function main() {
       writeTable('dungeon_layouts', layouts);
     } catch { console.log('  SKIP dungeon_layouts'); }
 
+    // Profession recipes (content/recipes.ts)
+    try {
+      const recipesMod = await import('../src/sim/content/recipes.ts');
+      writeTable('recipes', (recipesMod as any).ALL_RECIPES);
+    } catch { console.log('  SKIP recipes'); }
+
     console.log(`\nDone. All files → ${OUT_DIR}/`);
   } catch (err: any) {
     console.error('Export FAILED:', err.message);
