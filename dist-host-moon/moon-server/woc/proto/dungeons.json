@@ -1,0 +1,675 @@
+{
+  "hollow_crypt": {
+    "id": "hollow_crypt",
+    "name": "The Hollow Crypt",
+    "index": 0,
+    "doorPos": {
+      "x": 80,
+      "z": 90
+    },
+    "entry": {
+      "x": 0,
+      "z": -2
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -6
+    },
+    "spawns": [
+      {
+        "mobId": "crypt_shambler",
+        "x": -3,
+        "z": 18
+      },
+      {
+        "mobId": "crypt_shambler",
+        "x": 3,
+        "z": 19
+      },
+      {
+        "mobId": "crypt_shambler",
+        "x": -9,
+        "z": 38
+      },
+      {
+        "mobId": "hollow_acolyte",
+        "x": -5,
+        "z": 39
+      },
+      {
+        "mobId": "crypt_shambler",
+        "x": 9,
+        "z": 54
+      },
+      {
+        "mobId": "hollow_acolyte",
+        "x": 5,
+        "z": 55
+      },
+      {
+        "mobId": "bonechill_widow",
+        "x": -5,
+        "z": 68
+      },
+      {
+        "mobId": "bonechill_widow",
+        "x": -1,
+        "z": 70
+      },
+      {
+        "mobId": "sexton_marrow",
+        "x": -4,
+        "z": 82
+      },
+      {
+        "mobId": "hollow_acolyte",
+        "x": 1,
+        "z": 83
+      },
+      {
+        "mobId": "morthen",
+        "x": 0,
+        "z": 98
+      },
+      {
+        "mobId": "crypt_shambler",
+        "x": -4,
+        "z": 96
+      },
+      {
+        "mobId": "crypt_shambler",
+        "x": 4,
+        "z": 96
+      }
+    ],
+    "interior": "crypt",
+    "tombDressing": "coffins",
+    "suggestedPlayers": 5,
+    "enterText": "You descend into the Hollow Crypt...",
+    "leaveText": "You climb back into daylight."
+  },
+  "sunken_bastion": {
+    "id": "sunken_bastion",
+    "name": "The Sunken Bastion",
+    "index": 1,
+    "doorPos": {
+      "x": 45,
+      "z": 515
+    },
+    "entry": {
+      "x": 0,
+      "z": -2
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -6
+    },
+    "spawns": [
+      {
+        "mobId": "bastion_revenant",
+        "x": -3,
+        "z": 18
+      },
+      {
+        "mobId": "bastion_revenant",
+        "x": 3,
+        "z": 19
+      },
+      {
+        "mobId": "bastion_revenant",
+        "x": -9,
+        "z": 38
+      },
+      {
+        "mobId": "tidebound_acolyte",
+        "x": -5,
+        "z": 39
+      },
+      {
+        "mobId": "tidebound_acolyte",
+        "x": 9,
+        "z": 54
+      },
+      {
+        "mobId": "bastion_revenant",
+        "x": 5,
+        "z": 55
+      },
+      {
+        "mobId": "bastion_revenant",
+        "x": -5,
+        "z": 68
+      },
+      {
+        "mobId": "tidebound_acolyte",
+        "x": -1,
+        "z": 70
+      },
+      {
+        "mobId": "knight_commander_olen",
+        "x": -4,
+        "z": 82
+      },
+      {
+        "mobId": "bastion_revenant",
+        "x": 1,
+        "z": 83
+      },
+      {
+        "mobId": "vael_the_mistcaller",
+        "x": 0,
+        "z": 98
+      },
+      {
+        "mobId": "tidebound_acolyte",
+        "x": -4,
+        "z": 96
+      },
+      {
+        "mobId": "bastion_revenant",
+        "x": 4,
+        "z": 96
+      }
+    ],
+    "interior": "crypt",
+    "tombDressing": "cargo",
+    "suggestedPlayers": 5,
+    "enterText": "You wade down into the Sunken Bastion...",
+    "leaveText": "You climb out of the drowning dark."
+  },
+  "gravewyrm_sanctum": {
+    "id": "gravewyrm_sanctum",
+    "name": "Gravewyrm Sanctum",
+    "index": 2,
+    "doorPos": {
+      "x": 0,
+      "z": 858
+    },
+    "entry": {
+      "x": 0,
+      "z": -2
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -6
+    },
+    "spawns": [
+      {
+        "mobId": "sanctum_boneguard",
+        "x": -3,
+        "z": 20
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": 3,
+        "z": 21
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": -8,
+        "z": 30
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": -4,
+        "z": 31
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": 7,
+        "z": 44
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": 3,
+        "z": 45
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": -6,
+        "z": 58
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": -2,
+        "z": 59
+      },
+      {
+        "mobId": "korgath_the_bound",
+        "x": 0,
+        "z": 72
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": -7,
+        "z": 86
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": -3,
+        "z": 87
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": 6,
+        "z": 100
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": 2,
+        "z": 101
+      },
+      {
+        "mobId": "grand_necromancer_velkhar",
+        "x": 0,
+        "z": 114
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": -4,
+        "z": 112
+      },
+      {
+        "mobId": "sanctum_boneguard",
+        "x": 4,
+        "z": 112
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": -5,
+        "z": 130
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": -1,
+        "z": 132
+      },
+      {
+        "mobId": "korzul_the_gravewyrm",
+        "x": 0,
+        "z": 146
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": -5,
+        "z": 144
+      },
+      {
+        "mobId": "sanctum_drakonid",
+        "x": 5,
+        "z": 144
+      }
+    ],
+    "interior": "sanctum",
+    "suggestedPlayers": 5,
+    "enterText": "The air goes cold. Something vast breathes below...",
+    "leaveText": "You stagger back into the mountain wind."
+  },
+  "nythraxis_crypt": {
+    "id": "nythraxis_crypt",
+    "name": "Abandoned Crypt",
+    "index": 4,
+    "doorPos": {
+      "x": -152,
+      "z": 610
+    },
+    "entry": {
+      "x": 0,
+      "z": 4
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -6
+    },
+    "spawns": [],
+    "objects": [
+      {
+        "itemId": "captains_crest",
+        "name": "Crypt Keystone Upper",
+        "x": -7,
+        "z": 28
+      },
+      {
+        "itemId": "priests_sigil",
+        "name": "Crypt Keystone Lower",
+        "x": 0,
+        "z": 52
+      },
+      {
+        "itemId": "royal_seal",
+        "name": "Ancient Diary",
+        "x": 7,
+        "z": 76
+      },
+      {
+        "itemId": "",
+        "name": "Sealed Royal Door",
+        "x": 0,
+        "z": 110.4,
+        "templateId": "dungeon_door",
+        "dungeonId": "nythraxis_boss_arena"
+      }
+    ],
+    "interior": "crypt",
+    "tombDressing": "coffins",
+    "suggestedPlayers": 1,
+    "enterText": "You cross the threshold of the Abandoned Crypt.",
+    "leaveText": "You return to the cold air of Thornpeak."
+  },
+  "the_last_keep": {
+    "id": "the_last_keep",
+    "name": "The Last Keep",
+    "index": 8,
+    "doorPos": {
+      "x": 413.5,
+      "z": 2016.5
+    },
+    "entry": {
+      "x": 0,
+      "z": -5
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -9
+    },
+    "spawns": [],
+    "objects": [
+      {
+        "itemId": "last_keep_signet",
+        "name": "Signet of the Last Keep",
+        "x": 4,
+        "z": 0
+      }
+    ],
+    "interior": "lastkeep",
+    "suggestedPlayers": 1,
+    "enterText": "You step into the cold, silent halls of the Last Keep.",
+    "leaveText": "You pull the keep door shut and step back into the Drakelands wind."
+  },
+  "nythraxis_boss_arena": {
+    "id": "nythraxis_boss_arena",
+    "name": "Nythraxis Raid Arena",
+    "index": 5,
+    "doorPos": {
+      "x": -152,
+      "z": 610
+    },
+    "overworldDoor": false,
+    "entry": {
+      "x": 0,
+      "z": 4
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -6
+    },
+    "spawns": [
+      {
+        "mobId": "nythraxis_scourge_of_thornpeak",
+        "x": 0,
+        "z": 96
+      }
+    ],
+    "objects": [
+      {
+        "itemId": "bastion_ward_stone",
+        "name": "Left Wardstone",
+        "x": -40,
+        "z": 79
+      },
+      {
+        "itemId": "bastion_ward_stone",
+        "name": "Right Wardstone",
+        "x": 40,
+        "z": 79
+      },
+      {
+        "itemId": "bastion_ward_stone",
+        "name": "Threshold Wardstone",
+        "x": 0,
+        "z": 63
+      }
+    ],
+    "interior": "nythraxis",
+    "tombDressing": "coffins",
+    "suggestedPlayers": 10,
+    "enterText": "You pass through the sealed royal door.",
+    "leaveText": "You return to the cold air of Thornpeak."
+  },
+  "drowned_temple": {
+    "id": "drowned_temple",
+    "name": "The Drowned Temple",
+    "index": 3,
+    "doorPos": {
+      "x": -70,
+      "z": 792
+    },
+    "entry": {
+      "x": 0,
+      "z": -2
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -6
+    },
+    "spawns": [
+      {
+        "mobId": "drowned_templeguard",
+        "x": -3,
+        "z": 20
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": 3,
+        "z": 21
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": -9,
+        "z": 30
+      },
+      {
+        "mobId": "pale_choir_acolyte",
+        "x": -5,
+        "z": 31
+      },
+      {
+        "mobId": "glimmerscale_lurker",
+        "x": 9,
+        "z": 44
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": 5,
+        "z": 45
+      },
+      {
+        "mobId": "pearlguard_sentinel",
+        "x": -5,
+        "z": 56
+      },
+      {
+        "mobId": "pale_choir_acolyte",
+        "x": -1,
+        "z": 57
+      },
+      {
+        "mobId": "choirmother_selthe",
+        "x": -4,
+        "z": 80
+      },
+      {
+        "mobId": "pale_choir_acolyte",
+        "x": 2,
+        "z": 81
+      },
+      {
+        "mobId": "glimmerscale_lurker",
+        "x": 9,
+        "z": 92
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": -7,
+        "z": 93
+      },
+      {
+        "mobId": "pearlguard_sentinel",
+        "x": -5,
+        "z": 104
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": 3,
+        "z": 105
+      },
+      {
+        "mobId": "ysolei",
+        "x": 0,
+        "z": 116
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": -4,
+        "z": 114
+      },
+      {
+        "mobId": "drowned_templeguard",
+        "x": 4,
+        "z": 114
+      }
+    ],
+    "interior": "temple",
+    "suggestedPlayers": 5,
+    "enterText": "You step through the moongate — the air turns to cold water and pale light, and the singing closes over your head.",
+    "leaveText": "You surface through the moongate into the mountain night."
+  },
+  "wildheart_basin": {
+    "id": "wildheart_basin",
+    "name": "The Wildheart Basin",
+    "index": 7,
+    "doorPos": {
+      "x": -232,
+      "z": 1112
+    },
+    "entry": {
+      "x": 0,
+      "z": -5
+    },
+    "exitOffset": {
+      "x": 0,
+      "z": -10
+    },
+    "bossExitPortal": {
+      "x": 0,
+      "z": 222
+    },
+    "spawns": [
+      {
+        "mobId": "wildheart_stalker",
+        "x": -7,
+        "z": 36
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": 7,
+        "z": 37.5
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": -31,
+        "z": 63
+      },
+      {
+        "mobId": "wildheart_stalker",
+        "x": -39,
+        "z": 68
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": -34,
+        "z": 96
+      },
+      {
+        "mobId": "wildheart_hexcaller",
+        "x": -25,
+        "z": 102
+      },
+      {
+        "mobId": "wildheart_stalker",
+        "x": 31,
+        "z": 66
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": 40,
+        "z": 72
+      },
+      {
+        "mobId": "wildheart_hexcaller",
+        "x": 27,
+        "z": 104
+      },
+      {
+        "mobId": "wildheart_stalker",
+        "x": 38,
+        "z": 111
+      },
+      {
+        "mobId": "wildheart_stalker",
+        "x": -10,
+        "z": 116
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": 10,
+        "z": 117
+      },
+      {
+        "mobId": "wildheart_beastmaster",
+        "x": 0,
+        "z": 111
+      },
+      {
+        "mobId": "wildheart_hexcaller",
+        "x": -34,
+        "z": 155
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": -25,
+        "z": 160
+      },
+      {
+        "mobId": "wildheart_stalker",
+        "x": 34,
+        "z": 160
+      },
+      {
+        "mobId": "wildheart_ravager",
+        "x": 25,
+        "z": 166
+      },
+      {
+        "mobId": "wildheart_beastmaster",
+        "x": 0,
+        "z": 183
+      },
+      {
+        "mobId": "wildheart_hexcaller",
+        "x": -8,
+        "z": 184.5
+      },
+      {
+        "mobId": "wildheart_high_priest",
+        "x": 0,
+        "z": 213
+      }
+    ],
+    "interior": "wildheart",
+    "bossChainPull": true,
+    "suggestedPlayers": 5,
+    "enterText": "Warm rain hisses on old stone. The Wildheart Basin opens before you.",
+    "leaveText": "You pass back beneath the stone fangs into the Palmreach sun."
+  }
+}
