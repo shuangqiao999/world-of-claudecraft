@@ -444,7 +444,7 @@ function M.recalcPlayerStats(e, cls, equipment, mods, items)
         end
     end
 
-    -- 19. 套装收集 (TS aggregateSetBonuses → setProcs)
+    -- 19. 套装收集 (TS aggregateSetBonuses → 平铺属性 + setProcs)
     e.setCounts = {}
     if equipment then
         local itemLookup = items
@@ -459,7 +459,32 @@ function M.recalcPlayerStats(e, cls, equipment, mods, items)
             end
         end
     end
-    e.setProcs = {}
+    local setBonuses = require("world.item_set").aggregateSetBonuses(e.setCounts)
+    e.setProcs = setBonuses.procs or {}
+
+    -- 套装平铺属性并入
+    local sb = setBonuses.stats or {}
+    s.str = s.str + (sb.str or 0)
+    s.agi = s.agi + (sb.agi or 0)
+    s.sta = s.sta + (sb.sta or 0)
+    s.int = s.int + (sb.int or 0)
+    s.spi = s.spi + (sb.spi or 0)
+    bonusAp = bonusAp + (sb.ap or 0)
+    bonusSp = bonusSp + (sb.sp or 0)
+    bonusCritRating = bonusCritRating + (sb.critRating or 0)
+    bonusHasteRating = bonusHasteRating + (sb.hasteRating or 0)
+    bonusHitRating = bonusHitRating + (sb.hitRating or 0)
+    s.crit = (s.crit or 0) + (sb.crit or 0)
+    s.haste = (s.haste or 0) + (sb.haste or 0)
+
+    -- 套装减伤
+    e.castPushbackReduction = (setBonuses.mitigation.castPushbackReduction or 0) + (e.castPushbackReduction or 0)
+    e.knockbackResistance = (setBonuses.mitigation.knockbackResistance or 0) + (e.knockbackResistance or 0)
+    e.ccDurationReduction = (setBonuses.mitigation.ccDurationReduction or 0) + (e.ccDurationReduction or 0)
+
+    -- 套装 PvP 评分
+    e.pvpOffenseRating = setBonuses.pvp.pvpOffenseRating or 0
+    e.pvpDefenseRating = setBonuses.pvp.pvpDefenseRating or 0
 end
 
 --- 创建满血满资源状态 (新角色加入)
