@@ -177,12 +177,12 @@ local function createPlayerEntity(pid, cls, name, level, stateData)
     return e
 end
 
-local function createMobEntity(templateId, name, level, pos)
+local function createMobEntity(templateId, name, level, pos, opts)
     local id = allocId()
     local e = Entity.new(id, "mob", templateId, name, level, pos)
     e.hostile = true
     e.spawnPos = { x = pos.x, y = pos.y, z = pos.z }
-    mobAI.initMob(e, templateId, pos)
+    mobAI.initMob(e, templateId, pos, opts)
     return e
 end
 
@@ -1048,7 +1048,19 @@ moon.exports.handleCommand = function(pid, cmd)
 
     -- 商店
     elseif cname == "buy" then
-        local ok, result = vendor.buyItem(players[pid], e, cmd.itemId or "")
+        -- 找到附近 NPC 的专属库存 (6 码内)
+        local npcStock = nil
+        for _, other in pairs(entities) do
+            if other.kind == "npc" and other.vendorItems and #other.vendorItems > 0 then
+                local dx = other.pos.x - e.pos.x
+                local dz = other.pos.z - e.pos.z
+                if dx * dx + dz * dz <= 36 then
+                    npcStock = other.vendorItems
+                    break
+                end
+            end
+        end
+        local ok, result = vendor.buyItem(players[pid], e, cmd.itemId or "", npcStock)
         noteEvents({{ type = "log", text = ok and ("Bought " .. (result.name or "")) or (result or "Failed"), pid = pid }})
     elseif cname == "sell" then
         local ok, result = vendor.sellItem(players[pid], tonumber(cmd.slot) or 0)
@@ -1259,6 +1271,15 @@ moon.exports.handleCommand = function(pid, cmd)
         heroicDungeon.setDifficulty(cmd.dungeonId or "", "heroic")
     elseif cname == "heroic_buy" then
         local ok, result = heroicDungeon.buyItem(pid, cmd.itemId or "")
+        if ok and result then
+            -- 加入背包 (修复: 之前购买后不发放)
+            local meta = players[pid]
+            local itemDef = nil
+            local okp, proto = pcall(function() return require("proto.load") end)
+            if okp then itemDef = proto.getItem(result.itemId) end
+            local invItem = inventory.createItem(result.itemId, result.name or result.itemId, "misc", itemDef or result)
+            inventory.addItem(meta, invItem)
+        end
         noteEvents({{ type = "log", text = ok and ("Bought: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
 
     -- ======== 公会金库 ========
@@ -1306,9 +1327,21 @@ pcall(function()
     mount.loadFromProto()
 end)
 
+-- 合并 proto 技能 (从 proto/abilities.json, TS 结构)
+pcall(function()
+    abilities.loadFromProto()
+end)
+
 -- 生成 NPC 实体 (从 proto/npcs.json)
 pcall(function()
     require("world.npc_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
+        return Entity.new(id, kind, templateId, name, level, pos)
+    end, allocId)
+end)
+
+-- 生成采集节点实体 (从 proto/gather_nodes.json)
+pcall(function()
+    require("world.gather_node_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
         return Entity.new(id, kind, templateId, name, level, pos)
     end, allocId)
 end)

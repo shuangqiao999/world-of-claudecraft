@@ -89,10 +89,49 @@ function M.turninQuest(meta, questId)
 
     -- 发放奖励 (XP 由 xp.grantXp 处理, 避免双重)
     meta.copper = (meta.copper or 0) + (quest.rewards.copper or 0)
-    if quest.rewards.items then
+    -- 物品奖励: TS itemRewards 是职业键控 map {warrior:itemId, ...} 或数组
+    local granted = quest.rewards.items
+    if granted then
         local inventory = require("world.inventory")
-        for _, itm in ipairs(quest.rewards.items) do
-            inventory.addItem(meta, itm)
+        local itemIds = {}
+        if type(granted) == "table" then
+            -- 数组: 全部发放
+            local isArray = #granted > 0
+            if isArray then
+                for _, itm in ipairs(granted) do
+                    if type(itm) == "string" then
+                        table.insert(itemIds, itm)
+                    elseif type(itm) == "table" and itm.itemId then
+                        table.insert(itemIds, itm.itemId)
+                    end
+                end
+            else
+                -- 职业键控 map: 取当前职业的奖励
+                local cls = meta.class or "warrior"
+                local itemId = granted[cls]
+                if itemId then table.insert(itemIds, itemId) end
+                if #itemIds == 0 then
+                    -- 尝试 all 键
+                    local allId = granted["all"]
+                    if allId then table.insert(itemIds, allId) end
+                end
+            end
+        elseif type(granted) == "string" then
+            table.insert(itemIds, granted)
+        end
+        -- 解析 itemId → 完整物品并加入背包
+        for _, itemId in ipairs(itemIds) do
+            local itemDef = nil
+            local ok, proto = pcall(function() return require("proto.load") end)
+            if ok then itemDef = proto.getItem(itemId) end
+            if itemDef then
+                local newItem = inventory.createItem(itemId, itemDef.name or itemId, itemDef.kind or "misc", itemDef)
+                inventory.addItem(meta, newItem)
+            else
+                -- 回退: 简单物品
+                local newItem = inventory.createItem(itemId, itemId, "misc", { id = itemId })
+                inventory.addItem(meta, newItem)
+            end
         end
     end
 

@@ -70,7 +70,7 @@ function M.checkRespawn(entities, worldInitFn, gridModule, currentTime)
                 z = cz + math.sin(ang) * dist,
             }
 
-            local mob = worldInitFn(sd.templateId, sd.templateId, sd.level or 1, newPos)
+            local mob = worldInitFn(sd.templateId, sd.templateId, M._spawnLevel(sd.templateId, sd.level), newPos)
 
             if mob then
                 sd.count = sd.count + 1
@@ -92,7 +92,23 @@ function M.onMobDeath(mobId, entities)
     end
 end
 
---- 获取掉落列表 (确定性 RNG)
+--- 从 mobs.json minLevel/maxLevel 随机出生等级 (TS camp spawn)
+function M._spawnLevel(templateId, campLevel)
+    if campLevel and campLevel > 1 then return campLevel end
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if ok then
+        local tpl = proto.getMob(templateId)
+        if tpl and tpl.minLevel then
+            local min = tpl.minLevel or 1
+            local max = tpl.maxLevel or min
+            if max > min then return simrng.randint(min, max) end
+            return min
+        end
+    end
+    return campLevel or 1
+end
+
+--- 获取掉落列表 (确定性 RNG; 从 proto/mobs.json 模板 loot 数组)
 function M.getLoot(mob)
     local loot = {}
     local level = mob.level or 1
@@ -100,8 +116,24 @@ function M.getLoot(mob)
     local copper = simrng.randint(level * 2, level * 8)
     table.insert(loot, { type = "copper", amount = copper })
 
-    if simrng.random() < 0.3 then
-        table.insert(loot, { type = "item", name = "Wolf Pelt", count = 1 })
+    -- 模板掉落 (TS: mob template loot 数组)
+    local tpl = nil
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if ok then tpl = proto.getMob(mob.templateId) end
+    local templateLoot = tpl and tpl.loot or nil
+    if templateLoot and type(templateLoot) == "table" then
+        for _, entry in ipairs(templateLoot) do
+            local chance = entry.chance or 0.5
+            if simrng.random() < chance then
+                table.insert(loot, {
+                    type = "item",
+                    itemId = entry.itemId or entry.id,
+                    name = entry.name or entry.itemId or "Loot",
+                    count = entry.count or 1,
+                    rollGroup = entry.rollGroup,
+                })
+            end
+        end
     end
 
     return loot

@@ -36,6 +36,22 @@ function M.addCollider(c)
     local key = c.gridIndex
     if not grid[key] then grid[key] = {} end
     table.insert(grid[key], c)
+    return c
+end
+
+--- 移除碰撞体 (实例内碰撞体离开时)
+function M.removeCollider(c)
+    c._removed = true
+    local key = c.gridIndex
+    if key and grid[key] then
+        for i = #grid[key], 1, -1 do
+            if grid[key][i] == c then table.remove(grid[key], i) break end
+        end
+    end
+    -- 从主列表移除
+    for i = #colliders, 1, -1 do
+        if colliders[i] == c then table.remove(colliders, i) break end
+    end
 end
 
 --- 清空碰撞体

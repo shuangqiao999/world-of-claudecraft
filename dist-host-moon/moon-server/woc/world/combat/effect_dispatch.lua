@@ -11,6 +11,11 @@ local config = require("config")
 
 local M = {}
 
+-- 效果 → 光环 id (必须在 _applyEffect 前声明, 供 dot/selfBuff 引用)
+local function abilityIdOf(effect)
+    return effect.auraId or effect.id or ""
+end
+
 --- 执行技能效果
 function M.execute(caster, target, ability, entities, simTime)
     if not ability or not ability.effects then return {} end
@@ -210,10 +215,6 @@ function M._applyEffect(caster, target, effect, entities, simTime)
     end
 
     return events
-end
-
-local function abilityIdOf(effect)
-    return effect.auraId or effect.id or ""
 end
 
 --- 根据效果范围解析目标

@@ -40,9 +40,17 @@ end
 --- @param entity Entity
 --- @param itemId string
 --- @return boolean, string|table
-function M.buyItem(meta, entity, itemId)
+function M.buyItem(meta, entity, itemId, npcStock)
+    -- NPC 专属库存过滤 (TS: NPC vendorItems 引用 items)
+    local inStock = function(entry)
+        if not npcStock then return true end
+        for _, vid in ipairs(npcStock) do
+            if vid == entry.id then return true end
+        end
+        return false
+    end
     for _, item in ipairs(VENDOR_ITEMS) do
-        if item.id == itemId then
+        if item.id == itemId and inStock(item) then
             local cost = item.value
             if (meta.copper or 0) < cost then
                 return false, "Not enough copper"

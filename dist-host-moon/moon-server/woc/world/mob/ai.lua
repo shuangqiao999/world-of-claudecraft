@@ -37,7 +37,8 @@ local aiData = {}
 --- @param mob Entity
 --- @param templateId string
 --- @param spawnPos table {x, y, z}
-function M.initMob(mob, templateId, spawnPos)
+function M.initMob(mob, templateId, spawnPos, opts)
+    opts = opts or {}
     local proto = require("proto.load")
     local template = proto.getMob(templateId)
 
@@ -46,10 +47,16 @@ function M.initMob(mob, templateId, spawnPos)
     profile = combatProfile.scaleProfile(profile, mob.level or 1)
 
     if template then
+        -- 英雄难度缩放 (TS heroic: hp×1.5, dmg×1.3, level+2)
+        local heroicScale = { hpMult = 1, dmgMult = 1, levelOffset = 0 }
+        if opts.heroic then
+            heroicScale = require("world.heroic_dungeon").getHeroicScale(true)
+        end
         -- TS createMob (entity.ts:733-778): hpBase/hpPerLevel + elite 缩放
-        local hpMult = template.elite and 2.3 or 1
-        local dmgMult = template.elite and 1.5 or 1
-        local lvl = mob.level or 1
+        local hpMult = (template.elite and 2.3 or 1) * heroicScale.hpMult
+        local dmgMult = (template.elite and 1.5 or 1) * heroicScale.dmgMult
+        local lvl = (mob.level or 1) + heroicScale.levelOffset
+        mob.level = lvl
         mob.maxHp = math.round((template.hpBase + template.hpPerLevel * (lvl - 1)) * hpMult)
         mob.hp = mob.maxHp
         local dmg = (template.dmgBase + template.dmgPerLevel * (lvl - 1)) * dmgMult
