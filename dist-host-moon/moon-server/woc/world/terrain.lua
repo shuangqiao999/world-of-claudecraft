@@ -254,4 +254,44 @@ function M.getWorldSeed()
     return WORLD_SEED
 end
 
+-- === 确定性装饰生成 (TS world.ts generateDecorations, DECORATION_STEP=10) ===
+local DECORATION_STEP = 10
+
+--- 生成指定范围内的装饰 (rocks/trees), 确定性
+--- @param minX,minZ,maxX,maxZ 范围
+--- @return table { {kind, x, z, scale}, ... }
+function M.generateDecorationsInBounds(minX, minZ, maxX, maxZ)
+    local out = {}
+    local gx0 = math.floor(minX / DECORATION_STEP) - 1
+    local gx1 = math.floor(maxX / DECORATION_STEP) + 1
+    local gz0 = math.floor(minZ / DECORATION_STEP) - 1
+    local gz1 = math.floor(maxZ / DECORATION_STEP) + 1
+    for gx = gx0, gx1 do
+        for gz = gz0, gz1 do
+            local cx = gx * DECORATION_STEP
+            local cz = gz * DECORATION_STEP
+            -- 确定性 hash 决定是否生成 + 类型 + 抖动
+            local h = hash2(gx, gz)
+            local density = h  -- 0..1
+            if density > 0.35 then  -- 65% 格有装饰
+                local x = cx + (hash2(gx * 7 + 1, gz * 13) - 0.5) * 10
+                local z = cz + (hash2(gx * 3 + 5, gz * 11) - 0.5) * 10
+                local kindRoll = hash2(gx * 17, gz * 19)
+                local kind = kindRoll < 0.6 and "tree" or "rock"
+                local scale = 0.7 + hash2(gx * 23, gz * 29) * 1.0
+                -- 避开水体
+                if M.groundHeight(x, z) > WATER_LEVEL then
+                    table.insert(out, { kind = kind, x = x, z = z, scale = scale })
+                end
+            end
+        end
+    end
+    return out
+end
+
+--- 全量装饰 (超大范围 — 谨慎使用, 一般用 InBounds)
+function M.generateDecorations()
+    return M.generateDecorationsInBounds(-2000, -2000, 2000, 2000)
+end
+
 return M

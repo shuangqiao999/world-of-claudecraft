@@ -1308,6 +1308,11 @@ pcall(function()
     end, allocId)
 end)
 
+-- 注册世界静态碰撞体 (PROPS + 装饰 + 街灯, 确定性)
+pcall(function()
+    require("world.world_colliders").registerAll(terrain.getWorldSeed())
+end)
+
 -- 初始化确定性 RNG (使用固定种子确保可重现)
 simrng.init(42)
 print(string.format("[World] SimRNG initialized seed=%d", simrng.getSeed()))
