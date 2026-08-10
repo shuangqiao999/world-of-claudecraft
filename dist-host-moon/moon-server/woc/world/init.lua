@@ -104,6 +104,9 @@ local xp = require("world.xp")
 local swimFatigue = require("world.swim_fatigue")
 local dragonkinBrood = require("world.dragonkin_brood")
 local doorTriggers = require("world.door_triggers")
+local escorts = require("world.escorts")
+local commissionOrders = require("world.commission_orders")
+local naturesFury = require("world.natures_fury")
 
 local entities = {}     -- id → Entity
 local players = {}      -- pid → PlayerMeta
@@ -683,6 +686,11 @@ local function doGameTick()
                     table.insert(combatEvents, ev)
                 end
             end)
+            -- 自然之怒 (TS tickNaturesFury: 德鲁伊小队暴击脉冲)
+            pcall(function()
+                local nfEvents = naturesFury.tickNaturesFury(e, meta, tick, partyMod)
+                for _, ev in ipairs(nfEvents) do table.insert(combatEvents, ev) end
+            end)
             -- 坠落伤害事件 (movement.lua 垂直状态机)
             pcall(function()
                 if e._fallDamage and e._fallDamage > 0 then
@@ -748,6 +756,15 @@ local function doGameTick()
     -- Phase: 延迟事件清空 (TS drainDelayedEvents: tick 尾部, 在 deeds 之前)
     local delayedDue = safeCall("delayedEvents.drain", function() return delayedEvents.drain(simTime) end)
     for _, ev in ipairs(delayedDue) do table.insert(combatEvents, ev) end
+
+    -- Phase: 委托订单板清理 (TS updateCommissionOrders: 无 rng)
+    safeCall("commissionOrders.update", function() commissionOrders.update() end)
+
+    -- Phase: 护送 (TS updateEscorts: 无 rng)
+    local escortEvents = safeCall("escorts.update", function()
+        return escorts.update(entities, players, createMobEntity, grid, config.DT)
+    end)
+    for _, ev in ipairs(escortEvents) do table.insert(combatEvents, ev) end
 
     -- Phase: 广播 — 每 tick 发快照+事件 (20Hz)
     pcall(broadcastSnapshot)
