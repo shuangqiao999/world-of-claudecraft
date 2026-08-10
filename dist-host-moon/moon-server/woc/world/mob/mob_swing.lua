@@ -59,6 +59,29 @@ function M.updateSwing(mob, target, dt)
         target.resource = math.min(target.maxResource, target.resource + rageMod.rageFromTaking(final, mob.level or 1))
     end
 
+    -- 荆棘反伤 (TS mob thorns: boar Bristled Hide)
+    local tpl = nil
+    local okp, proto = pcall(function() return require("proto.load") end)
+    if okp then tpl = proto.getMob(mob.templateId) end
+    if tpl and tpl.thorns then
+        local thornsDmg = tpl.thorns.value or 2
+        target.hp = math.max(0, target.hp - thornsDmg)
+    end
+
+    -- 生命汲取 (TS lifeleech: mob 造成伤害自愈)
+    if tpl and tpl.lifeleech then
+        local leechPct = tpl.lifeleech.pct or 0.1
+        local healed = math.min(math.round(final * leechPct), mob.maxHp - mob.hp)
+        if healed > 0 then mob.hp = mob.hp + healed end
+    end
+
+    -- 受击狂暴 (TS frenzyOnHit: 概率提速)
+    if tpl and tpl.frenzyOnHit and simrng.random() < (tpl.frenzyOnHit.chance or 0) then
+        mob.weapon = mob.weapon or { min = 2, max = 4, speed = 2 }
+        mob.weapon.speed = mob.weapon.speed / (tpl.frenzyOnHit.hasteMult or 1.3)
+        mob._frenzied = true
+    end
+
     return { type = "mob_swing", mobId = mob.id, targetId = target.id, dmg = final, crit = result.crit, result = result.result }
 end
 

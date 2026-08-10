@@ -137,6 +137,24 @@ function M.updateMob(mob, entities, players, dt)
         if data.state ~= AI_STATE.DEAD then
             data.state = AI_STATE.DEAD
             threatMod.clearThreat(mob.id)
+            -- 兽群狂暴 (TS packFrenzy: 伙伴死亡时附近同类提速)
+            local tpl = nil
+            local okp, proto = pcall(function() return require("proto.load") end)
+            if okp then tpl = proto.getMob(mob.templateId) end
+            if tpl and tpl.packFrenzy then
+                for _, other in pairs(entities) do
+                    if other.kind == "mob" and not other.dead and other.id ~= mob.id
+                       and other.templateId == mob.templateId then
+                        local dx = mob.pos.x - other.pos.x
+                        local dz = mob.pos.z - other.pos.z
+                        local r = tpl.packFrenzy.radius or 12
+                        if dx * dx + dz * dz <= r * r then
+                            other.weapon = other.weapon or { min = 2, max = 4, speed = 2 }
+                            other.weapon.speed = other.weapon.speed / (tpl.packFrenzy.hasteMult or 1.5)
+                        end
+                    end
+                end
+            end
         end
         -- Corpse tick (TS locomotion corpse branch): 尸体倒计时 + 尸体爆炸 + 召唤物 unravel
         local events = {}
