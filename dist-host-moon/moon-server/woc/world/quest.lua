@@ -6,6 +6,7 @@ local M = {}
 
 -- 任务表 (启动时从 proto 填充)
 local QUESTS = {}
+local QUEST_ORDER = {}
 local questsLoaded = false
 
 --- 从 proto/quests.json 加载任务 (TS QuestDef: giverNpcId/objectives/xpReward/copperReward/itemRewards)
@@ -45,8 +46,17 @@ function M.loadFromProto()
             }
         end
     end
+
+    -- 加载任务顺序 (TS quest_order: 推进顺序)
+    QUEST_ORDER = {}
+    if proto.quest_order then
+        for _, qid in ipairs(proto.quest_order) do
+            table.insert(QUEST_ORDER, qid)
+        end
+    end
+
     questsLoaded = true
-    print(string.format("[Quest] Loaded %d quests from proto", #QUESTS))
+    print(string.format("[Quest] Loaded %d quests + order from proto", #QUESTS))
 end
 
 --- 初始化玩家任务数据
@@ -171,15 +181,33 @@ function M.onKill(meta, mobTemplateId)
     return updated
 end
 
---- 获取可用任务列表
+--- 获取可用任务列表 (TS quest chain: requiresQuest 前置 + quest_order 顺序)
 function M.getAvailableQuests(meta)
     M.initQuestData(meta)
     local available = {}
     for qid, quest in pairs(QUESTS) do
         if not meta.qdone[qid] and not meta.qlog[qid] then
+            -- 前置任务门槛 (TS requiresQuest)
+            if quest.requiresQuest and not meta.qdone[quest.requiresQuest] then
+                goto continue_q
+            end
+            -- 等级门槛
+            if quest.minLevel and meta.level and meta.level < quest.minLevel then
+                goto continue_q
+            end
             table.insert(available, quest)
         end
+        ::continue_q::
     end
+    -- 按 quest_order 排序
+    table.sort(available, function(a, b)
+        local ia, ib = 99999, 99999
+        for i, qid in ipairs(QUEST_ORDER) do
+            if qid == a.id then ia = i end
+            if qid == b.id then ib = i end
+        end
+        return ia < ib
+    end)
     return available
 end
 

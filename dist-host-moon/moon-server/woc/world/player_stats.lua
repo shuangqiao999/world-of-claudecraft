@@ -90,9 +90,27 @@ local CLASS_DEFS = {
     },
 }
 
---- 获取职业定义
+--- 获取职业定义 (proto/classes.json 优先, 硬编码回退)
 function M.getClassDef(cls)
-    return CLASS_DEFS[cls] or CLASS_DEFS["warrior"]
+    local hard = CLASS_DEFS[cls]
+    if hard then return hard end
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if ok then
+        local pc = proto.getClass(cls)
+        if pc and pc.baseStats then
+            -- 转换为内部格式 (TS ClassDef: baseStats/statsPerLevel/baseHp/hpPerLevel/baseMana/...)
+            return {
+                baseStats = pc.baseStats or { str = 10, agi = 10, sta = 10, int = 10, spi = 10, armor = 20 },
+                statsPerLevel = pc.statsPerLevel or { str = 1, agi = 1, sta = 1, int = 1, spi = 1, armor = 5 },
+                baseHp = pc.baseHp or 45,
+                hpPerLevel = pc.hpPerLevel or 12,
+                baseMana = pc.baseMana or 100,
+                manaPerLevel = pc.manaPerLevel or 20,
+                resourceType = pc.resourceType or "mana",
+            }
+        end
+    end
+    return CLASS_DEFS["warrior"]
 end
 
 --- 重算玩家属性 (核心函数)

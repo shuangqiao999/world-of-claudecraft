@@ -39,6 +39,15 @@ local function buildSelfJson(e, meta)
         mhp = e.maxHp or 100,
     }
 
+    -- 当前区域 (从 proto/zones.json)
+    if e.kind == "player" then
+        local zok, zzone = pcall(function() return require("world.zone").getZoneAt(e.pos.x, e.pos.z) end)
+        if zok and zzone then
+            self.zone = zzone.id
+            self.zoneName = zzone.name
+        end
+    end
+
     -- 资源
     self.res = jh.round2(e.resource or 0)
     self.mres = e.maxResource or 100

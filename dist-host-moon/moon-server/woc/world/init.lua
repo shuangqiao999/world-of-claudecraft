@@ -107,6 +107,7 @@ local doorTriggers = require("world.door_triggers")
 local escorts = require("world.escorts")
 local commissionOrders = require("world.commission_orders")
 local naturesFury = require("world.natures_fury")
+local zone = require("world.zone")
 
 local entities = {}     -- id → Entity
 local players = {}      -- pid → PlayerMeta
@@ -1345,6 +1346,11 @@ end)
 -- 加载制造配方 (从 proto/recipes.json)
 pcall(function()
     profession.loadFromProto()
+end)
+
+-- 加载区域定义 (从 proto/zones.json)
+pcall(function()
+    zone.loadFromProto()
 end)
 
 -- 生成 NPC 实体 (从 proto/npcs.json)
