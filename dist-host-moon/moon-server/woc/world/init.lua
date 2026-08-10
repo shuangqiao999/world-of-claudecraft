@@ -1291,6 +1291,23 @@ pcall(function()
     doorTriggers.loadDoors()
 end)
 
+-- 加载任务定义 (从 proto/quests.json)
+pcall(function()
+    quest.loadFromProto()
+end)
+
+-- 构建商店商品 (从 proto/items.json)
+pcall(function()
+    vendor.loadFromProto()
+end)
+
+-- 生成 NPC 实体 (从 proto/npcs.json)
+pcall(function()
+    require("world.npc_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
+        return Entity.new(id, kind, templateId, name, level, pos)
+    end, allocId)
+end)
+
 -- 初始化确定性 RNG (使用固定种子确保可重现)
 simrng.init(42)
 print(string.format("[World] SimRNG initialized seed=%d", simrng.getSeed()))
