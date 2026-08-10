@@ -264,6 +264,9 @@ local function resolveCastEffects(e, target, ability, combatEvents, entities, si
         end
     end
     setProcs.applySetProcs(e, target, "on_spell_cast", simTime)
+    -- 传奇武器 on-hit procs (TS equip_procs)
+    local equipProcEvents = require("world.combat.equip_procs").applyWeaponProcs(e, target, "on_hit", ability.id, entities, simTime)
+    for _, ev in ipairs(equipProcEvents) do table.insert(combatEvents, ev) end
     if target and spirit.checkDeath(target) then
         table.insert(combatEvents, { type = "death", pid = target.id })
     end
