@@ -931,22 +931,56 @@ function H.df_queue_leave(ctx, pid, cmd)
     ctx.dungeonFinder.leaveQueue(pid)
     return true
 end
-function H.df_proposal(ctx, pid, cmd) return notImplemented(ctx, pid, "df_proposal") end
-function H.df_list_create(ctx, pid, cmd) return notImplemented(ctx, pid, "df_list_create") end
-function H.df_list_close(ctx, pid, cmd) return notImplemented(ctx, pid, "df_list_close") end
-function H.df_apply(ctx, pid, cmd) return notImplemented(ctx, pid, "df_apply") end
-function H.df_apply_cancel(ctx, pid, cmd) return notImplemented(ctx, pid, "df_apply_cancel") end
-function H.df_app_respond(ctx, pid, cmd) return notImplemented(ctx, pid, "df_app_respond") end
+function H.df_proposal(ctx, pid, cmd)
+    local ok, err = ctx.dungeonFinder.respondToProposal(pid, cmd.accept == true)
+    if not ok then ctx.noteEvents({ { type = "log", text = err or "Failed", pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "df_proposal")
+end
+function H.df_list_create(ctx, pid, cmd)
+    local id = ctx.dungeonFinder.createListing(pid, s(cmd.activity), cmd.tags)
+    ctx.noteEvents({ { type = "log", text = "Listing #" .. tostring(id) .. " created", pid = pid } })
+    return true
+end
+function H.df_list_close(ctx, pid, cmd)
+    local ok = ctx.dungeonFinder.closeListing(pid)
+    if ok then ctx.noteEvents({ { type = "log", text = "Listing closed", pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "df_list_close")
+end
+function H.df_apply(ctx, pid, cmd)
+    local ok, err = ctx.dungeonFinder.applyToListing(pid, n(cmd.listing))
+    if not ok then ctx.noteEvents({ { type = "log", text = err, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "df_apply")
+end
+function H.df_apply_cancel(ctx, pid, cmd)
+    local ok = ctx.dungeonFinder.cancelApplication(pid)
+    return ok or notImplemented(ctx, pid, "df_apply_cancel")
+end
+function H.df_app_respond(ctx, pid, cmd)
+    local ok, result = ctx.dungeonFinder.respondToApplication(pid, n(cmd.applicant), cmd.accept == true)
+    if ok then ctx.noteEvents({ { type = "log", text = "Application " .. tostring(result), pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "df_app_respond")
+end
 
 -- ============ 卡牌决斗 ============
-function H.card_queue_join(ctx, pid, cmd) return notImplemented(ctx, pid, "card_queue_join") end
-function H.card_queue_leave(ctx, pid, cmd) return notImplemented(ctx, pid, "card_queue_leave") end
+function H.card_queue_join(ctx, pid, cmd)
+    local ok, result = ctx.cardDuel.joinCardQueue(pid)
+    ctx.noteEvents({ { type = "log", text = ok and ("Card queue: " .. tostring(result)) or "Failed", pid = pid } })
+    return ok or notImplemented(ctx, pid, "card_queue_join")
+end
+function H.card_queue_leave(ctx, pid, cmd)
+    local ok = ctx.cardDuel.leaveCardQueue(pid)
+    return ok or notImplemented(ctx, pid, "card_queue_leave")
+end
 function H.play_card(ctx, pid, cmd)
     local ok, val = ctx.cardDuel.playCard(pid, n(cmd.value) or 0)
     ctx.noteEvents({ { type = "log", text = ok and ("Played: " .. tostring(val)) or "Failed", pid = pid } })
     return ok
 end
-function H.card_forfeit(ctx, pid, cmd) return notImplemented(ctx, pid, "card_forfeit") end
+function H.card_forfeit(ctx, pid, cmd)
+    local ok, oppPid = ctx.cardDuel.forfeitCardDuel(pid)
+    if ok then ctx.noteEvents({ { type = "log", text = "Forfeited duel", pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "card_forfeit")
+end
 
 -- ============ 拍卖行 ============
 function H.market_search(ctx, pid, cmd)
@@ -1155,13 +1189,46 @@ function H.delve_interact(ctx, pid, cmd)
     ctx.noteEvents({ { type = "log", text = ok and ("Picked! (" .. tostring(rem) .. " left)") or "Failed", pid = pid } })
     return ok
 end
-function H.companion_upgrade(ctx, pid, cmd) return notImplemented(ctx, pid, "companion_upgrade") end
-function H.delve_buy(ctx, pid, cmd) return notImplemented(ctx, pid, "delve_buy") end
-function H.lockpick_engage(ctx, pid, cmd) return H.delve_interact(ctx, pid, cmd) end
-function H.lockpick_action(ctx, pid, cmd) return notImplemented(ctx, pid, "lockpick_action") end
-function H.lockpick_abort(ctx, pid, cmd) return notImplemented(ctx, pid, "lockpick_abort") end
-function H.collect_delve_chest_loot(ctx, pid, cmd) return notImplemented(ctx, pid, "collect_delve_chest_loot") end
-function H.delve_rite_choose(ctx, pid, cmd) return notImplemented(ctx, pid, "delve_rite_choose") end
+function H.companion_upgrade(ctx, pid, cmd)
+    local ok, result = ctx.delve.companionUpgrade(pid, s(cmd.companionId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Companion upgraded to rank " .. tostring(result), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "companion_upgrade")
+end
+function H.delve_buy(ctx, pid, cmd)
+    local ok, result = ctx.delve.delveBuyShopItem(pid, s(cmd.delveId), s(cmd.itemId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Bought: " .. tostring(result), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "delve_buy")
+end
+function H.lockpick_engage(ctx, pid, cmd)
+    local ok, result = ctx.delve.lockpickEngage(pid, n(cmd.objectId), n(cmd.ante))
+    if ok then ctx.noteEvents({ { type = "log", text = "Lockpick session started", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "lockpick_engage")
+end
+function H.lockpick_action(ctx, pid, cmd)
+    local ok, result = ctx.delve.lockpickAction(pid, s(cmd.sid), s(cmd.action))
+    if ok then ctx.noteEvents({ { type = "log", text = "Lockpick: " .. tostring(result), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = "Lockpick: " .. tostring(result), pid = pid } }) end
+    return ok ~= false or notImplemented(ctx, pid, "lockpick_action")
+end
+function H.lockpick_abort(ctx, pid, cmd)
+    local ok = ctx.delve.lockpickAbort(pid, s(cmd.sid))
+    return ok or notImplemented(ctx, pid, "lockpick_abort")
+end
+function H.collect_delve_chest_loot(ctx, pid, cmd)
+    local ok, result = ctx.delve.collectDelveChestLoot(pid)
+    if ok then ctx.noteEvents({ { type = "log", text = "Collected " .. (result.item or "") .. " +" .. tostring(result.copper) .. " copper", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "collect_delve_chest_loot")
+end
+function H.delve_rite_choose(ctx, pid, cmd)
+    local ok, result = ctx.delve.delveRiteChoose(pid, s(cmd.intensity))
+    if ok then ctx.noteEvents({ { type = "log", text = "Rite: " .. tostring(result), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "delve_rite_choose")
+end
 
 -- ============ 天赋 / 声望 ============
 function H.prestige(ctx, pid, cmd) return notImplemented(ctx, pid, "prestige") end

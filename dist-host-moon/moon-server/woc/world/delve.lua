@@ -189,4 +189,102 @@ function M.getDelveState(pid)
     return activeDelves[pid]
 end
 
+--- 同伴升级
+function M.companionUpgrade(pid, companionId)
+    local delve = activeDelves[pid]
+    if not delve then return false, "Not in a delve" end
+    if (delves[pid] and delves[pid].companionRank or 0) >= 3 then return false, "Max rank" end
+    local cost = ((delves[pid] and delves[pid].companionRank or 0) + 1) * 50
+    delve.companionRank = (delves[pid] and delves[pid].companionRank or 0) + 1
+    delve.companionMaxHp = 100 + (delve.companionRank or 1) * 20
+    delve.companionHp = math.min(delve.companionHp + 30, delve.companionMaxHp)
+    return true, delve.companionRank
+end
+
+--- Delve 商店购买
+function M.delveBuyShopItem(pid, delveId, itemId)
+    local delve = activeDelves[pid]
+    if not delve then return false, "Not in a delve" end
+    local shopItems = {
+        health_potion = { cost = 50, effect = function() delve.companionHp = math.min(delve.companionMaxHp, delve.companionHp + 40) end },
+        extra_lockpick = { cost = 30, effect = function() delve.lockpicksRemaining = (delve.lockpicksRemaining or 0) + 1 end },
+        time_extend = { cost = 40, effect = function() delve.roomTimer = delve.roomTimer + 60 end },
+    }
+    local si = shopItems[itemId]
+    if not si then return false, "Unknown shop item" end
+    si.effect()
+    return true, itemId
+end
+
+--- 开锁会话开始 (带前置)
+function M.lockpickEngage(pid, objectId, ante)
+    local delve = activeDelves[pid]
+    if not delve then return false, "Not in a delve" end
+    if delve.lockpicksRemaining <= 0 then return false, "No lockpicks" end
+    delve.lockpickSession = {
+        objectId = objectId,
+        ante = ante or 1,
+        progress = 0,
+        maxProgress = 3,
+        sid = "lp_" .. pid .. "_" .. os.time(),
+    }
+    return true, delve.lockpickSession
+end
+
+--- 开锁行动
+function M.lockpickAction(pid, sid, action)
+    local delve = activeDelves[pid]
+    if not delve or not delve.lockpickSession then return false, "No session" end
+    if delve.lockpickSession.sid ~= sid then return false, "Session mismatch" end
+    if simrng.random() < 0.55 then
+        delve.lockpickSession.progress = delve.lockpickSession.progress + 1
+        if delve.lockpickSession.progress >= delve.lockpickSession.maxProgress then
+            delve.puzzlesSolved = (delve.puzzlesSolved or 0) + 1
+            delve.lockpicksRemaining = (delve.lockpicksRemaining or 1) - 1
+            delve.lockpickSession = nil
+            return true, "opened"
+        end
+        return true, "progress"
+    end
+    delve.lockpickSession.progress = math.max(0, delve.lockpickSession.progress - 1)
+    if delve.lockpickSession.progress <= -2 then
+        delve.lockpicksRemaining = (delve.lockpicksRemaining or 1) - 1
+        delve.lockpickSession = nil
+        return false, "broken"
+    end
+    return false, "fail"
+end
+
+--- 放弃开锁
+function M.lockpickAbort(pid, sid)
+    local delve = activeDelves[pid]
+    if not delve or not delve.lockpickSession then return false end
+    delve.lockpicksRemaining = (delve.lockpicksRemaining or 1) - 1
+    delve.lockpickSession = nil
+    return true
+end
+
+--- 收集宝箱战利品
+function M.collectDelveChestLoot(pid)
+    local delve = activeDelves[pid]
+    if not delve then return false, "Not in a delve" end
+    if delve.currentRoom < 3 then return false, "No chest yet" end
+    local loot = { copper = simrng.randint(100, 400) }
+    if simrng.random() < 0.35 then loot.item = "Delver's Keepsake" end
+    table.insert(delve.rewards, { type = "copper", amount = loot.copper })
+    if loot.item then table.insert(delve.rewards, { type = "item", name = loot.item, count = 1 }) end
+    return true, loot
+end
+
+--- 选择仪式
+function M.delveRiteChoose(pid, intensity)
+    local delve = activeDelves[pid]
+    if not delve then return false, "Not in a delve" end
+    local rites = { easy = 1.0, medium = 1.3, hard = 1.6 }
+    if not rites[intensity] then return false, "Invalid intensity" end
+    delve.riteIntensity = intensity
+    delve.roomTimer = delve.roomTimer * (intensity == "hard" and 0.7 or intensity == "medium" and 0.85 or 1.0)
+    return true, intensity
+end
+
 return M

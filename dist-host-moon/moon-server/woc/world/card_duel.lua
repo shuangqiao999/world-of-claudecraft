@@ -127,6 +127,43 @@ function M.cancelDuel(pid)
     end
 end
 
+-- 卡牌大师的等待队列
+local cardQueue = {}
+
+--- 加入卡牌排队
+function M.joinCardQueue(pid)
+    for _, qp in ipairs(cardQueue) do
+        if qp == pid then return false end
+    end
+    if duels[pid] then return false end
+    table.insert(cardQueue, pid)
+    if #cardQueue >= 2 then
+        local p1 = table.remove(cardQueue, 1)
+        local p2 = table.remove(cardQueue, 1)
+        M.startDuel(p1, p2)
+        return true, "matched"
+    end
+    return true, "waiting"
+end
+
+--- 离开卡牌排队
+function M.leaveCardQueue(pid)
+    for i, qp in ipairs(cardQueue) do
+        if qp == pid then table.remove(cardQueue, i); return true end
+    end
+    return false
+end
+
+--- 认输
+function M.forfeitCardDuel(pid)
+    local duel = duels[pid]
+    if not duel then return false, "Not in a duel" end
+    local oppPid = duel.opponentPid
+    duels[pid] = nil
+    if oppPid then duels[oppPid] = nil end
+    return true, oppPid
+end
+
 --- 获取决斗状态
 function M.getDuel(pid)
     return duels[pid]

@@ -189,4 +189,81 @@ function M.update(simTime, entities, dt)
     return events
 end
 
-return M
+-- 预组公开列表
+local listings = {}    -- { listingId, leaderPid, activity, tags, applicants = {pid, ...} }
+local nextListingId = 1
+-- 活跃的匹配提议
+local activeProposals = {}  -- { proposalId, groupKey, accepted = {pid=true}, ... }
+
+--- 回应匹配提议
+function M.respondToProposal(pid, accept)
+    for _, group in pairs(formedGroups) do
+        for _, mid in ipairs(group.members) do
+            if mid == pid then
+                if not group.readyResponses then group.readyResponses = {} end
+                group.readyResponses[pid] = accept == true
+                local readyCount = 0
+                for _, v in pairs(group.readyResponses) do if v then readyCount = readyCount + 1 end end
+                if readyCount >= #group.members then group.ready = true end
+                return true
+            end
+        end
+    end
+    return false, "No active proposal"
+end
+
+--- 创建公开列表
+function M.createListing(leaderPid, activity, tags)
+    local id = nextListingId; nextListingId = nextListingId + 1
+    listings[id] = { listingId = id, leaderPid = leaderPid, activity = activity, tags = tags or {}, applicants = {} }
+    return id
+end
+
+--- 关闭公开列表
+function M.closeListing(leaderPid)
+    for id, l in pairs(listings) do
+        if l.leaderPid == leaderPid then listings[id] = nil; return true end
+    end
+    return false
+end
+
+--- 申请加入列表
+function M.applyToListing(pid, listingId)
+    local l = listings[listingId]
+    if not l then return false, "Listing not found" end
+    for _, ap in ipairs(l.applicants) do
+        if ap == pid then return false, "Already applied" end
+    end
+    table.insert(l.applicants, pid)
+    return true
+end
+
+--- 取消申请
+function M.cancelApplication(pid)
+    for _, l in pairs(listings) do
+        for i, ap in ipairs(l.applicants) do
+            if ap == pid then table.remove(l.applicants, i); return true end
+        end
+    end
+    return false
+end
+
+--- 回应申请 (leader accept/reject)
+function M.respondToApplication(leaderPid, applicantPid, accept)
+    for _, l in pairs(listings) do
+        if l.leaderPid == leaderPid then
+            for i, ap in ipairs(l.applicants) do
+                if ap == applicantPid then
+                    if accept then
+                        table.remove(l.applicants, i)
+                        return true, "accepted"
+                    else
+                        table.remove(l.applicants, i)
+                        return true, "rejected"
+                    end
+                end
+            end
+        end
+    end
+    return false, "Not found"
+end
