@@ -1251,7 +1251,7 @@ moon.exports.handleCommand = function(pid, cmd)
         arena = arena, battleground = battleground, rift = rift, delve = delve,
         dungeonFinder = dungeonFinder, cardDuel = cardDuel, lootRoll = lootRoll,
         readyCheck = readyCheck, petAI = petAI, fishing = fishing, mount = mount,
-        unstuck = unstuck, resurrectionOffer = resurrectionOffer,
+        commissionOrders = commissionOrders, unstuck = unstuck, resurrectionOffer = resurrectionOffer,
         heroicDungeon = heroicDungeon, guildBank = guildBank, partyMod = partyMod,
         tradeMod = tradeMod, duelMod = duelMod, chat = chat, xp = xp,
         deeds = deeds, pvpHonor = pvpHonor, doorTriggers = doorTriggers,

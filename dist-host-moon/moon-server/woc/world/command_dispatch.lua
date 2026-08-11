@@ -570,21 +570,83 @@ function H.craft_item(ctx, pid, cmd)
 end
 
 function H.place_mobile_station(ctx, pid, cmd)
-    return notImplemented(ctx, pid, "place_mobile_station")
+    local ok, err = ctx.profession.placeMobileStation(ctx.players[pid], s(cmd.craftId))
+    if not ok then ctx.noteEvents({ { type = "log", text = err, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "place_mobile_station")
 end
 
--- ============ 专业 (扩展占位) ============
-function H.train_recipe(ctx, pid, cmd) return notImplemented(ctx, pid, "train_recipe") end
-function H.slot_tool_effect(ctx, pid, cmd) return notImplemented(ctx, pid, "slot_tool_effect") end
-function H.recharge_tool_effect(ctx, pid, cmd) return notImplemented(ctx, pid, "recharge_tool_effect") end
-function H.disenchant_item(ctx, pid, cmd) return notImplemented(ctx, pid, "disenchant_item") end
-function H.apply_enchant(ctx, pid, cmd) return notImplemented(ctx, pid, "apply_enchant") end
-function H.salvage_item(ctx, pid, cmd) return notImplemented(ctx, pid, "salvage_item") end
-function H.unbind_item(ctx, pid, cmd) return notImplemented(ctx, pid, "unbind_item") end
-function H.open_commission_order(ctx, pid, cmd) return notImplemented(ctx, pid, "open_commission_order") end
-function H.cancel_commission_order(ctx, pid, cmd) return notImplemented(ctx, pid, "cancel_commission_order") end
-function H.accept_commission_order(ctx, pid, cmd) return notImplemented(ctx, pid, "accept_commission_order") end
-function H.deliver_commission_order(ctx, pid, cmd) return notImplemented(ctx, pid, "deliver_commission_order") end
+-- ============ 专业 (扩展实现) ============
+function H.train_recipe(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.profession.trainRecipe(meta, s(cmd.recipeId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Learned recipe: " .. (result and result.name or ""), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "train_recipe")
+end
+function H.slot_tool_effect(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok = ctx.profession.slotToolEffect(meta, s(cmd.professionId), s(cmd.effectId))
+    return ok or notImplemented(ctx, pid, "slot_tool_effect")
+end
+function H.recharge_tool_effect(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, err = ctx.profession.rechargeToolEffect(meta, s(cmd.professionId))
+    if not ok then ctx.noteEvents({ { type = "log", text = err, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "recharge_tool_effect")
+end
+function H.disenchant_item(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.profession.disenchantItem(meta, s(cmd.itemId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Disenchanted item", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "disenchant_item")
+end
+function H.apply_enchant(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.profession.applyEnchant(meta, s(cmd.itemId), s(cmd.enchantId), n(cmd.slot))
+    if ok then ctx.noteEvents({ { type = "log", text = "Enchant applied", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "apply_enchant")
+end
+function H.salvage_item(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.profession.salvageItem(meta, s(cmd.itemId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Salvaged item for " .. tostring(result.materials) .. " mats", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "salvage_item")
+end
+function H.unbind_item(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.profession.unbindItem(meta, s(cmd.itemId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Item unbound", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "unbind_item")
+end
+function H.open_commission_order(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local id = ctx.commissionOrders.openOrder(meta, s(cmd.recipeId), s(cmd.scope))
+    ctx.noteEvents({ { type = "log", text = "Commission order #" .. tostring(id) .. " opened", pid = pid } })
+    return true
+end
+function H.cancel_commission_order(ctx, pid, cmd)
+    local ok, err = ctx.commissionOrders.cancelOrder(n(cmd.orderId), pid)
+    if ok then ctx.noteEvents({ { type = "log", text = "Order cancelled", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = err, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "cancel_commission_order")
+end
+function H.accept_commission_order(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.commissionOrders.acceptOrder(n(cmd.orderId), pid, meta.name)
+    if ok then ctx.noteEvents({ { type = "log", text = "Order accepted", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "accept_commission_order")
+end
+function H.deliver_commission_order(ctx, pid, cmd)
+    local ok, result = ctx.commissionOrders.deliverOrder(n(cmd.orderId), pid)
+    if ok then ctx.noteEvents({ { type = "log", text = "Order completed", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "deliver_commission_order")
+end
 
 -- ============ 外观 ============
 function H.change_skin(ctx, pid, cmd)

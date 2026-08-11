@@ -9,8 +9,9 @@ local OPEN_ORDER_EXPIRE = 7 * 24 * 3600
 -- 终态订单保留 (秒)
 local TERMINAL_RETAIN = 24 * 3600
 
--- orders: { {id, status="open"|"complete"|"expired", updatedAt} }
+-- orders: { {id, status="open"|"complete"|"cancelled"|"expired", updatedAt, ownerPid, crafterPid, recipeId, scope} }
 local orders = {}
+local nextId = 1
 
 --- 发布订单
 function M.publish(order)
@@ -58,6 +59,66 @@ function M.getOpenOrders()
         if o.status == "open" then table.insert(open, o) end
     end
     return open
+end
+
+--- 创建佣金订单
+function M.openOrder(meta, recipeId, scope)
+    local id = nextId; nextId = nextId + 1
+    local order = {
+        id = id,
+        status = "open",
+        updatedAt = os.time(),
+        ownerPid = meta.charId,
+        ownerName = meta.name,
+        recipeId = recipeId,
+        scope = scope or "public",
+        crafterPid = nil,
+        crafterName = nil,
+    }
+    table.insert(orders, order)
+    return id
+end
+
+--- 取消佣金订单
+function M.cancelOrder(orderId, pid)
+    for _, o in ipairs(orders) do
+        if o.id == orderId then
+            if o.ownerPid and o.ownerPid ~= pid then return false, "Not your order" end
+            if o.status ~= "open" then return false, "Order already " .. o.status end
+            o.status = "cancelled"
+            o.updatedAt = os.time()
+            return true
+        end
+    end
+    return false, "Order not found"
+end
+
+--- 接受佣金订单
+function M.acceptOrder(orderId, pid, crafterName)
+    for _, o in ipairs(orders) do
+        if o.id == orderId then
+            if o.status ~= "open" then return false, "Order not open" end
+            if o.crafterPid then return false, "Already claimed" end
+            o.crafterPid = pid
+            o.crafterName = crafterName
+            return true, o
+        end
+    end
+    return false, "Order not found"
+end
+
+--- 完成佣金订单 (交付)
+function M.deliverOrder(orderId, pid)
+    for _, o in ipairs(orders) do
+        if o.id == orderId then
+            if o.crafterPid and o.crafterPid ~= pid then return false, "Not your order" end
+            if o.status ~= "open" then return false, "Order already " .. o.status end
+            o.status = "complete"
+            o.updatedAt = os.time()
+            return true, o
+        end
+    end
+    return false, "Order not found"
 end
 
 return M
