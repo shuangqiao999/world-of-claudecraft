@@ -45,16 +45,25 @@ local function wireAuras(e)
     return out
 end
 
---- delta 守卫: 字段值仅在变化时输出 (客户端语义: 缺失 = 保留旧值)
-local function maybeDelta(session, key, value)
-    if value == nil then return nil end
-    local enc = value
-    if type(value) ~= "string" then enc = jh.safeEncode(value) end
+--- delta 守卫: 检查字段是否变化 (不编码, 由调用方统一 json.encode)
+--- 优化: 对标量值直接比较, 表值用 hash 比较, 避免每 tick 逐个 json.encode
+local function fieldChanged(session, key, value)
+    if value == nil then return false end
+    local t = type(value)
+    if not session.lastRaw then session.lastRaw = {} end
+    if t ~= "table" then
+        local lastRaw = session.lastRaw[key]
+        if value == lastRaw then return false end
+        session.lastRaw[key] = value
+        return true
+    end
+    local enc = jh.safeEncode(value)
     local last = session.lastSent and session.lastSent[key]
-    if enc == last then return nil end
+    if enc == last then return false end
     if not session.lastSent then session.lastSent = {} end
     session.lastSent[key] = enc
-    return key, enc
+    session.lastRaw[key] = enc
+    return true
 end
 
 --- 构建 self 字段 (基础标量 + delta-guarded 扩展)
@@ -140,140 +149,69 @@ local function buildSelfJson(e, meta, session)
         self.castTot = jh.round2(e.castTotal or 0)
     end
 
-    -- ===== delta-guarded 扩展 (仅在变化时发送) =====
-    -- 基础对象编码为 {...}; 去掉尾部 '}' 以便把 delta 字段拼接进对象内部
-    local base = jh.safeEncode(self)
-    if type(base) == "string" and #base > 1 and base:sub(-1) == "}" then
-        base = base:sub(1, -2)
-    end
-    local parts = { base }
-
+    -- ===== delta-guarded 扩展: 直接放入 self 表, 最后一次性 json.encode =====
     -- cds: 冷却时间表
     local cds = {}
     for abilityId, rem in pairs(e.cooldowns or {}) do
         if type(rem) == "number" and rem > 0 then cds[abilityId] = jh.round2(rem) end
     end
-    if next(cds) then
-        local k, v = maybeDelta(session, "cds", cds)
-        if k then table.insert(parts, ',"' .. k .. '":' .. v) end
-    end
+    if next(cds) and fieldChanged(session, "cds", cds) then self.cds = cds end
 
-    -- ncd: 采集节点冷却 (简化: 复用实体字段)
     local ncd = e.nodeCooldowns
-    if ncd and next(ncd) then
-        local k, v = maybeDelta(session, "ncd", ncd)
-        if k then table.insert(parts, ',"' .. k .. '":' .. v) end
-    end
+    if ncd and next(ncd) and fieldChanged(session, "ncd", ncd) then self.ncd = ncd end
 
-    -- stats: 聚合次要属性
     local stats = e.stats and {
-        str = e.stats.str or 0,
-        agi = e.stats.agi or 0,
-        sta = e.stats.sta or 0,
-        int = e.stats.int or 0,
-        spi = e.stats.spi or 0,
-        armor = e.stats.armor or 0,
-        pvpOffense = e.stats.pvpOffense or 0,
-        pvpDefense = e.stats.pvpDefense or 0,
+        str = e.stats.str or 0, agi = e.stats.agi or 0, sta = e.stats.sta or 0,
+        int = e.stats.int or 0, spi = e.stats.spi or 0,
+        armor = e.stats.armor or 0, pvpOffense = e.stats.pvpOffense or 0, pvpDefense = e.stats.pvpDefense or 0,
     } or nil
-    local k, v = maybeDelta(session, "stats", stats)
-    if k then table.insert(parts, ',"' .. k .. '":' .. v) end
+    if fieldChanged(session, "stats", stats) then self.stats = stats end
 
-    -- auras: 自身 buff/debuff
     local aur = wireAuras(e)
-    if #aur > 0 then
-        local k2, v2 = maybeDelta(session, "auras", aur)
-        if k2 then table.insert(parts, ',"' .. k2 .. '":' .. v2) end
-    end
+    if #aur > 0 and fieldChanged(session, "auras", aur) then self.auras = aur end
 
-    -- inv / bags / equip / einst (背包与装备)
-    local inv = meta.inventory
-    local k3, v3 = maybeDelta(session, "inv", inv)
-    if k3 then table.insert(parts, ',"' .. k3 .. '":' .. v3) end
-    -- buyback: 出售物品回购列表 (delta-guarded, TS ALL_DELTA_KEYS)
+    if fieldChanged(session, "inv", meta.inventory) then self.inv = meta.inventory end
     local bbk = require("world.vendor").buybackView(meta)
-    if #bbk > 0 then
-        local kbb, vbb = maybeDelta(session, "buyback", bbk)
-        if kbb then table.insert(parts, ',"' .. kbb .. '":' .. vbb) end
-    end
-    local k5, v5 = maybeDelta(session, "equip", meta.equipment)
-    if k5 then table.insert(parts, ',"' .. k5 .. '":' .. v5) end
-    local k6, v6 = maybeDelta(session, "einst", meta.equipmentInstance)
-    if k6 then table.insert(parts, ',"' .. k6 .. '":' .. v6) end
+    if #bbk > 0 and fieldChanged(session, "buyback", bbk) then self.buyback = bbk end
+    if fieldChanged(session, "equip", meta.equipment) then self.equip = meta.equipment end
+    if fieldChanged(session, "einst", meta.equipmentInstance) then self.einst = meta.equipmentInstance end
 
-    -- qlog / qdone / milestones (任务)
-    local k7, v7 = maybeDelta(session, "qlog", meta.qlog)
-    if k7 then table.insert(parts, ',"' .. k7 .. '":' .. v7) end
-    local k8, v8 = maybeDelta(session, "qdone", meta.qdone)
-    if k8 then table.insert(parts, ',"' .. k8 .. '":' .. v8) end
-    local k9, v9 = maybeDelta(session, "milestones", meta.unlockedMilestones)
-    if k9 then table.insert(parts, ',"' .. k9 .. '":' .. v9) end
+    if fieldChanged(session, "qlog", meta.qlog) then self.qlog = meta.qlog end
+    if fieldChanged(session, "qdone", meta.qdone) then self.qdone = meta.qdone end
+    if fieldChanged(session, "milestones", meta.unlockedMilestones) then self.milestones = meta.unlockedMilestones end
 
-    -- tal / loadouts (天赋)
-    local tal = meta.talents
-    local k10, v10 = maybeDelta(session, "tal", tal)
-    if k10 then table.insert(parts, ',"' .. k10 .. '":' .. v10) end
+    if fieldChanged(session, "tal", meta.talents) then self.tal = meta.talents end
 
-    -- 社交/组队
-    local k11, v11 = maybeDelta(session, "party", meta.party)
-    if k11 then table.insert(parts, ',"' .. k11 .. '":' .. v11) end
-    local k12, v12 = maybeDelta(session, "duel", meta.duel)
-    if k12 then table.insert(parts, ',"' .. k12 .. '":' .. v12) end
-    -- arena: 竞技场状态 (评分/排队)
-    local kArena, vArena = maybeDelta(session, "arena", meta.arena)
-    if kArena then table.insert(parts, ',"' .. kArena .. '":' .. vArena) end
+    if fieldChanged(session, "party", meta.party) then self.party = meta.party end
+    if fieldChanged(session, "duel", meta.duel) then self.duel = meta.duel end
+    if fieldChanged(session, "arena", meta.arena) then self.arena = meta.arena end
 
-    -- 荣誉
-    local k13, v13 = maybeDelta(session, "honor", meta.honor)
-    if k13 then table.insert(parts, ',"' .. k13 .. '":' .. v13) end
-    local k14, v14 = maybeDelta(session, "lhonor", meta.lifetimeHonor)
-    if k14 then table.insert(parts, ',"' .. k14 .. '":' .. v14) end
+    if fieldChanged(session, "honor", meta.honor) then self.honor = meta.honor end
+    if fieldChanged(session, "lhonor", meta.lifetimeHonor) then self.lhonor = meta.lifetimeHonor end
 
-    -- 银行
-    local k15, v15 = maybeDelta(session, "bank", meta.bank)
-    if k15 then table.insert(parts, ',"' .. k15 .. '":' .. v15) end
+    if fieldChanged(session, "bank", meta.bank) then self.bank = meta.bank end
 
-    -- 成就 / 头衔
-    local k16, v16 = maybeDelta(session, "deeds", meta.deedsEarned)
-    if k16 then table.insert(parts, ',"' .. k16 .. '":' .. v16) end
-    local k17, v17 = maybeDelta(session, "atitle", meta.activeTitle)
-    if k17 then table.insert(parts, ',"' .. k17 .. '":' .. v17) end
-    local k18, v18 = maybeDelta(session, "renown", meta.renown)
-    if k18 then table.insert(parts, ',"' .. k18 .. '":' .. v18) end
+    if fieldChanged(session, "deeds", meta.deedsEarned) then self.deeds = meta.deedsEarned end
+    if fieldChanged(session, "atitle", meta.activeTitle) then self.atitle = meta.activeTitle end
+    if fieldChanged(session, "renown", meta.renown) then self.renown = meta.renown end
 
-    -- 专业
-    local k19, v19 = maybeDelta(session, "prof", meta.professions)
-    if k19 then table.insert(parts, ',"' .. k19 .. '":' .. v19) end
-    local k20, v20 = maybeDelta(session, "cprof", meta.currentProfession)
-    if k20 then table.insert(parts, ',"' .. k20 .. '":' .. v20) end
+    if fieldChanged(session, "prof", meta.professions) then self.prof = meta.professions end
+    if fieldChanged(session, "cprof", meta.currentProfession) then self.cprof = meta.currentProfession end
 
-    -- 坐骑
-    local k21, v21 = maybeDelta(session, "mntOwn", meta.ownedMounts)
-    if k21 then table.insert(parts, ',"' .. k21 .. '":' .. v21) end
-    local k22, v22 = maybeDelta(session, "mntRtd", meta.ridingTrained and true or nil)
-    if k22 then table.insert(parts, ',"' .. k22 .. '":' .. v22) end
+    if fieldChanged(session, "mntOwn", meta.ownedMounts) then self.mntOwn = meta.ownedMounts end
+    if fieldChanged(session, "mntRtd", meta.ridingTrained and true or nil) then self.mntRtd = meta.ridingTrained and true or nil end
 
-    -- 热键布局
-    local k23, v23 = maybeDelta(session, "hbl", meta.hotbarLayout)
-    if k23 then table.insert(parts, ',"' .. k23 .. '":' .. v23) end
+    if fieldChanged(session, "hbl", meta.hotbarLayout) then self.hbl = meta.hotbarLayout end
 
-    -- 市场/邮件通知
-    local k24, v24 = maybeDelta(session, "mktU", meta.marketUncollected and true or nil)
-    if k24 then table.insert(parts, ',"' .. k24 .. '":' .. v24) end
-    local k25, v25 = maybeDelta(session, "mailU", meta.mailUnread)
-    if k25 then table.insert(parts, ',"' .. k25 .. '":' .. v25) end
+    if fieldChanged(session, "mktU", meta.marketUncollected and true or nil) then self.mktU = meta.marketUncollected and true or nil end
+    if fieldChanged(session, "mailU", meta.mailUnread) then self.mailU = meta.mailUnread end
 
-    -- market: 搜索结果 (market_search 命令回填 meta.marketInfo)
-    local k26, v26 = maybeDelta(session, "market", meta.marketInfo)
-    if k26 then table.insert(parts, ',"' .. k26 .. '":' .. v26) end
+    if fieldChanged(session, "market", meta.marketInfo) then self.market = meta.marketInfo end
 
-    -- guildBank: 公会银行信息 (delta-guarded, TS maybe('guildBank'))
     local gb = meta.guildId and { guildId = meta.guildId, guildBankOpen = meta.guildBankOpen or false } or nil
-    local k27, v27 = maybeDelta(session, "guildBank", gb)
-    if k27 then table.insert(parts, ',"' .. k27 .. '":' .. v27) end
+    if fieldChanged(session, "guildBank", gb) then self.guildBank = gb end
 
-    parts[#parts + 1] = "}"
-    return table.concat(parts)
+    return jh.safeEncode(self)
 end
 
 --- 构建 Entity LITE 记录 (动态字段)
