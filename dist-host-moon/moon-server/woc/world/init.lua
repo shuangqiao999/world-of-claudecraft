@@ -656,70 +656,50 @@ local function doGameTick()
     -- Phase: 玩家状态更新 (TS per-player loop: ensureWarriorStance → movement → doors → swimFatigue → regen → mountTransition → casting → autoAttack → breath → auras)
     for pid, e in pairs(entities) do
         local meta = players[pid]
-        if meta and not e.dead then
-            pcall(function() warriorStance.ensureWarriorStance(e, meta) end)
+        if meta then
             pcall(function()
-                local regenEvents = regen.updateRegen(e, meta, tick)
-                for _, ev in ipairs(regenEvents) do table.insert(combatEvents, ev) end
-            end)
-            pcall(function() restedXp.updateRested(e, meta, config.DT) end)
-            pcall(function() mount.update(e, config.DT, false) end)
-            pcall(function()
-                local fishEvent = fishing.update(e, config.DT, tick)
-                if fishEvent then table.insert(combatEvents, fishEvent) end
-            end)
-            -- 呼吸/溺水 (TS updateBreath: 水下 60s 肺 + 溺水 10%/s)
-            pcall(function()
-                local isSubmerged = e.pos.y < -1.5
-                local drown = breath.updateBreath(e, isSubmerged)
-                if drown and drown.dmg then
-                    e.hp = math.max(0, e.hp - drown.dmg)
-                    table.insert(combatEvents, { type = "drown", pid = pid, dmg = drown.dmg })
-                    if e.hp <= 0 then e.dead = true end
+                if not e.dead then
+                    warriorStance.ensureWarriorStance(e, meta)
+                    local regenEvents = regen.updateRegen(e, meta, tick)
+                    for _, ev in ipairs(regenEvents) do table.insert(combatEvents, ev) end
+                    restedXp.updateRested(e, meta, config.DT)
+                    mount.update(e, config.DT, false)
+                    local fishEvent = fishing.update(e, config.DT, tick)
+                    if fishEvent then table.insert(combatEvents, fishEvent) end
+                    -- 呼吸/溺水
+                    local isSubmerged = e.pos.y < -1.5
+                    local drown = breath.updateBreath(e, isSubmerged)
+                    if drown and drown.dmg then
+                        e.hp = math.max(0, e.hp - drown.dmg)
+                        table.insert(combatEvents, { type = "drown", pid = pid, dmg = drown.dmg })
+                        if e.hp <= 0 then e.dead = true end
+                    end
+                    -- 泳者疲劳
+                    local fatigueEvents = swimFatigue.updateSwimFatigue(e, e.pos)
+                    for _, ev in ipairs(fatigueEvents) do table.insert(combatEvents, ev) end
+                    -- 自然之怒
+                    local nfEvents = naturesFury.tickNaturesFury(e, meta, tick, partyMod)
+                    for _, ev in ipairs(nfEvents) do table.insert(combatEvents, ev) end
+                    -- 采集授权下发
+                    if meta.pendingGatherGrants and #meta.pendingGatherGrants > 0 then
+                        meta.pendingGatherGrants = {}
+                    end
+                    -- 城镇专精重配
+                    if meta.pendingTownFocus and meta.pendingTownFocus > 0 then
+                        meta.pendingTownFocus = nil
+                    end
+                    -- 坠落伤害事件
+                    if e._fallDamage and e._fallDamage > 0 then
+                        table.insert(combatEvents, { type = "combat_damage", hp = e._fallDamage, pid = pid, school = "physical" })
+                        e._fallDamage = nil
+                    end
                 end
-            end)
-            -- 泳者疲劳 (TS fatigue.ts: 远海距离时钟)
-            pcall(function()
-                local fatigueEvents = swimFatigue.updateSwimFatigue(e, e.pos)
-                for _, ev in ipairs(fatigueEvents) do
-                    table.insert(combatEvents, ev)
-                end
-            end)
-            -- 自然之怒 (TS tickNaturesFury: 德鲁伊小队暴击脉冲)
-            pcall(function()
-                local nfEvents = naturesFury.tickNaturesFury(e, meta, tick, partyMod)
-                for _, ev in ipairs(nfEvents) do table.insert(combatEvents, ev) end
-            end)
-            -- 采集授权下发 (TS drainGatheringGrants: 可收获专精, deeds 标记)
-            pcall(function()
-                if meta.pendingGatherGrants and #meta.pendingGatherGrants > 0 then
-                    meta.pendingGatherGrants = {}
-                end
-            end)
-            -- 城镇专精重配 (TS updateTownFocusRespec: 计时器触发)
-            pcall(function()
-                if meta.pendingTownFocus and meta.pendingTownFocus > 0 then
-                    meta.pendingTownFocus = nil  -- 简化: 到期移除
-                end
-            end)
-            -- 坠落伤害事件 (movement.lua 垂直状态机)
-            pcall(function()
-                if e._fallDamage and e._fallDamage > 0 then
-                    table.insert(combatEvents, { type = "combat_damage", hp = e._fallDamage, pid = pid, school = "physical" })
-                    e._fallDamage = nil
-                end
-            end)
-        end
-    end
-
-    -- Phase: 宠物 AI 更新
-    for pid, e in pairs(entities) do
-        local meta = players[pid]
-        if meta and e.kind == "player" then
-            pcall(function()
-                local _, petEvents = petAI.updatePet(e, entities, config.DT)
-                if petEvents then
-                    for _, ev in ipairs(petEvents) do table.insert(combatEvents, ev) end
+                -- 宠物 AI (无论玩家死活, 宠物仍需更新)
+                if e.kind == "player" then
+                    local _, petEvents = petAI.updatePet(e, entities, config.DT)
+                    if petEvents then
+                        for _, ev in ipairs(petEvents) do table.insert(combatEvents, ev) end
+                    end
                 end
             end)
         end
@@ -787,27 +767,38 @@ local function doGameTick()
     end)
     for _, ev in ipairs(broodEvents) do table.insert(combatEvents, ev) end
 
-    -- Phase: EngagedPids pass (TS sim.ts 5840-5867)
+    -- Phase: EngagedPids pass + NPC aura cleanse + object respawn (合并为一次遍历)
     local engagedPids = {}
     for _, e in pairs(entities) do
-        if e.kind ~= "mob" or e.dead then goto continue_engaged end
-        -- 野怪积极参战: 目标及其宠物主人保持战斗
-        if e.ownerId == nil then
-            local state = e.aiState
-            if (state == "chasing" or state == "combat" or state == "fleeing") and e.aggroTargetId then
-                engagedPids[e.aggroTargetId] = true
-                local tgt = entities[e.aggroTargetId]
-                if tgt and tgt.ownerId then
-                    engagedPids[tgt.ownerId] = true
+        -- engaged 收集
+        if not e.dead then
+            if e.kind == "mob" then
+                if e.ownerId == nil then
+                    local state = e.aiState
+                    if (state == "chasing" or state == "combat" or state == "fleeing") and e.aggroTargetId then
+                        engagedPids[e.aggroTargetId] = true
+                        local tgt = entities[e.aggroTargetId]
+                        if tgt and tgt.ownerId then
+                            engagedPids[tgt.ownerId] = true
+                        end
+                    end
+                elseif e.aggroTargetId and e.combatTimer < 5 then
+                    engagedPids[e.ownerId] = true
                 end
-            end
-        else
-            -- 玩家的宠物正在打架: 主人保持战斗 (combatTimer < PET_COMBAT_LINGER)
-            if e.aggroTargetId and e.combatTimer < 5 then
-                engagedPids[e.ownerId] = true
+            elseif e.kind == "npc" then
+                -- NPC 光环清理
+                if e.auras then
+                    local toRemove = {}
+                    for id, a in pairs(e.auras) do
+                        if a.isDebuff then table.insert(toRemove, id) end
+                    end
+                    for _, id in ipairs(toRemove) do e.auras[id] = nil end
+                end
+            elseif e.kind == "object" and not e.lootable then
+                e.respawnTimer = (e.respawnTimer or 0) - config.DT
+                if e.respawnTimer <= 0 then e.lootable = true end
             end
         end
-        ::continue_engaged::
     end
     for pid, meta in pairs(players) do
         local p = entities[pid]
@@ -816,27 +807,8 @@ local function doGameTick()
         end
     end
 
-    -- Phase: NPC aura cleanse + object respawn
-    for _, e in pairs(entities) do
-        if e.kind == "npc" then
-            -- 清理友好 NPC 的光环
-            if e.auras then
-                local toRemove = {}
-                for id, a in pairs(e.auras) do
-                    if a.isDebuff then table.insert(toRemove, id) end
-                end
-                for _, id in ipairs(toRemove) do e.auras[id] = nil end
-            end
-        elseif e.kind == "object" and not e.lootable then
-            e.respawnTimer = (e.respawnTimer or 0) - config.DT
-            if e.respawnTimer <= 0 then e.lootable = true end
-        end
-    end
-
-    -- Phase: 网格刷新 (TS: 必须在所有实体位置更新后执行)
-    grid.refresh(entities)
-
-    -- Phase: 玩家网格刷新 (TS playerGrid.refresh: 仅玩家, mob engine 查询用)
+    -- Phase: 玩家网格刷新 (TS playerGrid.refresh: 仅玩家列表, mob engine 查询用)
+    -- grid.update 已在 processInputs / mob AI 按实体调用, 无需全量 refresh
     local playerEntities = {}
     for pid, meta in pairs(players) do
         local pe = entities[pid]

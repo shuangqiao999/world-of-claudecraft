@@ -116,12 +116,12 @@ end
 local moveParams = { seed = 0, radius = 0, stepHeight = 0, maxSlope = 0, grounded = false, swimming = false, ignoreFences = false }
 local moveOut = { x = 0, y = 0, z = 0, blocked = false, stepped = 0 }
 
---- 垂直状态机 (TS verticalPass:582-735)
-local function verticalPass(p, inp, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked)
-    local ground = terrain.groundHeight(p.pos.x, p.pos.z)
+--- 垂直状态机 (TS verticalPass:582-735; ground/waterHere 由调用方缓存传入)
+local function verticalPass(p, inp, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked, ground, waterHere)
+    if ground == nil then ground = terrain.groundHeight(p.pos.x, p.pos.z) end
     local support = charPhysics.floorHeightAt(deps.seed, p.pos.x, p.pos.z, BODY_RADIUS,
         p.pos.y + (p.onGround and 0 or colliders.MANTLE_REACH))
-    local waterHere = rideHeight.waterLevelAt(p.pos.x, p.pos.z, deps.seed)
+    if waterHere == nil then waterHere = rideHeight.waterLevelAt(p.pos.x, p.pos.z, deps.seed) end
     local deepWater = ground < waterHere - SWIM_DEPTH
 
     if deepWater and p.pos.y <= waterHere - 0.75 + 0.05 then
@@ -275,7 +275,9 @@ function M.stepPlayerMotion(e, mi, facing)
     if wantsMove and e.sitting then deps.standUp(e) end
 
     local hasMoveInput = mx ~= 0 or mz ~= 0
-    local swimGround = terrain.groundHeight(e.pos.x, e.pos.z)
+    -- 同帧缓存: terrain.groundHeight 对同一 (x,z) 只计算一次 (节省 14+ 次冗余 FBM 噪声)
+    local ground = terrain.groundHeight(e.pos.x, e.pos.z)
+    local swimGround = ground
     local swimLevel = rideHeight.waterLevelAt(e.pos.x, e.pos.z, deps.seed)
     local swimming = swimsAt(e.pos.y, swimGround, swimLevel)
     local submerged = swimming and e.pos.y < swimLevel - 0.75 - M.SWIM_SUBMERGE_EPS
@@ -382,7 +384,7 @@ function M.stepPlayerMotion(e, mi, facing)
     e.prevPos.y = e.pos.y
     e.prevPos.z = e.pos.z
 
-    verticalPass(e, mi, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked)
+    verticalPass(e, mi, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked, ground, swimLevel)
 end
 
 --- 兼容入口 (processInputs 调用)

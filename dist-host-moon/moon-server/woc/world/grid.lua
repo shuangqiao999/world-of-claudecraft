@@ -117,15 +117,4 @@ function M.stats()
     return { cells = cellCount, entities = totalEntities }
 end
 
---- 全局刷新网格 (tick 末尾调用, 重新分桶所有实体)
-function M.refresh(entities)
-    cells = {}
-    entityCells = {}
-    for _, e in pairs(entities) do
-        if not e.dead or e.ghost then
-            M.insert(e)
-        end
-    end
-end
-
 return M
