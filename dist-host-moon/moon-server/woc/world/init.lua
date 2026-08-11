@@ -148,12 +148,13 @@ local function noteEvents(evs)
     end
 end
 
-local function marketOp(pid, msg)
+local function marketOp(pid, msg, cb)
     moon.async(function()
         local svc = moon.queryservice("market")
         if not svc then noteEvents({ { type = "log", text = "Market unavailable", pid = pid } }); return end
         local resp = moon.call("lua", svc, msg)
         local ok = resp and resp.ok
+        if cb then cb(ok and resp.data or nil, ok and nil or (resp and resp.error)) end
         noteEvents({ { type = "log", text = ok and "Market OK" or (resp and resp.error or "Market failed"), pid = pid } })
     end)
 end

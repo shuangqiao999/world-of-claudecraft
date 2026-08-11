@@ -849,7 +849,12 @@ function H.card_forfeit(ctx, pid, cmd) return notImplemented(ctx, pid, "card_for
 
 -- ============ 拍卖行 ============
 function H.market_search(ctx, pid, cmd)
-    ctx.marketOp(ctx, pid, { op = "search", query = s(cmd.q), limit = 50 })
+    local meta = ctx.players[pid]
+    ctx.marketOp(pid, { op = "search", query = s(cmd.q), limit = 50 }, function(data)
+        if data and meta then
+            meta.marketInfo = data
+        end
+    end)
     return true
 end
 function H.market_list(ctx, pid, cmd)
@@ -861,20 +866,20 @@ function H.market_list(ctx, pid, cmd)
         if it.id == itemId then slot = tonumber(i) break end
     end
     if not slot then return false end
-    ctx.marketOp(ctx, pid, { op = "list_item", pid = pid, item = meta.inventory[slot], price = n(cmd.price) or 0 })
+    ctx.marketOp(pid, { op = "list_item", pid = pid, item = meta.inventory[slot], price = n(cmd.price) or 0 })
     return true
 end
 function H.market_list_instance(ctx, pid, cmd) return notImplemented(ctx, pid, "market_list_instance") end
 function H.market_buy(ctx, pid, cmd)
-    ctx.marketOp(ctx, pid, { op = "buy", pid = pid, listingId = n(cmd.id) })
+    ctx.marketOp(pid, { op = "buy", pid = pid, listingId = n(cmd.id) })
     return true
 end
 function H.market_cancel(ctx, pid, cmd)
-    ctx.marketOp(ctx, pid, { op = "cancel", pid = pid, listingId = n(cmd.id) })
+    ctx.marketOp(pid, { op = "cancel", pid = pid, listingId = n(cmd.id) })
     return true
 end
 function H.market_collect(ctx, pid, cmd)
-    ctx.marketOp(ctx, pid, { op = "collect", pid = pid })
+    ctx.marketOp(pid, { op = "collect", pid = pid })
     return true
 end
 
@@ -892,19 +897,19 @@ function H.mail_send(ctx, pid, cmd)
             end
         end
     end
-    ctx.mailOp(ctx, pid, { op = "send", from = meta.characterId, to = s(cmd.to), text = s(cmd.subject) .. "\n" .. (s(cmd.body) or ""), item = slots[1], copper = n(cmd.copper) or 0 })
+    ctx.mailOp(pid, { op = "send", from = meta.characterId, to = s(cmd.to), text = s(cmd.subject) .. "\n" .. (s(cmd.body) or ""), item = slots[1], copper = n(cmd.copper) or 0 })
     return true
 end
 function H.mail_take(ctx, pid, cmd)
-    ctx.mailOp(ctx, pid, { op = "take", pid = metaOf(ctx, pid).characterId, mailId = n(cmd.id) })
+    ctx.mailOp(pid, { op = "take", pid = metaOf(ctx, pid).characterId, mailId = n(cmd.id) })
     return true
 end
 function H.mail_delete(ctx, pid, cmd)
-    ctx.mailOp(ctx, pid, { op = "delete", pid = metaOf(ctx, pid).characterId, mailId = n(cmd.id) })
+    ctx.mailOp(pid, { op = "delete", pid = metaOf(ctx, pid).characterId, mailId = n(cmd.id) })
     return true
 end
 function H.mail_read(ctx, pid, cmd)
-    ctx.mailOp(ctx, pid, { op = "read", pid = metaOf(ctx, pid).characterId, mailId = n(cmd.id) })
+    ctx.mailOp(pid, { op = "read", pid = metaOf(ctx, pid).characterId, mailId = n(cmd.id) })
     return true
 end
 
@@ -924,23 +929,23 @@ end
 
 -- ============ 公会金库 ============
 function H.guild_bank_deposit_gold(ctx, pid, cmd)
-    ctx.guildBankOp(ctx, pid, { op = "deposit_gold", amount = n(cmd.amount) or 0 })
+    ctx.guildBankOp(pid, { op = "deposit_gold", amount = n(cmd.amount) or 0 })
     return true
 end
 function H.guild_bank_withdraw_gold(ctx, pid, cmd)
-    ctx.guildBankOp(ctx, pid, { op = "withdraw_gold", amount = n(cmd.amount) or 0 })
+    ctx.guildBankOp(pid, { op = "withdraw_gold", amount = n(cmd.amount) or 0 })
     return true
 end
 function H.guild_bank_deposit(ctx, pid, cmd)
-    ctx.guildBankOp(ctx, pid, { op = "deposit_item", slot = n(cmd.slot) or 0 })
+    ctx.guildBankOp(pid, { op = "deposit_item", slot = n(cmd.slot) or 0 })
     return true
 end
 function H.guild_bank_withdraw(ctx, pid, cmd)
-    ctx.guildBankOp(ctx, pid, { op = "withdraw_item", slot = n(cmd.slot) or 0 })
+    ctx.guildBankOp(pid, { op = "withdraw_item", slot = n(cmd.slot) or 0 })
     return true
 end
 function H.guild_bank_buy_slots(ctx, pid, cmd)
-    ctx.guildBankOp(ctx, pid, { op = "buy_slots" })
+    ctx.guildBankOp(pid, { op = "buy_slots" })
     return true
 end
 function H.guild_bank_log(ctx, pid, cmd)

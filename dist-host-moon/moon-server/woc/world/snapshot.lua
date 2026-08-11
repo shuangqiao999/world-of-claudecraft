@@ -254,6 +254,10 @@ local function buildSelfJson(e, meta, session)
     local k25, v25 = maybeDelta(session, "mailU", meta.mailUnread)
     if k25 then table.insert(parts, ',"' .. k25 .. '":' .. v25) end
 
+    -- market: 搜索结果 (market_search 命令回填 meta.marketInfo)
+    local k26, v26 = maybeDelta(session, "market", meta.marketInfo)
+    if k26 then table.insert(parts, ',"' .. k26 .. '":' .. v26) end
+
     parts[#parts + 1] = "}"
     return table.concat(parts)
 end
