@@ -899,7 +899,11 @@ function H.arena_leave(ctx, pid, cmd)
     ctx.noteEvents({ { type = "log", text = "Left arena queue", pid = pid } })
     return true
 end
-function H.arena_augment(ctx, pid, cmd) return notImplemented(ctx, pid, "arena_augment") end
+function H.arena_augment(ctx, pid, cmd)
+    local ok, result = ctx.arena.arenaAugmentPick(pid, s(cmd.augment))
+    if ok then ctx.noteEvents({ { type = "log", text = "Augment: " .. tostring(result), pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "arena_augment")
+end
 
 function H.bg_queue(ctx, pid, cmd)
     ctx.battleground.queuePlayer(pid, ctx.simTime)
@@ -1124,9 +1128,22 @@ function H.learn_riding(ctx, pid, cmd)
     ctx.noteEvents({ { type = "log", text = "Riding trained!", pid = pid } })
     return true
 end
-function H.mount_train_begin(ctx, pid, cmd) return notImplemented(ctx, pid, "mount_train_begin") end
-function H.mount_race_start(ctx, pid, cmd) return notImplemented(ctx, pid, "mount_race_start") end
-function H.mount_race_cancel(ctx, pid, cmd) return notImplemented(ctx, pid, "mount_race_cancel") end
+function H.mount_train_begin(ctx, pid, cmd)
+    local ok, result = ctx.mount.trainBegin(pid, ctx.entities)
+    if ok then ctx.noteEvents({ { type = "log", text = "Training started: " .. tostring(result), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "mount_train_begin")
+end
+function H.mount_race_start(ctx, pid, cmd)
+    local ok, result = ctx.mount.raceStart(pid, ctx.entities)
+    if ok then ctx.noteEvents({ { type = "log", text = "Race countdown...", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "mount_race_start")
+end
+function H.mount_race_cancel(ctx, pid, cmd)
+    local ok = ctx.mount.raceCancel(pid, ctx.entities)
+    return ok or notImplemented(ctx, pid, "mount_race_cancel")
+end
 
 -- ============ 副本 ============
 function H.enter_dungeon(ctx, pid, cmd)
@@ -1231,7 +1248,13 @@ function H.delve_rite_choose(ctx, pid, cmd)
 end
 
 -- ============ 天赋 / 声望 ============
-function H.prestige(ctx, pid, cmd) return notImplemented(ctx, pid, "prestige") end
+function H.prestige(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    if not meta then return false end
+    meta.prestigeRank = (meta.prestigeRank or 0) + 1
+    ctx.noteEvents({ { type = "log", text = "Prestige rank: " .. tostring(meta.prestigeRank), pid = pid } })
+    return true
+end
 function H.applyTalents(ctx, pid, cmd)
     local meta = ctx.players[pid]
     local e = ctx.entities[pid]
@@ -1258,7 +1281,14 @@ function H.setSpec(ctx, pid, cmd)
     if meta then meta.spec = s(cmd.spec) end
     return true
 end
-function H.selectTalentRow(ctx, pid, cmd) return notImplemented(ctx, pid, "selectTalentRow") end
+function H.selectTalentRow(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local e = ctx.entities[pid]
+    local ok, result = ctx.talent.selectTalentRow(meta, e, n(cmd.level), s(cmd.optionId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Talent row " .. tostring(n(cmd.level)) .. " selected", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "selectTalentRow")
+end
 function H.saveLoadout(ctx, pid, cmd)
     local meta = ctx.players[pid]
     if meta then
@@ -1368,7 +1398,12 @@ function H.pet_taunt(ctx, pid, cmd)
     if e then e.petTauntTimer = 3 end
     return true
 end
-function H.pet_water_jet(ctx, pid, cmd) return notImplemented(ctx, pid, "pet_water_jet") end
+function H.pet_water_jet(ctx, pid, cmd)
+    local ok, result = ctx.petAI.waterJet(pid, ctx.entities)
+    if ok then ctx.noteEvents({ { type = "log", text = "Water jet: " .. tostring(result) .. " dmg", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "pet_water_jet")
+end
 function H.pet_auto_taunt(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if e then e.petAutoTaunt = cmd.enabled == true end
@@ -1379,7 +1414,13 @@ function H.pet_auto_water_jet(ctx, pid, cmd)
     if e then e.petAutoWaterJet = cmd.enabled == true end
     return true
 end
-function H.pet_feed(ctx, pid, cmd) return notImplemented(ctx, pid, "pet_feed") end
+function H.pet_feed(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.petAI.feedPet(pid, s(cmd.item), meta, ctx.entities)
+    if ok then ctx.noteEvents({ { type = "log", text = "Pet healed for " .. tostring(result) .. " HP", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "pet_feed")
+end
 function H.pet_heal(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if e and e.ownerId then

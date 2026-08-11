@@ -186,17 +186,20 @@ function M._applyElo(loserTeam, winnerTeam)
     local expected = 1 / (1 + 10 ^ ((lt.mmr - wt.mmr) / 400))
     local scoreDiff = ARENA_ELO_K * (1 - expected)
 
-    -- 更新团队 MMR
     lt.mmr = math.max(0, lt.mmr - scoreDiff)
     wt.mmr = math.min(3000, wt.mmr + scoreDiff)
 
-    -- 更新个人评分
     for _, pid in ipairs(lt.players) do
         playerRating[pid] = math.max(0, M.getRating(pid) - scoreDiff / 2)
     end
     for _, pid in ipairs(wt.players) do
         playerRating[pid] = math.min(3000, M.getRating(pid) + scoreDiff / 2)
     end
+end
+
+--- 竞技场强化选择 (fiesta augment)
+function M.arenaAugmentPick(pid, augmentId)
+    return true, augmentId
 end
 
 return M

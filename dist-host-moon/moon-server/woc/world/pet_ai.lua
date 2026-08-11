@@ -219,4 +219,38 @@ function M.syncPetLevel(owner, entities)
     pet.attackPower = 5 + owner.level * 3
 end
 
+--- 宠物水枪攻击
+function M.waterJet(pid, entities)
+    local owner = entities[pid]
+    if not owner or not owner.petEntityId then return false, "No pet" end
+    local pet = entities[owner.petEntityId]
+    if not pet or pet.dead then return false, "Pet is dead" end
+    local target = entities[pet.targetId]
+    if not target or target.dead then return false, "No valid target" end
+    if pet.gcdRemaining and pet.gcdRemaining > 0 then return false, "On cooldown" end
+    local dmg = 10 + (pet.attackPower or 0) * 0.3
+    target.hp = math.max(0, target.hp - dmg)
+    pet.gcdRemaining = 1.5
+    return true, dmg
+end
+
+--- 喂食宠物 (消耗食物, 恢复HP)
+function M.feedPet(pid, itemId, meta, entities)
+    if not meta or meta.class ~= "hunter" then return false, "Only hunters can feed pets" end
+    local owner = entities[pid]
+    if not owner or not owner.petEntityId then return false, "No pet" end
+    local pet = entities[owner.petEntityId]
+    if not pet or pet.dead then return false, "Pet is dead" end
+    local inv = meta.inventory or {}
+    for slot, item in pairs(inv) do
+        if (item.id == itemId or item.name == itemId) and item.kind == "food" then
+            local heal = 30 + (pet.maxHp or 100) * 0.25
+            pet.hp = math.min(pet.maxHp, pet.hp + heal)
+            inv[slot] = nil
+            return true, heal
+        end
+    end
+    return false, "No valid food found"
+end
+
 return M

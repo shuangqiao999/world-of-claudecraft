@@ -89,6 +89,44 @@ function M.update(e, dt, isSwimming)
     end
 end
 
+--- 坐骑训练开始
+function M.trainBegin(pid, entities)
+    local e = entities[pid]
+    if not e or e.dead then return false, "Cannot train now" end
+    if e.level < 20 then return false, "Requires level 20" end
+    if e.mountCastKey or e.mountKey then return false, "Already mounted" end
+    e.mountLessonSession = {
+        sessionId = "ml_" .. pid .. "_" .. os.time(),
+        phase = "mount",
+        anchor = { x = e.pos.x, z = e.pos.z },
+        state = "IN_PROGRESS",
+    }
+    return true, e.mountLessonSession.sessionId
+end
+
+--- 坐骑比赛开始
+function M.raceStart(pid, entities)
+    local e = entities[pid]
+    if not e or e.dead then return false, "Cannot race now" end
+    if not e.mountKey then return false, "Must be mounted" end
+    e.mountRaceSession = {
+        raceId = "mr_" .. pid .. "_" .. os.time(),
+        phase = "countdown",
+        countdown = 3,
+        clearedMask = 0,
+        startPos = { x = e.pos.x, z = e.pos.z },
+    }
+    return true, e.mountRaceSession.raceId
+end
+
+--- 坐骑比赛取消
+function M.raceCancel(pid, entities)
+    local e = entities[pid]
+    if not e or not e.mountRaceSession then return false end
+    e.mountRaceSession = nil
+    return true
+end
+
 --- 获取可用坐骑
 function M.getAvailable(e)
     local available = {}

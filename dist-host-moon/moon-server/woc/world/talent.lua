@@ -145,6 +145,26 @@ function M.getMods(meta, cls)
     return meta.talentMods
 end
 
+--- 选择天赋行 (row-level choice)
+local TALENT_ROWS = { 5, 8, 11, 14, 20 }
+
+function M.selectTalentRow(meta, entity, level, optionId)
+    local cls = entity.templateId or "warrior"
+    local validLevel = false
+    for _, lv in ipairs(TALENT_ROWS) do
+        if lv == level then validLevel = true; break end
+    end
+    if not validLevel then return false, "Invalid talent row level" end
+    if entity.level < level then return false, "Level too low" end
+    if not meta.talentRows then meta.talentRows = {} end
+    if optionId then
+        meta.talentRows[level] = optionId
+    else
+        meta.talentRows[level] = nil
+    end
+    return true, optionId
+end
+
 --- 升级时重算 talentMods (等级相关的天赋量级重新计算)
 function M.recomputeForLevel(meta, entity, cls)
     M.initTalents(meta, cls)
