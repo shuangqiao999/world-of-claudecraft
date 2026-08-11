@@ -29,8 +29,22 @@ function M.register(dbMod)
     end)
 
     dbMod:register("createCharacter", function(accountId, name, cls)
-        return qOne("INSERT INTO characters (account_id, name, class, realm, level, state) VALUES (%s, %s, %s, %s, 1, '{}') RETURNING id, name, class, level",
-            accountId, name, cls, realm)
+        -- 全局唯一 + 事务: 预检+插入原子化, 捕获唯一约束违规
+        local created, err = dbMod.withTransaction(function(tx)
+            local existing = tx.queryOne("SELECT id FROM characters WHERE name=%s", name)
+            if existing then
+                return nil, "name_taken"
+            end
+            return tx.queryOne(
+                "INSERT INTO characters (account_id, name, class, realm, level, state) VALUES (%s, %s, %s, %s, 1, '{}') RETURNING id, name, class, level",
+                accountId, name, cls, realm)
+        end)
+        if created then return created end
+        -- 唯一约束违规 (SQLSTATE 23505) 兜底 → 明确错误码
+        if err and tostring(err):lower():find("unique", 1, true) then
+            return nil, "name_taken"
+        end
+        return nil, err or "create_failed"
     end)
 
     dbMod:register("saveCharacterState", function(characterId, level, stateTable, leaseNonce)

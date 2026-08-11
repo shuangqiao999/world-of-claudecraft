@@ -31,7 +31,7 @@ function M.query(fmt, ...)
     for attempt = 1, POOL_SIZE do
         local entry = pool[poolCursor]
         poolCursor = poolCursor % POOL_SIZE + 1
-        if entry.healthy then
+        if entry.healthy and not entry.busy then
             local res = entry.conn:query(sqlText)
             if res.code == "SOCKET" or res.code == "CONNECTION" or res.code == "CONNECTION_NOT_OPEN" then
                 entry.healthy = false
@@ -43,6 +43,59 @@ function M.query(fmt, ...)
         end
     end
     return { code = -1, message = "No healthy connection" }
+end
+
+--- 事务: 独占签出池中一个连接, 运行 fn(tx), 成功 COMMIT / 失败 ROLLBACK
+--- tx 提供绑定到该连接的 query/queryOne (不经过池轮询)
+--- fn 返回 (result, err): result=nil 时回滚语义, err 返回给调用方
+--- @return result, err
+function M.withTransaction(fn)
+    if not poolReady then return nil, "Not connected" end
+
+    -- 找空闲健康连接
+    local entry = nil
+    for attempt = 1, POOL_SIZE do
+        local e = pool[poolCursor]
+        poolCursor = poolCursor % POOL_SIZE + 1
+        if e.healthy and not e.busy then entry = e; break end
+    end
+    if not entry then return nil, "No free connection" end
+    entry.busy = true
+
+    local tx = {
+        query = function(fmt, ...)
+            local args = { ... }
+            local s = #args > 0 and sql.fmt(fmt, table.unpack(args)) or fmt
+            local res = entry.conn:query(s)
+            if res.code == "SOCKET" or res.code == "CONNECTION" then
+                entry.healthy = false
+            end
+            return res
+        end,
+        queryOne = function(fmt, ...)
+            local res = tx.query(fmt, ...)
+            if res.code then return nil end
+            local d = res.data
+            if d and #d > 0 then return d[1] end
+            return nil
+        end,
+    }
+
+    local ok, r1, r2 = pcall(function()
+        local b = entry.conn:query("BEGIN")
+        if b.code then error("BEGIN failed: " .. tostring(b.message)) end
+        local res, resErr = fn(tx)
+        local c = entry.conn:query("COMMIT")
+        if c.code then error("COMMIT failed: " .. tostring(c.message)) end
+        return res, resErr
+    end)
+    if not ok then
+        pcall(function() entry.conn:query("ROLLBACK") end)
+        entry.busy = false
+        return nil, tostring(r1)
+    end
+    entry.busy = false
+    return r1, r2
 end
 
 --- 查询单行
@@ -177,9 +230,9 @@ local function buildPool()
     for i = 1, POOL_SIZE do
         local conn = connectOne()
         if conn.code then
-            pool[i] = { conn = nil, healthy = false }
+            pool[i] = { conn = nil, healthy = false, busy = false }
         else
-            pool[i] = { conn = conn, healthy = true }
+            pool[i] = { conn = conn, healthy = true, busy = false }
         end
     end
     local healthyCount = 0

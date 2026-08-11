@@ -11,105 +11,32 @@ local jh = require("shared.json_helpers")
 -- 速率限制 (Phase 3)
 local rateLimit = require("world.msg_rate_limit")
 
--- PG
-local pg = require("moon.db.pg")
-local gateDb, gateDbReady
-local gateConnecting = false
-local reconnectGateDb  -- 前向声明 (heartbeat 先引用)
+-- DB Service 路由 (单一数据库入口, 无直连 PG)
 local sessions, pids = {}, {}
 local nextEntityId = 1000
 
 local WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-local function asBool(v) if v == nil then return nil end if type(v)=="boolean" then return v end if type(v)=="string" then local s = v:gsub("%z",""):match("^%s*(.-)%s*$"); if s=="" or s=="false" then return false end end return true end
-
 ------------------------------------------------------------
--- PG 连接 (解析 + 连接 + 心跳 + 重连)
+-- DB Service 调用 (moon.call 跨 worker, 无直连)
 ------------------------------------------------------------
 
-local function parseUrl(url)
-    url = url or ""
-    local u, p, h, po, d = "postgres", nil, "127.0.0.1", 5432, "woc"
-    local rest = string.match(url, "^postgresql://(.+)$") or string.match(url, "^postgres://(.+)$")
-    if rest then local m = { string.match(rest, "^([^:]+):([^@]+)@([^:]+):(%d+)/(.+)$") }; if m[1] then u, p, h, po, d = m[1], m[2], m[3], tonumber(m[4]), m[5] end end
-    return { host = h, port = po, database = d, user = u, password = p, connect_timeout = 5000 }
-end
-
---- 建立 gate 数据库连接
-local function connectGateDb()
-    local cfg = require("config")
-    local conn = pg.connect(parseUrl(cfg.getDatabaseUrl()))
-    if conn.code then
-        print(string.format("[Gate] PG connect FAILED: %s", tostring(conn.code)))
-        return false
+--- 调用 DB Service 操作
+--- @return data, err
+local function dbCall(op, ...)
+    local dbSvc = moon.queryservice("db")
+    if not dbSvc then return nil, "db service unavailable" end
+    local resp = moon.call("lua", dbSvc, { op = op, args = { ... } })
+    if resp and resp.ok then
+        return resp.data, nil
     end
-    gateDb = conn
-    gateDbReady = true
-    print("[Gate] PG connected")
-    return true
+    return nil, (resp and resp.error) or "db error"
 end
 
---- 心跳: 每 15s SELECT 1, 断线触发重连
-local function heartbeatGateDb()
-    moon.timeout(15000, function()
-        moon.async(function()
-            if gateDb then
-                local res = gateQuery("SELECT 1")
-                if res.code == "SOCKET" or res.code == "CONNECTION" then
-                    print("[Gate] PG heartbeat failed — reconnecting")
-                    gateDbReady = false
-                    reconnectGateDb()
-                end
-            end
-            heartbeatGateDb()
-        end)
-    end)
+--- DB Service 是否可用
+local function dbUp()
+    return moon.queryservice("db") ~= nil
 end
-
---- 异步重连 (防并发)
-reconnectGateDb = function()
-    if gateConnecting then return end
-    gateConnecting = true
-    moon.async(function()
-        gateDbReady = false
-        local ok = connectGateDb()
-        gateConnecting = false
-        if not ok then
-            moon.timeout(3000, function() moon.async(reconnectGateDb) end)
-        end
-    end)
-end
-
---- 安全查询: 检测 socket 错误并触发重连
-local function gateQuery(sqlText)
-    if not gateDbReady or not gateDb then
-        return { code = -1, message = "DB not ready" }
-    end
-    local res = gateDb:query(sqlText)
-    if res.code == "SOCKET" or res.code == "CONNECTION" then
-        gateDbReady = false
-        reconnectGateDb()
-    end
-    return res
-end
-
---- 参数化查询 (真绑定, $1/$2, 经 json.pq_query 扩展协议) — 注入免疫
-local function gateQueryP(sqlText, ...)
-    if not gateDbReady or not gateDb then
-        return { code = -1, message = "DB not ready" }
-    end
-    local res = gateDb:query_params(sqlText, ...)
-    if res.code == "SOCKET" or res.code == "CONNECTION" then
-        gateDbReady = false
-        reconnectGateDb()
-    end
-    return res
-end
-
-moon.async(function()
-    connectGateDb()
-    heartbeatGateDb()
-end)
 
 ------------------------------------------------------------
 -- HTTP 处理
@@ -162,16 +89,15 @@ local function handleHttpRequest(fd, req)
         if not b then sendJson(fd, { error = "Invalid JSON" }); return end
         if type(b.username)~="string" or #b.username<3 then sendJson(fd, { error = "Invalid username" }); return end
         if type(b.password)~="string" or #b.password<6 then sendJson(fd, { error = "Password too short" }); return end
-        if not gateDbReady then sendJson(fd, { error = "DB not ready" }); return end
-        local r = gateQueryP("SELECT id FROM accounts WHERE username=$1", b.username)
-        if r.data and #r.data > 0 then sendJson(fd, { error = "Username taken" }); return end
+        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
+        local existing = dbCall("findAccount", b.username)
+        if existing then sendJson(fd, { error = "Username taken" }); return end
         local pwHash = hash.hashPassword(b.password)
-        local r2 = gateQueryP("INSERT INTO accounts (username, password_hash) VALUES ($1, $2) RETURNING id, username", b.username, pwHash)
-        if r2.code then sendJson(fd, { error = "Failed" }); return end
-        local acct = r2.data[1]
+        local acct, err = dbCall("createAccount", b.username, pwHash)
+        if not acct then sendJson(fd, { error = "Failed", reason = err }); return end
         local token = hash.newToken()
-        gateQueryP("INSERT INTO auth_tokens (token, account_id, expires_at, scope) VALUES ($1, $2, now() + interval '168 hours', 'full')", token, acct.id)
-        if b.email then gateQueryP("UPDATE accounts SET email=$1 WHERE id=$2", b.email, acct.id) end
+        dbCall("saveToken", token, acct.id, 168, "full")
+        if b.email then dbCall("setAccountEmail", acct.id, b.email) end
         sendJson(fd, { token = token, username = acct.username, accountId = acct.id, emailMissing = false })
         return
     end
@@ -179,13 +105,12 @@ local function handleHttpRequest(fd, req)
     if path == "/api/login" and method == "POST" then
         local b = json.decode(req.body or "{}")
         if not b then sendJson(fd, { error = "Invalid JSON" }); return end
-        if not gateDbReady then sendJson(fd, { error = "DB not ready" }); return end
-        local r = gateQueryP("SELECT id, username, password_hash, email FROM accounts WHERE username=$1", b.username or "")
-        if not r.data or #r.data == 0 then sendJson(fd, { error = "Invalid credentials" }); return end
-        local acct = r.data[1]
+        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
+        local acct = dbCall("findAccount", b.username or "")
+        if not acct then sendJson(fd, { error = "Invalid credentials" }); return end
         if not hash.verifyPassword(b.password or "", acct.password_hash) then sendJson(fd, { error = "Invalid credentials" }); return end
         local token = hash.newToken()
-        gateQueryP("INSERT INTO auth_tokens (token, account_id, expires_at, scope) VALUES ($1, $2, now() + interval '168 hours', 'full')", token, acct.id)
+        dbCall("saveToken", token, acct.id, 168, "full")
         sendJson(fd, { token = token, username = acct.username, emailMissing = not acct.email or #acct.email == 0 })
         return
     end
@@ -194,13 +119,12 @@ local function handleHttpRequest(fd, req)
         local auth = req.headers["authorization"] or ""
         local token = string.match(auth, "^Bearer%s+(.+)$")
         if not token then sendJson(fd, { error = "Auth required" }); return end
-        if not gateDbReady then sendJson(fd, { error = "DB not ready" }); return end
-        local r = gateQueryP("SELECT account_id FROM auth_tokens WHERE token=$1 AND expires_at > now()", token)
-        if not r.data or #r.data == 0 then sendJson(fd, { error = "Invalid token" }); return end
-        local agoDb = r.data[1].account_id
-        local r2 = gateQueryP("SELECT id, name, class, level FROM characters WHERE account_id=$1 AND realm=$2 ORDER BY id", agoDb, config.getRealm())
+        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
+        local acct = dbCall("accountAndScopeForToken", token)
+        if not acct then sendJson(fd, { error = "Invalid token" }); return end
+        local rows = dbCall("getCharactersByAccount", acct.account_id) or {}
         local chars = {}
-        for _, c in ipairs(r2.data or {}) do table.insert(chars, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, online = false, forceRename = false }) end
+        for _, c in ipairs(rows) do table.insert(chars, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, online = false, forceRename = false }) end
         sendJson(fd, { realm = config.getRealm(), characters = chars })
         return
     end
@@ -211,15 +135,17 @@ local function handleHttpRequest(fd, req)
         if not token then sendJson(fd, { error = "Auth required" }); return end
         local b = json.decode(req.body or "{}")
         if not b or not b.name or not b.class then sendJson(fd, { error = "Invalid request" }); return end
-        if not gateDbReady then sendJson(fd, { error = "DB not ready" }); return end
-        local r = gateQueryP("SELECT account_id FROM auth_tokens WHERE token=$1 AND expires_at > now()", token)
-        if not r.data or #r.data == 0 then sendJson(fd, { error = "Invalid token" }); return end
-        local agoDb = r.data[1].account_id
-        local r2 = gateQueryP("SELECT id FROM characters WHERE name=$1 AND realm=$2", b.name, config.getRealm())
-        if r2.data and #r2.data > 0 then sendJson(fd, { error = "Name taken" }); return end
-        local r3 = gateQueryP("INSERT INTO characters (account_id, name, class, realm, level, state) VALUES ($1, $2, $3, $4, 1, '{}') RETURNING id, name, class, level", agoDb, b.name, b.class, config.getRealm())
-        if r3.code then sendJson(fd, { error = "Failed" }); return end
-        local c = r3.data[1]
+        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
+        local acct = dbCall("accountAndScopeForToken", token)
+        if not acct then sendJson(fd, { error = "Invalid token" }); return end
+        -- createCharacter 内部做全局唯一预检 + 事务
+        local c, cerr = dbCall("createCharacter", acct.account_id, b.name, b.class)
+        if not c then
+            if cerr == "name_taken" then
+                sendJson(fd, { error = "Name taken" }); return
+            end
+            sendJson(fd, { error = "Failed", reason = cerr }); return
+        end
         sendJson(fd, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, forceRename = false })
         return
     end
@@ -237,7 +163,7 @@ local function handleHttpRequest(fd, req)
     end
 
     if path == "/health" then
-        sendJson(fd, { status = "ok", timestamp = os.time(), db = gateDbReady and "connected" or "pending" })
+        sendJson(fd, { status = "ok", timestamp = os.time(), db = dbUp() and "connected" or "pending" })
         return
     end
 
@@ -299,22 +225,21 @@ local function handleAuth(fd, msg)
     if not characterId or characterId ~= characterId then wsWrite(fd, '{"t":"error","error":"bad auth message"}'); socket.close(fd); return end
     print(string.format("[Gate] Auth fd=%d char=%d", fd, characterId))
     moon.async(function()
-        if not gateDbReady then wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return end
-        local r = gateQueryP("SELECT account_id, scope FROM auth_tokens WHERE token=$1 AND expires_at > now()", token)
-        if not r.data or #r.data == 0 then wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return end
-        local accountId, scope = r.data[1].account_id, r.data[1].scope
-        if scope ~= "full" and scope ~= "read" then wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return end
-        local r2 = gateQueryP("SELECT banned_at, suspended_until, deactivated_at FROM accounts WHERE id=$1", accountId)
-        if r2.data and #r2.data > 0 then local row = r2.data[1]; if asBool(row.banned_at) or asBool(row.suspended_until) or asBool(row.deactivated_at) then wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return end end
-        local r3 = gateQueryP("SELECT id, account_id, name, class, level, state, is_gm, force_rename, hotbar_layout FROM characters WHERE id=$1 AND account_id=$2 AND realm=$3", characterId, accountId, config.getRealm())
-        if not r3.data or #r3.data == 0 then wsWrite(fd, '{"t":"error","error":"no such character"}'); socket.close(fd); return end
-        local cr = r3.data[1]
+        if not dbUp() then wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return end
+        local auth = dbCall("accountAndScopeForToken", token)
+        if not auth then wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return end
+        local accountId = auth.account_id
+        local status = dbCall("getModerationStatus", accountId)
+        if status and (status.banned or status.suspendedUntil or status.deactivated) then
+            wsWrite(fd, '{"t":"error","error":"not authenticated"}'); socket.close(fd); return
+        end
+        local cr = dbCall("getCharacter", accountId, characterId)
+        if not cr then wsWrite(fd, '{"t":"error","error":"no such character"}'); socket.close(fd); return end
         if cr.force_rename then wsWrite(fd, '{"t":"error","error":"This character must be renamed before entering the world."}'); socket.close(fd); return end
         local nonce = string.format("%s%d", tostring(math.random(100000,999999)), os.time())
-        local leaseHolder = string.format("%s#%s", config.getRealm(), tostring(math.random(100000, 999999)))
-        gateQueryP("INSERT INTO character_leases (character_id, realm, holder, nonce, account_id, acquired_at, heartbeat_at, expires_at) VALUES ($1, $2, $3, $4, $5, now(), now(), now() + make_interval(secs => $6)) ON CONFLICT (character_id) DO UPDATE SET realm=EXCLUDED.realm, holder=EXCLUDED.holder, nonce=EXCLUDED.nonce, account_id=EXCLUDED.account_id, acquired_at=now(), heartbeat_at=now(), expires_at=EXCLUDED.expires_at WHERE character_leases.expires_at < now() OR character_leases.holder=EXCLUDED.holder OR character_leases.account_id=EXCLUDED.account_id", characterId, config.getRealm(), leaseHolder, nonce, accountId, config.LEASE_TTL_SECONDS)
+        dbCall("acquireLease", characterId, accountId, nonce)
         local pid = nextEntityId; nextEntityId = nextEntityId + 1
-        sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, leaseHolder = leaseHolder, lastInputSeq = 0, linkdead = false }
+        sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false }
         pids[pid] = fd
         wsWrite(fd, jh.buildHelloFrame(pid, msg.clientSeed ~= "" and msg.clientSeed or tostring(os.time()), cr.name, cr.class, config.getRealm(), {}, nil))
         print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s", fd, pid, cr.name, cr.class))
@@ -350,7 +275,7 @@ local function wsMessage(fd, text)
         local sess = sessions[fd]; if not sess then socket.close(fd); return end
         print(string.format("[Gate] Logout fd=%d pid=%d", fd, sess.pid))
         rateLimit.cleanup(sess.pid)
-        if gateDbReady and sess.leaseNonce then moon.async(function() gateQueryP("DELETE FROM character_leases WHERE character_id=$1 AND holder=$2 AND nonce=$3", sess.characterId, sess.leaseHolder or "", sess.leaseNonce) end) end
+        if dbUp() and sess.leaseNonce then moon.async(function() dbCall("releaseLease", sess.characterId, sess.leaseNonce) end) end
         local world = moon.queryservice("world")
         if world then moon.send("lua", world, { t = "playerLeave", pid = sess.pid, characterId = sess.characterId, leaseNonce = sess.leaseNonce }) end
         pids[sess.pid] = nil; sessions[fd] = nil; socket.close(fd)
