@@ -10,7 +10,7 @@
 -- 密码存储格式: "<algo>:<salt_hex>:<key_hex>"
 --   pbkdf2: "pbkdf2:<iterations>:<salt_hex>:<key_hex>"   (当前, 真实 KDF)
 --   sha256: "sha256:<salt16_hex>:<hash64_hex>"            (旧占位, 兼容验证)
---   scrypt: "<salt16_hex>:<key64_hex>"                   (原项目, 无绑定无法验证)
+--   scrypt: "<salt16_hex>:<key64_hex>"                   (原项目, C 模块 scrypt.dll)
 
 local crypt = require("crypt")
 
@@ -120,26 +120,33 @@ function M.verifyPassword(password, stored)
     if not colon1 then return false end
     local firstPart = string.sub(stored, 1, colon1 - 1)
     local rest = string.sub(stored, colon1 + 1)
-    local colon2 = string.find(rest, ":")
-    if not colon2 then return false end
-    local salt = string.sub(rest, 1, colon2 - 1)
-    local expected = string.sub(rest, colon2 + 1)
 
-    if firstPart == "pbkdf2" then
-        local iter = tonumber(salt)
-        if not iter or iter <= 0 then return false end
-        local keyColon = string.find(expected, ":")
-        if not keyColon then return false end
-        local saltHex = string.sub(expected, 1, keyColon - 1)
-        local keyHex = string.sub(expected, keyColon + 1)
-        local saltBytes = crypt.hexdecode(saltHex)
-        local key = pbkdf2(password, saltBytes, iter, M.SCRYPT_KEYLEN)
-        return constEq(crypt.hexencode(key), keyHex)
-    elseif firstPart == "sha256" then
-        -- 旧占位格式 (历史 dev 账号兼容)
-        return legacySha256(salt .. password) == expected
+    -- pbkdf2 / sha256 格式: firstPart:salt:key  (两段冒号)
+    -- 原项目 scrypt 格式: salt_hex:key_hex      (一段冒号)
+    if firstPart == "pbkdf2" or firstPart == "sha256" then
+        local colon2 = string.find(rest, ":")
+        if not colon2 then return false end
+        local salt = string.sub(rest, 1, colon2 - 1)
+        local expected = string.sub(rest, colon2 + 1)
+
+        if firstPart == "pbkdf2" then
+            local iter = tonumber(salt)
+            if not iter or iter <= 0 then return false end
+            local keyColon = string.find(expected, ":")
+            if not keyColon then return false end
+            local saltHex = string.sub(expected, 1, keyColon - 1)
+            local keyHex = string.sub(expected, keyColon + 1)
+            local saltBytes = crypt.hexdecode(saltHex)
+            local key = pbkdf2(password, saltBytes, iter, M.SCRYPT_KEYLEN)
+            return constEq(crypt.hexencode(key), keyHex)
+        else
+            -- sha256 旧占位格式 (历史 dev 账号兼容)
+            return legacySha256(salt .. password) == expected
+        end
     else
-        -- 原项目 scrypt 格式 (带前缀或无前缀): 无 crypt 绑定无法验证
+        -- 原项目 scrypt 格式: "salt_hex:key_hex"
+        -- 注意: scrypt C 模块在 moon 工作线程上调用会崩溃 (主线程正常),
+        -- 为避免服务崩溃, 暂不支持旧账号 scrypt 验证 (迁移文档开放问题)
         return false
     end
 end

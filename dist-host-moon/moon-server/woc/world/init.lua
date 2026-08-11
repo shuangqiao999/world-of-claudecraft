@@ -224,10 +224,21 @@ local function createPlayerEntity(pid, cls, name, level, stateData)
         e.hp = stateData.hp or e.maxHp
         e.dead = stateData.dead or false
         e.ghost = stateData.ghost or false
+        if stateData.corpsePos then e.corpsePos = stateData.corpsePos end
+        if stateData.cooldowns then
+            e.cooldowns = {}
+            for k, v in pairs(stateData.cooldowns) do
+                if type(v) == "number" and v > 0 then e.cooldowns[k] = v end
+            end
+        end
+        if stateData.skin then e.skin = stateData.skin end
+        if stateData.skinCatalog then e.skinCatalog = stateData.skinCatalog end
+        if stateData.weaponSkinId then e.weaponSkinId = stateData.weaponSkinId end
+        -- 装备重算 (装备实例/签名)
+        if stateData.equipmentInstance then e.equippedInstances = stateData.equipmentInstance end
     end
 
     -- 调用 recalcPlayerStats 计算完整属性
-    -- (装备和物品数据后面在 stateData 中有 inventory/equipment)
     local eq = stateData and stateData.equipment or {}
     playerStats.recalcPlayerStats(e, cls, eq, nil, nil)
     playerStats.fullVitals(e, cls)
@@ -261,14 +272,38 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
         lifetimeXp = (state and state.lifetimeXp) or 0,
         restedXp = (state and state.restedXp) or 0,
         prestigeRank = (state and state.prestigeRank) or 0,
+        honor = state and state.honor, lifetimeHonor = state and state.lifetimeHonor,
         inventory = (state and state.inventory) or {},
         equipment = (state and state.equipment) or {},
+        bags = state and state.bags,
+        equipmentInstance = state and state.equipmentInstance,
+        qlog = state and state.qlog, qdone = state and state.qdone,
+        questMilestones = state and state.questMilestones,
+        talents = state and state.talents, talentPoints = state and state.talentPoints,
+        loadouts = state and state.loadouts, spec = state and state.activeSpec,
+        bank = state and state.bank,
+        professions = state and state.professions, currentProfession = state and state.currentProfession,
+        deedsEarned = state and state.deedsEarned, deedStats = state and state.deedStats,
+        activeTitle = state and state.activeTitle, renown = state and state.renown,
+        ownedMounts = state and state.ownedMounts, ridingTrained = state and state.ridingTrained or false,
+        hotbarLayout = state and state.hotbarLayout,
+        petName = state and state.petName,
+        townFocus = state and state.townFocus,
+        dungeonDifficulty = state and state.dungeonDifficulty,
         lastAcknowledgedSeq = 0,
     }
     players[pid] = meta
     -- 实体持有 meta 引用, 供 aura 施加/过期时重算属性
     e.meta = meta
     grid.insert(e)
+    quest.initQuestData(meta)
+    talent.initTalents(meta, cls)
+    bankMod.initBank(meta)
+    profession.initProfessions(meta)
+    if meta.talents then
+        talent.recomputeForLevel(meta, e, cls)
+        playerStats.recalcPlayerStats(e, cls, meta.equipment, meta.talentMods, nil)
+    end
     deeds.initPlayer(pid)
     pvpHonor.initPlayer(pid)
     print(string.format("[World] Player joined: pid=%d name=%s cls=%s lv=%d str=%d ap=%d hp=%d",
@@ -299,10 +334,30 @@ local function serializeCharacter(pid)
     if not e or not meta then return nil end
     return {
         level = meta.level or 1, xp = meta.xp or 0, copper = meta.copper or 0,
+        lifetimeXp = meta.lifetimeXp or 0,
         restedXp = meta.restedXp or 0, prestigeRank = meta.prestigeRank or 0,
+        honor = meta.honor, lifetimeHonor = meta.lifetimeHonor,
         pos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }, facing = e.facing or 0,
         hp = e.hp or 100, dead = e.dead or false, ghost = e.ghost or false,
+        corpsePos = e.corpsePos,
         inventory = meta.inventory or {}, equipment = meta.equipment or {},
+        bags = meta.bags, equipmentInstance = meta.equipmentInstance,
+        qlog = meta.qlog, qdone = meta.qdone,
+        questMilestones = meta.questMilestones,
+        talents = meta.talents, talentPoints = meta.talentPoints,
+        loadouts = meta.loadouts, activeSpec = meta.spec,
+        bank = meta.bank,
+        professions = meta.professions, currentProfession = meta.currentProfession,
+        deedsEarned = meta.deedsEarned, deedStats = meta.deedStats,
+        activeTitle = meta.activeTitle, renown = meta.renown,
+        ownedMounts = meta.ownedMounts, ridingTrained = meta.ridingTrained,
+        cooldowns = e.cooldowns, hotbarLayout = meta.hotbarLayout,
+        skin = e.skin, skinCatalog = e.skinCatalog,
+        weaponSkinId = e.weaponSkinId,
+        petName = meta.petName,
+        townFocus = meta.townFocus,
+        dungeonDifficulty = meta.dungeonDifficulty,
+        unlockReason = meta.unlockReason,
     }
 end
 
@@ -944,6 +999,13 @@ moon.dispatch("lua", function(sender, session, msg)
         if meta then
             meta.linkdeadSince = os.time()
             print(string.format("[World] Linkdead: pid=%d name=%s (sweep in %ds)", msg.pid, meta.name, math.floor(config.LINKDEAD_GRACE_MS / 1000)))
+        end
+    elseif t == "playerResumed" then
+        -- 断线重连: 清除 linkdead 标记, 继续使用原实体 (对应 linkdead.ts planJoin resume)
+        local meta = players[msg.pid]
+        if meta then
+            meta.linkdeadSince = nil
+            print(string.format("[World] Resume: pid=%d name=%s", msg.pid, meta.name))
         end
     elseif t == "playerInput" then
         local pid = msg.pid

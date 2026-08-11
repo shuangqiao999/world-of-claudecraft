@@ -13,6 +13,8 @@ local rateLimit = require("world.msg_rate_limit")
 
 -- DB Service 路由 (单一数据库入口, 无直连 PG)
 local sessions, pids = {}, {}
+-- 按 characterId 的 session 索引 (断线重连复用, 对应 linkdead.ts planJoin)
+local sessionsByChar = {}
 local nextEntityId = 1000
 
 local WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -241,11 +243,36 @@ local function handleAuth(fd, msg)
         local cr = dbCall("getCharacter", accountId, characterId)
         if not cr then wsWrite(fd, '{"t":"error","error":"no such character"}'); socket.close(fd); return end
         if cr.force_rename then wsWrite(fd, '{"t":"error","error":"This character must be renamed before entering the world."}'); socket.close(fd); return end
+
+        -- 断线重连: 若该角色已有 linkdead session 且未超宽限期, 复用其 pid/实体
+        -- (对应原 linkdead.ts planJoin resume 分支)
+        local existing = sessionsByChar[characterId]
+        if existing and existing.linkdead and existing.fd ~= fd then
+            local world = moon.queryservice("world")
+            local oldFd = existing.fd
+            -- 旧 socket 已死, 从索引中摘除, 但保留实体在 world 中
+            sessions[oldFd] = nil
+            pids[existing.pid] = nil
+            existing.fd = fd
+            existing.linkdead = false
+            existing.leaseNonce = existing.leaseNonce
+            sessions[fd] = existing
+            pids[existing.pid] = fd
+            sessionsByChar[characterId] = existing
+            print(string.format("[Gate] Auth RESUME char=%d pid=%d (linkdead recovered)", characterId, existing.pid))
+            wsWrite(fd, jh.buildHelloFrame(existing.pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
+            if world then
+                moon.send("lua", world, { t = "playerResumed", pid = existing.pid })
+            end
+            return
+        end
+
         local nonce = string.format("%s%d", tostring(require("random").rand_range(100000, 999999)), os.time())
         dbCall("acquireLease", characterId, accountId, nonce)
         local pid = nextEntityId; nextEntityId = nextEntityId + 1
         sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false }
         pids[pid] = fd
+        sessionsByChar[characterId] = sessions[fd]
         -- hello seed 必须是 WORLD_SEED: 客户端用其重建整个地形/水体/植被 (online.ts cfg.seed)
         -- 服务器 terrain.lua 也用同一常量, 二者必须一致
         wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
@@ -285,7 +312,9 @@ local function wsMessage(fd, text)
         if dbUp() and sess.leaseNonce then moon.async(function() dbCall("releaseLease", sess.characterId, sess.leaseNonce) end) end
         local world = moon.queryservice("world")
         if world then moon.send("lua", world, { t = "playerLeave", pid = sess.pid, characterId = sess.characterId, leaseNonce = sess.leaseNonce }) end
-        pids[sess.pid] = nil; sessions[fd] = nil; socket.close(fd)
+        pids[sess.pid] = nil; sessions[fd] = nil
+        if sessionsByChar[sess.characterId] == sess then sessionsByChar[sess.characterId] = nil end
+        socket.close(fd)
     end
 end
 
@@ -338,7 +367,8 @@ moon.async(function()
         local fd, err = socket.accept(listenfd, moon.id)
         if not fd then moon.sleep(1000)
         else
-            socket.settimeout(fd, 15)
+            -- scrypt 登录验证 (N=16384) 需 ~40s, 默认 15s 超时会在验证中途断开导致崩溃
+            socket.settimeout(fd, 120)
             moon.async(function() handleConnection(fd) end)
         end
     end

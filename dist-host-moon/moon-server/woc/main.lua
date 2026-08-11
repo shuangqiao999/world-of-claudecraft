@@ -47,6 +47,10 @@ if _G["__init__"] then
         -- 日志文件
         logfile = "log/woc-server.log",
 
+        -- Lua 内存上限 (字节): scrypt N=16384,r=8 需要 ~16MB V 缓冲,
+        -- 默认上限会被击中, 放宽到 256MB
+        memlimit = 268435456,  -- 256 * 1024 * 1024
+
         -- Lua 模块搜索路径
         -- Moon 将 CWD 改为此文件所在目录 (woc/)
         -- lualib/ 和 service/ 在父目录下
