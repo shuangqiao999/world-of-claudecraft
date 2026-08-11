@@ -27,6 +27,13 @@ function M.getRating(pid)
     return playerRating[pid] or DEFAULT_RATING
 end
 
+--- 获取队伍成员 pid 列表
+function M.getTeamPlayers(teamId)
+    local t = teams[teamId]
+    if not t then return {} end
+    return t.players
+end
+
 --- 创建队伍
 function M.createTeam(pid1, pid2)
     local teamId = pid1 .. "_" .. pid2

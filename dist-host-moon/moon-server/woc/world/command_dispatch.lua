@@ -792,12 +792,24 @@ function H.arena_queue(ctx, pid, cmd)
     local teamId = ctx.arena.createTeam(pid, 0)
     if teamId then
         ctx.arena.queueTeam(teamId, ctx.simTime)
+        local meta = ctx.players[pid]
+        if meta then
+            meta.arena = { rating = ctx.arena.getRating(pid), inQueue = true, queueTeam = teamId }
+        end
         ctx.noteEvents({ { type = "log", text = "Joined arena queue", pid = pid } })
         return true
     end
     return false
 end
-function H.arena_leave(ctx, pid, cmd) return notImplemented(ctx, pid, "arena_leave") end
+function H.arena_leave(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    if meta and meta.arena and meta.arena.queueTeam then
+        ctx.arena.leaveQueue(meta.arena.queueTeam)
+        meta.arena = { rating = ctx.arena.getRating(pid), inQueue = false }
+    end
+    ctx.noteEvents({ { type = "log", text = "Left arena queue", pid = pid } })
+    return true
+end
 function H.arena_augment(ctx, pid, cmd) return notImplemented(ctx, pid, "arena_augment") end
 
 function H.bg_queue(ctx, pid, cmd)

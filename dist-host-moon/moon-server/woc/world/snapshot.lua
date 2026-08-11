@@ -213,6 +213,9 @@ local function buildSelfJson(e, meta, session)
     if k11 then table.insert(parts, ',"' .. k11 .. '":' .. v11) end
     local k12, v12 = maybeDelta(session, "duel", meta.duel)
     if k12 then table.insert(parts, ',"' .. k12 .. '":' .. v12) end
+    -- arena: 竞技场状态 (评分/排队)
+    local kArena, vArena = maybeDelta(session, "arena", meta.arena)
+    if kArena then table.insert(parts, ',"' .. kArena .. '":' .. vArena) end
 
     -- 荣誉
     local k13, v13 = maybeDelta(session, "honor", meta.honor)

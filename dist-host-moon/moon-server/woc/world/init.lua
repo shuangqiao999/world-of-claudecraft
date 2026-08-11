@@ -880,6 +880,24 @@ local function doGameTick()
     local bgEvents = safeCall("battleground.update", function() return battleground.update(simTime, entities) end)
     for _, ev in ipairs(arenaEvents) do table.insert(combatEvents, ev) end
     for _, ev in ipairs(bgEvents) do table.insert(combatEvents, ev) end
+    -- 竞技场匹配/结束事件 → 同步玩家 self.arena 状态
+    for _, ev in ipairs(arenaEvents) do
+        if ev.type == "arena_match_found" then
+            for _, pid in ipairs(arena.getTeamPlayers(ev.team1)) do
+                if players[pid] then players[pid].arena = { rating = arena.getRating(pid), inMatch = ev.matchId, inQueue = false } end
+            end
+            for _, pid in ipairs(arena.getTeamPlayers(ev.team2)) do
+                if players[pid] then players[pid].arena = { rating = arena.getRating(pid), inMatch = ev.matchId, inQueue = false } end
+            end
+        elseif ev.type == "arena_match_end" then
+            for _, pid in ipairs(arena.getTeamPlayers(ev.team1)) do
+                if players[pid] then players[pid].arena = { rating = arena.getRating(pid), inMatch = false } end
+            end
+            for _, pid in ipairs(arena.getTeamPlayers(ev.team2)) do
+                if players[pid] then players[pid].arena = { rating = arena.getRating(pid), inMatch = false } end
+            end
+        end
+    end
 
     -- Phase: 深层系统
     local delveEvents = safeCall("delve.update", function() return delve.update(simTime, entities, players, config.DT) end)
