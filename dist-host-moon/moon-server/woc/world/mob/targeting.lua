@@ -3,6 +3,7 @@
 -- 感知范围/威胁切换/isTrivialTo/威胁倍率
 
 local config = require("config")
+local m3d = require("world.math3d")
 local M = {}
 
 -- TS 常量
@@ -108,7 +109,7 @@ function M.updateMobTarget(mob, entities, threatMod)
         if not e or e.dead then goto continue_scan end
         local dx = mob.pos.x - e.pos.x
         local dz = mob.pos.z - e.pos.z
-        local dist = math.sqrt(dx * dx + dz * dz)
+        local dist = m3d.dist(dx, dz)
         local needed = curThreat * (dist <= MELEE_RANGE * 1.2 and MELEE_SWITCH_MULT or RANGED_SWITCH_MULT)
         if t > needed then
             best, bestT = e, t

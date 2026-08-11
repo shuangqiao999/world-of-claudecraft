@@ -4,6 +4,8 @@
 
 local M = {}
 
+local m3d = require("world.math3d")
+
 -- 常量
 M.MANTLE_REACH = 0.9
 M.SUPPORT_OVERLAP = 0.5
@@ -160,7 +162,7 @@ function M._overlapPush(c, x, z, r)
         local min = c.r + r
         local d2 = dx * dx + dz * dz
         if d2 >= min * min then return false end
-        local d = math.sqrt(d2)
+        local d = m3d.dist(dx, dz)
         if d < 1e-9 then return true, 1, 0, min end
         return true, dx / d, dz / d, min - d
     end

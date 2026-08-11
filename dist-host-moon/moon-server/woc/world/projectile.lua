@@ -3,6 +3,7 @@
 -- 投射物在命中时执行回调 (施法完成时锁定, 命中时解析)
 
 local config = require("config")
+local m3d = require("world.math3d")
 local M = {}
 
 local PROJECTILE_SPEED = 40  -- yards/second
@@ -15,7 +16,7 @@ function M.launch(sourceId, targetId, abilityId, sourcePos, targetPos, onHit, op
     opts = opts or {}
     local dx = (targetPos.x or targetPos) - (sourcePos.x or 0)
     local dz = (targetPos.z or 0) - (sourcePos.z or 0)
-    local dist = math.sqrt(dx * dx + dz * dz)
+    local dist = m3d.dist(dx, dz)
     local travelTime = opts.travelTime or (dist > 0 and dist / PROJECTILE_SPEED or 0.25)
     if travelTime < 0.1 then travelTime = 0.1 end
 

@@ -5,6 +5,8 @@
 
 local M = {}
 
+local m3d = require("world.math3d")
+
 -- 数值参数安全转换 (TS dispatch 都先 type-check)
 local function n(v) return (type(v) == "number" and v) or (type(v) == "string" and tonumber(v)) or nil end
 local function s(v) return (type(v) == "string" and v) or nil end
@@ -57,7 +59,7 @@ function H.cast(ctx, pid, cmd)
         local maxRange = (ability.range and ability.range > 0) and ability.range or ctx.config.MELEE_RANGE
         local dx = e.pos.x - target.pos.x
         local dz = e.pos.z - target.pos.z
-        if math.sqrt(dx * dx + dz * dz) > maxRange + 2 then
+        if m3d.dist(dx, dz) > maxRange + 2 then
             ctx.noteEvents({ { type = "log", text = "Out of range.", pid = pid } })
             return false
         end
@@ -145,7 +147,7 @@ function H.castAt(ctx, pid, cmd)
     if not x or not z then return false end
     local dx, dz = x - e.pos.x, z - e.pos.z
     local range = (ability.range and ability.range > 0) and ability.range or 10
-    local d = math.sqrt(dx * dx + dz * dz)
+    local d = m3d.dist(dx, dz)
     if d > range then
         dx, dz = dx / d * range, dz / d * range
         x, z = e.pos.x + dx, e.pos.z + dz

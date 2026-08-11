@@ -4,6 +4,8 @@
 
 local M = {}
 
+local m3d = require("world.math3d")
+
 local GRID_SIZE = 1     -- 1 yard/pixel
 local SEARCH_RADIUS = 50  -- 50 yard 搜索范围
 
@@ -46,7 +48,7 @@ end
 function M.distance(x1, z1, x2, z2)
     local dx = x1 - x2
     local dz = z1 - z2
-    return math.sqrt(dx * dx + dz * dz)
+    return m3d.dist(dx, dz)
 end
 
 return M

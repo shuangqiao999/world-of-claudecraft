@@ -3,6 +3,7 @@
 -- 远海无墙, 距离本身逼退泳者: 警告 → 宽限 → 递升无豁免伤害
 
 local config = require("config")
+local m3d = require("world.math3d")
 local M = {}
 
 -- TS 常量 (SLOWDOWN = 5, 全部乘以 5)
@@ -19,7 +20,7 @@ local WATER_LEVEL = -1.5
 
 --- 是否在远海 (TS inHollowOpenSea 简化: 距离 + 水中)
 function M.inHollowOpenSea(x, z)
-    local dist = math.sqrt(x * x + z * z)
+    local dist = m3d.dist(x, z)
     return dist > OPEN_SEA_RADIUS
 end
 

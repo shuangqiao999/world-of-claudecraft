@@ -3,6 +3,7 @@
 -- 护送 NPC 行走 + 伏击波次
 
 local simrng = require("world.simrng")
+local m3d = require("world.math3d")
 local M = {}
 
 -- 活跃护送: { npcId, route = {x,z}[], progress, waitTimer, ambushes, currentWave }
@@ -40,7 +41,7 @@ function M.update(entities, players, createMobFn, gridModule, dt)
         if waypoint then
             local dx = waypoint.x - npc.pos.x
             local dz = waypoint.z - npc.pos.z
-            local dist = math.sqrt(dx * dx + dz * dz)
+            local dist = m3d.dist(dx, dz)
             if dist < 1 then
                 escort.progress = escort.progress + 1
             else

@@ -42,7 +42,7 @@ local function pruneCandidates(x, z, dx, dz, reach)
     local kept = 0
     for i = 1, #candidates do
         local c = candidates[i]
-        local ext = c.type == "circle" and c.r or math.sqrt(c.hw * c.hw + c.hd * c.hd)
+        local ext = c.type == "circle" and c.r or m3d.dist(c.hw, c.hd)
         if not (c.x + ext < minX or c.x - ext > maxX or c.z + ext < minZ or c.z - ext > maxZ) then
             kept = kept + 1
             candidates[kept] = c
