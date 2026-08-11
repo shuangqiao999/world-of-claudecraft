@@ -1,59 +1,37 @@
--- World of ClaudeCraft — Mail Service
+-- World of ClaudeCraft — Mail Service (DB Service 路由, 持久化)
+-- 无内存存储, 无直连 PG; 数据经 db service (PostgreSQL mail 表)
 
 local moon = require("moon")
 
 local M = {}
 
-local mailboxes = {}  -- pid → { mails[] }
+local function dbCall(op, ...)
+    local dbSvc = moon.queryservice("db")
+    if not dbSvc then return nil, "db unavailable" end
+    local resp = moon.call("lua", dbSvc, { op = op, args = { ... } })
+    if resp and resp.ok then return resp.data, nil end
+    return nil, (resp and resp.error) or "db error"
+end
 
 moon.dispatch("lua", function(sender, session, msg)
     if type(msg) ~= "table" then return end
     local op = msg.op
-    if op == "send" then moon.response("lua", sender, session, M.sendMail(msg.from, msg.to, msg.text, msg.item, msg.copper))
-    elseif op == "take" then moon.response("lua", sender, session, M.takeItem(msg.pid, msg.mailId))
-    elseif op == "delete" then moon.response("lua", sender, session, M.deleteMail(msg.pid, msg.mailId))
-    elseif op == "read" then moon.response("lua", sender, session, M.readMail(msg.pid, msg.mailId))
-    elseif op == "list" then moon.response("lua", sender, session, M.listInbox(msg.pid))
+    if op == "send" then
+        local id, err = dbCall("sendMail", msg.from, msg.to, msg.text, msg.item, msg.copper)
+        moon.response("lua", sender, session, { ok = id ~= nil, data = id, error = err })
+    elseif op == "list" then
+        local data, err = dbCall("listInbox", msg.pid)
+        moon.response("lua", sender, session, { ok = data ~= nil, data = data or {}, error = err })
+    elseif op == "read" then
+        local data, err = dbCall("readMail", msg.pid, msg.mailId)
+        moon.response("lua", sender, session, { ok = data ~= nil, data = data, error = data and nil or (err or "Not found") })
+    elseif op == "take" then
+        local data, err = dbCall("takeMail", msg.pid, msg.mailId)
+        moon.response("lua", sender, session, { ok = data ~= nil, data = data, error = data and nil or (err or "Not found or already taken") })
+    elseif op == "delete" then
+        local _, err = dbCall("deleteMail", msg.pid, msg.mailId)
+        moon.response("lua", sender, session, { ok = not err, error = err })
     end
 end)
 
-function M._getInbox(pid)
-    if not mailboxes[pid] then mailboxes[pid] = {} end
-    return mailboxes[pid]
-end
-
-function M.sendMail(fromPid, toPid, text, item, copper)
-    local inbox = M._getInbox(toPid)
-    local mailId = #inbox + 1
-    inbox[mailId] = {
-        id = mailId, from = fromPid, text = text or "", item = item,
-        copper = copper or 0, read = false, taken = false, createdAt = os.time(),
-    }
-    return true, mailId
-end
-
-function M.listInbox(pid)
-    return M._getInbox(pid)
-end
-
-function M.readMail(pid, mailId)
-    local inbox = M._getInbox(pid)
-    if inbox[mailId] then inbox[mailId].read = true; return inbox[mailId] end
-    return nil
-end
-
-function M.takeItem(pid, mailId)
-    local inbox = M._getInbox(pid)
-    local mail = inbox[mailId]
-    if not mail or mail.taken then return false end
-    mail.taken = true
-    return true, mail
-end
-
-function M.deleteMail(pid, mailId)
-    local inbox = M._getInbox(pid)
-    inbox[mailId] = nil
-    return true
-end
-
-print("[Mail] Service ready")
+print("[Mail] Service ready (PostgreSQL)")

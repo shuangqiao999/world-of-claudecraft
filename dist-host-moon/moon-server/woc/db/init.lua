@@ -207,6 +207,12 @@ local function ensureSchema()
     M.query("ALTER TABLE characters ADD COLUMN IF NOT EXISTS force_rename BOOLEAN NOT NULL DEFAULT FALSE")
     M.query("ALTER TABLE characters ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ")
     M.query("ALTER TABLE character_leases ADD COLUMN IF NOT EXISTS account_id INT")
+    -- 邮件 + 拍卖行 (mail/market 持久化)
+    M.query("CREATE TABLE IF NOT EXISTS mail (id BIGSERIAL PRIMARY KEY, from_pid INT NOT NULL, to_pid INT NOT NULL, text TEXT, item_data JSONB, copper INT DEFAULT 0, is_read BOOLEAN DEFAULT FALSE, is_taken BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT now())")
+    M.query("CREATE INDEX IF NOT EXISTS idx_mail_to_pid ON mail(to_pid)")
+    M.query("CREATE INDEX IF NOT EXISTS idx_mail_taken ON mail(is_taken)")
+    M.query("CREATE TABLE IF NOT EXISTS auctions (id BIGSERIAL PRIMARY KEY, seller_pid INT NOT NULL, item_data JSONB NOT NULL, price INT NOT NULL CHECK (price > 0), sold BOOLEAN DEFAULT FALSE, buyer_pid INT, collected BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT now())")
+    M.query("CREATE INDEX IF NOT EXISTS idx_auctions_sold_price ON auctions(sold, price)")
     print("[DB] Schema migrations applied")
 end
 
@@ -216,6 +222,8 @@ local function loadModules()
     require("db.auth").register(M)
     require("db.character").register(M)
     require("db.world_state").register(M)
+    require("db.mail").register(M)
+    require("db.auction").register(M)
     print("[DB] CRUD modules loaded")
 end
 
