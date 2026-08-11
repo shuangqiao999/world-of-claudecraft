@@ -4,6 +4,8 @@
 
 local M = {}
 
+local m3d = require("world.math3d")
+
 -- 世界种子 (固定, 确定性) — 与客户端 src/sim/world_seed.ts WORLD_SEED=20061 一致
 local WORLD_SEED = require("config").WORLD_SEED
 
@@ -149,7 +151,7 @@ function M._distanceToLineSegment(px, pz, ax, az, bx, bz)
     if lenSq < 0.001 then
         local dx = px - ax
         local dz = pz - az
-        return math.sqrt(dx * dx + dz * dz)
+        return m3d.dist(dx, dz)
     end
 
     local t = math.max(0, math.min(1, ((px - ax) * abx + (pz - az) * abz) / lenSq))
@@ -157,7 +159,7 @@ function M._distanceToLineSegment(px, pz, ax, az, bx, bz)
     local cz = az + t * abz
     local dx = px - cx
     local dz = pz - cz
-    return math.sqrt(dx * dx + dz * dz)
+    return m3d.dist(dx, dz)
 end
 
 --- 检查该点是否为可行走表面 (斜率 < 30 度)
@@ -208,7 +210,7 @@ function M.terrainDownhill(x, z)
     local h = M.groundHeight(x, z)
     local hx = M.groundHeight(x + STEEPNESS_SAMPLE, z) - h
     local hz = M.groundHeight(x, z + STEEPNESS_SAMPLE) - h
-    local len = math.sqrt(hx * hx + hz * hz)
+    local len = m3d.dist(hx, hz)
     if len < 1e-6 then return nil end
     return { x = -hx / len, z = -hz / len }
 end
@@ -240,7 +242,7 @@ function M.terrainWallStandoff(x, z, radius, maxSlope)
     end
     local dx = px - x
     local dz = pz - z
-    local d = math.sqrt(dx * dx + dz * dz)
+    local d = m3d.dist(dx, dz)
     if d > radius then
         local k = radius / d
         px = x + dx * k
