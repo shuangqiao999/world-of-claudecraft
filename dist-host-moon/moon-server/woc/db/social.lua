@@ -99,6 +99,13 @@ function M.register(dbMod)
         if res.code then return {} end
         return res.data or {}
     end)
+    dbMod:register("deleteGuild", function(guildId)
+        dbMod.withTransaction(function(tx)
+            tx.query("DELETE FROM guild_members WHERE guild_id=%s", guildId)
+            tx.query("DELETE FROM guilds WHERE id=%s", guildId)
+        end)
+        return true
+    end)
 end
 
 return M

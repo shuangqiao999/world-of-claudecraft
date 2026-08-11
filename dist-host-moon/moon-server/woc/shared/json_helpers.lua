@@ -85,11 +85,14 @@ function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVe
     return table.concat(parts)
 end
 
---- 构建 social 帧 JSON (单次编码)
+--- 构建 social 帧 JSON (客户端在线读取顶层 friends/blocks/ignores/guild)
 function M.buildSocialFrame(data)
     return json.encode({
         t = "social",
-        data = data,
+        friends = data and data.friends or {},
+        blocks = data and data.blocks or {},
+        ignores = data and data.ignores or {},
+        guild = data and data.guild or nil,
     })
 end
 

@@ -355,9 +355,9 @@ local function handleConnection(fd)
 end
 
 ------------------------------------------------------------
--- 启动 (端口 8788，由代理转发)
+-- 启动 (端口 8787 = 客户端硬约束, WS + HTTP 同端口; 迁移文档 §1)
 ------------------------------------------------------------
-local gatePort = tonumber(os.getenv("WOC_GATE_PORT")) or 8788
+local gatePort = tonumber(os.getenv("WOC_GATE_PORT")) or 8787
 local listenfd = socket.listen("0.0.0.0", gatePort, moon.PTYPE_SOCKET_TCP)
 assert(listenfd > 0, "Gate listen failed")
 print(string.format("[Gate] API+WS on 0.0.0.0:%d", gatePort))

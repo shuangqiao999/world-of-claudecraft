@@ -83,7 +83,51 @@ function M.sellItem(meta, slot)
     local price = math.floor(sellValue * 0.25)
     meta.copper = (meta.copper or 0) + price
     meta.inventory[slot] = nil
+
+    -- 记录 buyback (TS: 出售物品进入回购列表, 上限 12 条, 原价赎回)
+    meta.buyback = meta.buyback or {}
+    if #meta.buyback >= 12 then table.remove(meta.buyback, 1) end
+    table.insert(meta.buyback, {
+        item = item,
+        price = math.floor(sellValue * 1.0),  -- 回购价 = 原 sellValue
+        soldAt = os.time(),
+    })
     return true, { name = item.name, price = price }
+end
+
+--- 回购物品 (TS: buyBackItem 以原价赎回, 支持 itemId + index 定位)
+function M.buyBackItem(meta, itemId, index)
+    if not meta.buyback or #meta.buyback == 0 then return false, "Nothing to buy back" end
+    local entry = nil
+    local entryIdx = nil
+    if type(index) == "number" and index >= 1 and index <= #meta.buyback then
+        entry = meta.buyback[index]
+        entryIdx = index
+    else
+        for i, e in ipairs(meta.buyback) do
+            if e.item.id == itemId then entry, entryIdx = e, i break end
+        end
+    end
+    if not entry then return false, "Buyback item not found" end
+
+    local cost = entry.price or 0
+    if (meta.copper or 0) < cost then return false, "Not enough copper" end
+
+    local inventory = require("world.inventory")
+    local slot = inventory.addItem(meta, entry.item)
+    if not slot then return false, "Inventory full" end
+    meta.copper = meta.copper - cost
+    table.remove(meta.buyback, entryIdx)
+    return true, { name = entry.item.name, price = cost, slot = slot }
+end
+
+--- buyback 快照视图 (客户端 InvSlot 形状: itemId/count)
+function M.buybackView(meta)
+    local out = {}
+    for _, e in ipairs(meta.buyback or {}) do
+        table.insert(out, { itemId = e.item.id, count = 1, index = _ })
+    end
+    return out
 end
 
 --- 卖出所有灰色物品

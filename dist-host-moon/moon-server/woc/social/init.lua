@@ -9,6 +9,9 @@ local M = {}
 -- 公会 rank: 0=会长 1=官员 2=成员
 local RANK = { LEADER = 0, OFFICER = 1, MEMBER = 2 }
 
+-- 待处理公会邀请: pendingInvites[charId] = { guildId, guildName, fromName, fromCharId }
+local pendingInvites = {}
+
 --- 调用 DB Service (每次查询 service, 防服务重启后引用失效)
 local function dbCall(op, ...)
     local dbSvc = moon.queryservice("db")
@@ -111,10 +114,48 @@ function M.inviteToGuild(charId, targetId)
     if not guild then return false, err end
     if not dbCall("getCharacterById", targetId) then return false, "Character not found" end
     if dbCall("getGuildByCharacter", targetId) then return false, "Target already in a guild" end
-    -- 简化: 直接入会 (无邀请队列)
-    local _, err2 = dbCall("addGuildMember", guild.id, targetId, RANK.MEMBER)
-    if err2 then return false, err2 end
+    -- 创建待处理邀请 (TS: pendingGuildInvites 队列, 目标接受/拒绝后生效)
+    local from = dbCall("getCharacterById", charId)
+    pendingInvites[targetId] = {
+        guildId = guild.id,
+        guildName = guild.name,
+        fromName = from and from.name or "someone",
+        fromCharId = charId,
+    }
     return true, guild.name
+end
+
+function M.acceptGuildInvite(charId)
+    local invite = pendingInvites[charId]
+    if not invite then return false, "No pending guild invite" end
+    if dbCall("getGuildByCharacter", charId) then
+        pendingInvites[charId] = nil
+        return false, "Already in a guild"
+    end
+    local _, err = dbCall("addGuildMember", invite.guildId, charId, RANK.MEMBER)
+    if err then return false, err end
+    pendingInvites[charId] = nil
+    return true, invite.guildName
+end
+
+function M.declineGuildInvite(charId)
+    if not pendingInvites[charId] then return false, "No pending guild invite" end
+    pendingInvites[charId] = nil
+    return true, "Invite declined"
+end
+
+function M.disbandGuild(charId)
+    local guild, err = M._requireOfficer(charId)
+    if not guild then return false, err end
+    if (guild.rank or RANK.MEMBER) ~= RANK.LEADER then return false, "Only the guild master can disband" end
+    -- 删除所有成员 + 公会 (TS guildDisband)
+    local members = dbCall("getGuildMembers", guild.id) or {}
+    for _, m in ipairs(members) do
+        dbCall("removeGuildMember", m.character_id)
+        pendingInvites[m.character_id] = nil
+    end
+    dbCall("deleteGuild", guild.id)
+    return true, "Guild disbanded"
 end
 
 function M.kickFromGuild(charId, targetId)
@@ -204,6 +245,15 @@ moon.dispatch("lua", function(sender, session, msg)
         resp = ok and { ok = true, data = data } or { ok = false, error = data }
     elseif op == "guild_invite" then
         local ok, data = M.inviteToGuild(charId, msg.targetId)
+        resp = ok and { ok = true, data = data } or { ok = false, error = data }
+    elseif op == "guild_accept" then
+        local ok, data = M.acceptGuildInvite(charId)
+        resp = ok and { ok = true, data = data } or { ok = false, error = data }
+    elseif op == "guild_decline" then
+        local ok, data = M.declineGuildInvite(charId)
+        resp = ok and { ok = true, data = data } or { ok = false, error = data }
+    elseif op == "guild_disband" then
+        local ok, data = M.disbandGuild(charId)
         resp = ok and { ok = true, data = data } or { ok = false, error = data }
     elseif op == "guild_kick" then
         local ok, data = M.kickFromGuild(charId, msg.targetId)

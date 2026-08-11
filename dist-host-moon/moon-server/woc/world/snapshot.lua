@@ -190,6 +190,12 @@ local function buildSelfJson(e, meta, session)
     local inv = meta.inventory
     local k3, v3 = maybeDelta(session, "inv", inv)
     if k3 then table.insert(parts, ',"' .. k3 .. '":' .. v3) end
+    -- buyback: 出售物品回购列表 (delta-guarded, TS ALL_DELTA_KEYS)
+    local bbk = require("world.vendor").buybackView(meta)
+    if #bbk > 0 then
+        local kbb, vbb = maybeDelta(session, "buyback", bbk)
+        if kbb then table.insert(parts, ',"' .. kbb .. '":' .. vbb) end
+    end
     local k5, v5 = maybeDelta(session, "equip", meta.equipment)
     if k5 then table.insert(parts, ',"' .. k5 .. '":' .. v5) end
     local k6, v6 = maybeDelta(session, "einst", meta.equipmentInstance)

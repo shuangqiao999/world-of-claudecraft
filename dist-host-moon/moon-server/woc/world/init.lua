@@ -171,11 +171,70 @@ end
 
 local function guildBankOp(pid, msg)
     moon.async(function()
+        local meta = players[pid]
+        if not meta or not meta.characterId then return end
         local svc = moon.queryservice("social")
         if not svc then noteEvents({ { type = "log", text = "Guild unavailable", pid = pid } }); return end
-        local resp = moon.call("lua", svc, msg)
-        local ok = resp and resp.ok
-        noteEvents({ { type = "log", text = ok and "Guild bank OK" or (resp and resp.error or "Guild bank failed"), pid = pid } })
+        -- 解析公会成员身份 (guild id + rank)
+        local ginfo = moon.call("lua", svc, { op = "guild_info", charId = meta.characterId })
+        local guild = ginfo and ginfo.data
+        if not guild then noteEvents({ { type = "log", text = "You are not in a guild", pid = pid } }); return end
+        local bank = guildBank.getBankInfo(guild.id)
+        if not bank then guildBank.createGuildBank(guild.id, guild.name) bank = guildBank.getBankInfo(guild.id) end
+        local rank = guild.rank or 2
+        local actor = meta.name or nil
+
+        local op = msg.op
+        if op == "deposit_gold" then
+            local amount = msg.amount or 0
+            if amount <= 0 then noteEvents({ { type = "log", text = "Invalid amount", pid = pid } }); return end
+            if (meta.copper or 0) < amount then noteEvents({ { type = "log", text = "Not enough copper", pid = pid } }); return end
+            meta.copper = meta.copper - amount
+            local ok, gold = guildBank.depositGold(guild.id, pid, amount, rank, actor)
+            noteEvents({ { type = "log", text = ok and ("Deposited " .. amount .. " copper (treasury " .. gold .. ")") or tostring(gold), pid = pid } })
+        elseif op == "withdraw_gold" then
+            local amount = msg.amount or 0
+            local ok, gold = guildBank.withdrawGold(guild.id, pid, amount, rank, actor)
+            if ok then meta.copper = (meta.copper or 0) + amount end
+            noteEvents({ { type = "log", text = ok and ("Withdrew " .. amount .. " copper") or tostring(gold), pid = pid } })
+        elseif op == "deposit_item" then
+            local slot = msg.slot
+            local item = meta.inventory and meta.inventory[slot]
+            if not item then noteEvents({ { type = "log", text = "No item in that slot", pid = pid } }); return end
+            local ok, err = guildBank.depositItem(guild.id, pid, item, rank, actor)
+            if ok then meta.inventory[slot] = nil end
+            noteEvents({ { type = "log", text = ok and "Deposited item" or tostring(err), pid = pid } })
+        elseif op == "withdraw_item" then
+            local slot = msg.slot or 1
+            local ok, item = guildBank.withdrawItem(guild.id, pid, slot, rank, actor)
+            if ok and item then
+                local invItem = inventory.createItem(item.id, item.name or item.id, item.type or "misc", item)
+                local addSlot = inventory.addItem(meta, invItem)
+                if not addSlot then
+                    guildBank.depositItem(guild.id, pid, item, rank, actor)
+                    noteEvents({ { type = "log", text = "Inventory full", pid = pid } })
+                    return
+                end
+                noteEvents({ { type = "log", text = "Withdrew " .. (item.name or item.id), pid = pid } })
+            else
+                noteEvents({ { type = "log", text = tostring(item) or "Withdraw failed", pid = pid } })
+            end
+        elseif op == "buy_slots" then
+            local cost = 50
+            if (meta.copper or 0) < cost then noteEvents({ { type = "log", text = "Not enough copper", pid = pid } }); return end
+            meta.copper = meta.copper - cost
+            local ok, total = guildBank.buySlots(guild.id, pid, 1, rank, actor)
+            noteEvents({ { type = "log", text = ok and ("Expanded to " .. total .. " slots") or tostring(total), pid = pid } })
+        elseif op == "log" then
+            local entries = guildBank.getLog(guild.id)
+            local gs = gateSvc()
+            if gs then
+                moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = json.encode({ t = "gbanklog", ok = true, entries = entries }) })
+            end
+            return
+        end
+        -- 刷新个人银行/公会金库快照标记 (gold/物品变化)
+        if meta then meta.guildBankDirty = true end
     end)
 end
 
@@ -1110,6 +1169,10 @@ pushSocialFrame = function(pid)
         local blocks = moon.call("lua", svc, { op = "block_list", charId = charId })
         local ignores = moon.call("lua", svc, { op = "ignore_list", charId = charId })
         local guild = moon.call("lua", svc, { op = "guild_info", charId = charId })
+        if guild and guild.data then
+            meta.guildId = guild.data.id
+            meta.guildRank = guild.data.rank or 2
+        end
         local frame = jh.buildSocialFrame({
             friends = normalizeSocialList(friends and friends.data),
             blocks = normalizeSocialList(blocks and blocks.data),
@@ -1142,7 +1205,11 @@ local function socialCmd(pid, op, targetPid, name)
         local msg = { op = op, charId = charId }
         if op == "guild_create" then msg.name = name or ""
         elseif targetCharId then msg.targetId = targetCharId
-        elseif op ~= "guild_leave" and op ~= "friend_list" and op ~= "block_list" and op ~= "ignore_list" and op ~= "guild_info" then
+        elseif op == "guild_accept" or op == "guild_decline" or op == "guild_disband"
+            or op == "guild_leave" or op == "friend_list" or op == "block_list"
+            or op == "ignore_list" or op == "guild_info" then
+            -- 无需目标 (自操作 / 读列表)
+        else
             noteEvents({{ type = "log", text = "Target not online", pid = pid }})
             return
         end
@@ -1152,6 +1219,15 @@ local function socialCmd(pid, op, targetPid, name)
         print(string.format("[World] socialCmd pid=%d op=%s ok=%s text=%s", pid, op, tostring(ok), tostring(text)))
         noteEvents({{ type = "log", text = tostring(text), pid = pid }})
         if ok then
+            if op == "guild_invite" and targetPid then
+                -- 通知被邀请者 (客户端 guildInvite 事件弹窗)
+                noteEvents({{
+                    type = "guildInvite",
+                    fromName = meta.name,
+                    guildName = tostring(text),
+                    pid = targetPid,
+                }})
+            end
             pushSocialFrame(pid)
         end
     end)

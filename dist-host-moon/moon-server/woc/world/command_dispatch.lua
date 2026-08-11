@@ -536,7 +536,13 @@ function H.sell_all_junk(ctx, pid, cmd)
 end
 
 function H.buyback(ctx, pid, cmd)
-    return notImplemented(ctx, pid, "buyback")
+    local meta = ctx.players[pid]
+    if not meta then return false end
+    local itemId = s(cmd.item)
+    if not itemId then return false end
+    local ok, result = ctx.vendor.buyBackItem(meta, itemId, n(cmd.index))
+    ctx.noteEvents({ { type = "log", text = ok and ("Bought back " .. (result and result.name) or "") or (result or "Failed"), pid = pid } })
+    return ok
 end
 
 -- ============ 采集 / 制造 ============
@@ -638,7 +644,10 @@ function H.paccept(ctx, pid, cmd)
     local ok = ctx.partyMod.accept(pid)
     return ok or notImplemented(ctx, pid, "paccept")
 end
-function H.pdecline(ctx, pid, cmd) return notImplemented(ctx, pid, "pdecline") end
+function H.pdecline(ctx, pid, cmd)
+    local ok = ctx.partyMod.decline(pid)
+    return ok or notImplemented(ctx, pid, "pdecline")
+end
 function H.pleave(ctx, pid, cmd)
     local ok = ctx.partyMod.leave(pid)
     return ok or notImplemented(ctx, pid, "pleave")
@@ -659,13 +668,28 @@ function H.punraid(ctx, pid, cmd)
     local ok = ctx.partyMod.toParty and ctx.partyMod.toParty(pid)
     return ok or notImplemented(ctx, pid, "punraid")
 end
-function H.pmoveRaid(ctx, pid, cmd) return notImplemented(ctx, pid, "pmoveRaid") end
+function H.pmoveRaid(ctx, pid, cmd)
+    local ok = ctx.partyMod.moveRaidMember and ctx.partyMod.moveRaidMember(pid, n(cmd.id) or 0, n(cmd.group))
+    return ok or notImplemented(ctx, pid, "pmoveRaid")
+end
+function H.setLootMaster(ctx, pid, cmd)
+    local ok = ctx.partyMod.setLootMaster and ctx.partyMod.setLootMaster(pid, cmd.enabled == true, n(cmd.looter) or 0, s(cmd.threshold) or "rare")
+    return ok or notImplemented(ctx, pid, "setLootMaster")
+end
+function H.masterAssign(ctx, pid, cmd)
+    local pids = {}
+    if type(cmd.pids) == "table" then
+        for _, p in ipairs(cmd.pids) do
+            if type(p) == "number" then table.insert(pids, p) end
+        end
+    end
+    local ok = ctx.partyMod.assignMasterLoot and ctx.partyMod.assignMasterLoot(pid, n(cmd.rollId) or 0, pids)
+    return ok or notImplemented(ctx, pid, "masterAssign")
+end
 function H.readyrespond(ctx, pid, cmd)
     ctx.readyCheck.respond(pid, cmd.ready == true)
     return true
 end
-function H.setLootMaster(ctx, pid, cmd) return notImplemented(ctx, pid, "setLootMaster") end
-function H.masterAssign(ctx, pid, cmd) return notImplemented(ctx, pid, "masterAssign") end
 function H.setMarker(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if e then
@@ -764,10 +788,12 @@ function H.guild_create(ctx, pid, cmd)
 end
 function H.guild_invite(ctx, pid, cmd) return socialBy(ctx, pid, "guild_invite", cmd) end
 function H.guild_accept(ctx, pid, cmd)
-    return notImplemented(ctx, pid, "guild_accept")
+    ctx.socialCmd(pid, "guild_accept")
+    return true
 end
 function H.guild_decline(ctx, pid, cmd)
-    return notImplemented(ctx, pid, "guild_decline")
+    ctx.socialCmd(pid, "guild_decline")
+    return true
 end
 function H.guild_leave(ctx, pid, cmd)
     ctx.socialCmd(pid, "guild_leave")
@@ -778,7 +804,8 @@ function H.guild_promote(ctx, pid, cmd) return socialBy(ctx, pid, "guild_promote
 function H.guild_demote(ctx, pid, cmd) return socialBy(ctx, pid, "guild_demote", cmd) end
 function H.guild_transfer(ctx, pid, cmd) return socialBy(ctx, pid, "guild_transfer", cmd) end
 function H.guild_disband(ctx, pid, cmd)
-    return notImplemented(ctx, pid, "guild_disband")
+    ctx.socialCmd(pid, "guild_disband")
+    return true
 end
 function H.guild_event_create(ctx, pid, cmd) return notImplemented(ctx, pid, "guild_event_create") end
 function H.guild_event_remove(ctx, pid, cmd) return notImplemented(ctx, pid, "guild_event_remove") end
@@ -881,7 +908,21 @@ function H.market_list(ctx, pid, cmd)
     ctx.marketOp(pid, { op = "list_item", pid = pid, item = meta.inventory[slot], price = n(cmd.price) or 0 })
     return true
 end
-function H.market_list_instance(ctx, pid, cmd) return notImplemented(ctx, pid, "market_list_instance") end
+function H.market_list_instance(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    if not meta then return false end
+    local itemId = s(cmd.item)
+    local slot = nil
+    for i, it in pairs(meta.inventory or {}) do
+        if it.id == itemId then slot = tonumber(i) break end
+    end
+    if not slot then return false end
+    local held = meta.inventory[slot]
+    local price = n(cmd.price) or 0
+    if price <= 0 then return false end
+    ctx.marketOp(pid, { op = "list_instance", pid = pid, item = held, price = price, instance = cmd.instance })
+    return true
+end
 function H.market_buy(ctx, pid, cmd)
     ctx.marketOp(pid, { op = "buy", pid = pid, listingId = n(cmd.id) })
     return true
@@ -961,7 +1002,8 @@ function H.guild_bank_buy_slots(ctx, pid, cmd)
     return true
 end
 function H.guild_bank_log(ctx, pid, cmd)
-    return notImplemented(ctx, pid, "guild_bank_log")
+    ctx.guildBankOp(pid, { op = "log" })
+    return true
 end
 
 -- ============ 坐骑 ============
@@ -1241,6 +1283,17 @@ function H.dev_give(ctx, pid, cmd)
     if not ctx.config.getAllowDevCommands() then return false end
     local e = ctx.entities[pid]
     if not e then return false end
+    -- item 参数: 生成指定物品进背包 (测试/开发用); 否则刷怪 (旧行为)
+    local itemId = s(cmd.item)
+    if itemId then
+        local meta = ctx.players[pid]
+        if not meta then return false end
+        local itemDef = ctx.protoGet and ctx.protoGet(itemId)
+        local invItem = ctx.inventory.createItem(itemId, (itemDef and itemDef.name) or itemId, (itemDef and itemDef.kind) or "misc", itemDef or { id = itemId })
+        local slot = ctx.inventory.addItem(meta, invItem)
+        ctx.noteEvents({ { type = "log", text = slot and ("Gave " .. itemId) or "Inventory full", pid = pid } })
+        return slot ~= nil
+    end
     local level = n(cmd.level) or 1
     local pos = { x = e.pos.x + 3, y = 0, z = e.pos.z }
     local mob = ctx.createMobEntity("forest_wolf", "Test Wolf", level, pos)

@@ -22,6 +22,14 @@ moon.dispatch("lua", function(sender, session, msg)
     elseif op == "list_item" then
         local id, err = dbCall("listAuction", msg.pid, msg.item, msg.price)
         moon.response("lua", sender, session, { ok = id ~= nil, data = id, error = err })
+    elseif op == "list_instance" then
+        -- 上架单个实例副本 (TS marketListInstance): 校验 item + instance 形状
+        if type(msg.item) ~= "table" or type(msg.instance) ~= "table" then
+            moon.response("lua", sender, session, { ok = false, error = "Invalid listing" })
+            return
+        end
+        local id, err = dbCall("listAuction", msg.pid, msg.item, msg.price)
+        moon.response("lua", sender, session, { ok = id ~= nil, data = id, error = err })
     elseif op == "buy" then
         local auction, err = dbCall("buyAuction", msg.pid, msg.listingId)
         moon.response("lua", sender, session, { ok = auction ~= nil, data = auction, error = err })

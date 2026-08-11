@@ -101,6 +101,19 @@ function M._resolveRoll(roll)
     roll.winnerPid = best
 end
 
+--- 获取 roll (供 masterAssign / 外部查询)
+function M.getRoll(rollId)
+    return activeRolls[rollId]
+end
+
+--- 直接指定赢家 (masterAssign 1 pid 授予)
+function M.resolveWinner(roll, winnerPid)
+    if not roll then return false end
+    roll.winnerPid = winnerPid
+    roll.completed = true
+    return true
+end
+
 --- 自由拾取超时 (FFA)
 function M.updateFfa(mobId, dt)
     -- 简化: 由 lifecycle 直接调用的 mob 尸体处理
