@@ -78,7 +78,9 @@ function M.sellItem(meta, slot)
     local item = meta.inventory and meta.inventory[slot]
     if not item then return false, "No item to sell" end
 
-    local price = math.floor((item.value or 1) * 0.25)
+    -- 售价: 优先 sellValue (TS ItemDef), 回退 value; 25% 回收价
+    local sellValue = item.sellValue or item.value or 1
+    local price = math.floor(sellValue * 0.25)
     meta.copper = (meta.copper or 0) + price
     meta.inventory[slot] = nil
     return true, { name = item.name, price = price }

@@ -104,6 +104,8 @@ function M.createItem(id, name, itemType, stats)
         slot = stats.slot, hp = stats.hp, ap = stats.ap,
         sp = stats.sp, crit = stats.crit, haste = stats.haste,
         value = stats.value or 1,
+        sellValue = stats.sellValue or stats.value or 1,
+        weapon = stats.weapon, quality = stats.quality, kind = stats.kind,
     }
 end
 

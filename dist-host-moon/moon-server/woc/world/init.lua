@@ -300,6 +300,23 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
     talent.initTalents(meta, cls)
     bankMod.initBank(meta)
     profession.initProfessions(meta)
+
+    -- 新手初始化: 背包为空且从未有装备时, 给初始武器 + 启动金币
+    -- (老角色有 inventory/equipment 则不覆盖; 保证新角色可玩)
+    local isEmptyInv = true
+    for _ in pairs(meta.inventory or {}) do isEmptyInv = false; break end
+    if isEmptyInv and (meta.level or 1) == 1 then
+        local starter = inventory.createItem("worn_sword", "Pitted Shortsword", "weapon", protoGet("worn_sword") or { id = "worn_sword" })
+        inventory.addItem(meta, starter)
+        if not meta.copper or meta.copper == 0 then meta.copper = 100 end
+        if not meta.hotbarLayout then meta.hotbarLayout = { [1] = "heroic_strike", [2] = "charge" } end
+        -- 自动装备初始武器
+        inventory.equipItem(meta, e, 0, "mainhand")
+        playerStats.recalcPlayerStats(e, cls, meta.equipment, nil, nil)
+        playerStats.fullVitals(e, cls)
+        e.hp = e.maxHp
+    end
+
     if meta.talents then
         talent.recomputeForLevel(meta, e, cls)
         playerStats.recalcPlayerStats(e, cls, meta.equipment, meta.talentMods, nil)

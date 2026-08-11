@@ -413,7 +413,13 @@ function H.equip(ctx, pid, cmd)
         end
     end
     if not slot then return false end
-    local ok, msg = ctx.inventory.equipItem(meta, e, slot, s(cmd.equipSlot) or "")
+    -- 未指定装备槽位时按物品定义 slot 推断 (客户端 equip{item} 不带 equipSlot)
+    local equipSlot = s(cmd.equipSlot) or ""
+    if equipSlot == "" then
+        local it = meta.inventory[slot]
+        if it then equipSlot = s(it.slot) or "" end
+    end
+    local ok, msg = ctx.inventory.equipItem(meta, e, slot, equipSlot)
     if ok then ctx.playerStats.recalcPlayerStats(e, meta.class, meta.equipment, nil, nil) end
     ctx.noteEvents({ { type = "log", text = ok and "Equipped" or (msg or "Failed"), pid = pid } })
     return ok
@@ -904,15 +910,15 @@ end
 
 -- ============ 银行 ============
 function H.bank_deposit(ctx, pid, cmd)
-    local ok = ctx.bankMod.deposit(ctx.players[pid], n(cmd.slot) or 0)
+    local ok = ctx.bank.deposit(ctx.players[pid], n(cmd.slot) or 0)
     return ok or notImplemented(ctx, pid, "bank_deposit")
 end
 function H.bank_withdraw(ctx, pid, cmd)
-    local ok = ctx.bankMod.withdraw(ctx.players[pid], n(cmd.slot) or 0)
+    local ok = ctx.bank.withdraw(ctx.players[pid], n(cmd.slot) or 0)
     return ok or notImplemented(ctx, pid, "bank_withdraw")
 end
 function H.bank_buy_slots(ctx, pid, cmd)
-    local ok = ctx.bankMod.buySlots(ctx.players[pid], n(cmd.count) or 1)
+    local ok = ctx.bank.buySlots(ctx.players[pid], n(cmd.count) or 1)
     return ok or notImplemented(ctx, pid, "bank_buy_slots")
 end
 
