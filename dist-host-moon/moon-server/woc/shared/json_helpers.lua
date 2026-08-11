@@ -66,20 +66,20 @@ function M.buildEventsFrame(events)
     })
 end
 
---- 构建 snap 帧 JSON (fmt C 加速帧拼接)
+--- 构建 snap 帧 JSON (string.format 拼接)
 --- 注意: selfJson / entsArr / keepArr 为已编码 JSON 片段, 必须嵌入而非再编码
 function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVersion)
     local parts = {}
-    parts[#parts + 1] = fmt('{"t":"snap","tick":%d,"time":%s', tick, json.encode(M.round2(simTime)))
+    parts[#parts + 1] = string.format('{"t":"snap","tick":%d,"time":%.2f', tick, M.round2(simTime))
     if timerWireVersion then
-        parts[#parts + 1] = fmt(',"tw":%d', timerWireVersion)
+        parts[#parts + 1] = string.format(',"tw":%d', timerWireVersion)
     end
     if type(selfJson) ~= "string" then selfJson = M.safeEncode(selfJson) end
-    parts[#parts + 1] = fmt(',"self":%s', selfJson)
+    parts[#parts + 1] = string.format(',"self":%s', selfJson)
     if type(entsArr) ~= "table" then entsArr = {} end
-    parts[#parts + 1] = fmt(',"ents":[%s]', table.concat(entsArr, ","))
+    parts[#parts + 1] = string.format(',"ents":[%s]', table.concat(entsArr, ","))
     if keepArr and #keepArr > 0 then
-        parts[#parts + 1] = fmt(',"keep":[%s]', table.concat(keepArr, ","))
+        parts[#parts + 1] = string.format(',"keep":[%s]', table.concat(keepArr, ","))
     end
     parts[#parts + 1] = "}"
     return table.concat(parts)

@@ -109,6 +109,7 @@ local zone = require("world.zone")
 
 local entities = {}     -- id → Entity
 local players = {}      -- pid → PlayerMeta
+local snapSessions = {} -- pid → { seenEntities, lastDyn, lastSent } 快照 delta 追踪
 local simTime = 0
 local tick = 0
 local running = false
@@ -121,9 +122,26 @@ local function dbSvc() return moon.queryservice("db") end
 local function gateSvc() return moon.queryservice("gate") end
 
 -- 帮助函数
+-- 事件路由: 个人事件 (带 pid/toPid) 只发相关玩家; 世界事件 (无 pid) 广播全部
+-- 与 server/game.ts routeEvents 的 per-session 语义对齐, 避免私聊/个人 loot 泄漏
 local function noteEvents(evs)
-    if gateSvc() and evs and #evs > 0 then
-        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = jh.buildEventsFrame(evs) })
+    if not gateSvc() or not evs or #evs == 0 then return end
+    local perPid = {}
+    local world = {}
+    for _, ev in ipairs(evs) do
+        local recipient = ev.pid or ev.toPid
+        if type(recipient) == "number" then
+            if not perPid[recipient] then perPid[recipient] = {} end
+            table.insert(perPid[recipient], ev)
+        else
+            table.insert(world, ev)
+        end
+    end
+    if #world > 0 then
+        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = jh.buildEventsFrame(world) })
+    end
+    for targetPid, evs2 in pairs(perPid) do
+        moon.send("lua", gateSvc(), { t = "sendToPlayer", pid = targetPid, frame = jh.buildEventsFrame(evs2) })
     end
 end
 
@@ -272,6 +290,7 @@ local function leavePlayer(pid)
         end) end
     end
     entities[pid] = nil; players[pid] = nil
+    snapSessions[pid] = nil
     print(string.format("[World] Player left: pid=%d name=%s", pid, meta.name))
 end
 
@@ -608,15 +627,27 @@ end
 
 local function broadcastSnapshot()
     if not gateSvc() then return end
-    local frame = snapshot.buildBroadcast(entities, players, tick, simTime)
-    if frame then
-        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = frame })
+    local frames = {}
+    for pid, meta in pairs(players) do
+        local session = snapSessions[pid]
+        if not session then
+            session = { seenEntities = {}, lastDyn = {}, lastSent = {} }
+            snapSessions[pid] = session
+        end
+        local ok, frame = pcall(snapshot.buildForPlayer, entities, players, pid, session, tick, simTime)
+        if not ok then
+            print(string.format("[World] SNAPSHOT ERROR pid=%d: %s", pid, tostring(frame)))
+        elseif frame then frames[pid] = frame end
+    end
+    if next(frames) then
+        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = frames })
     end
 end
 
 local function sendCombatEvents(combatEvents)
     if not gateSvc() or #combatEvents == 0 then return end
-    moon.send("lua", gateSvc(), { t = "broadcastSnap", data = jh.buildEventsFrame(combatEvents) })
+    -- 战斗事件大多带 pid (个人) — 走 per-session 路由, 世界事件广播
+    noteEvents(combatEvents)
 end
 
 local function autosave()
