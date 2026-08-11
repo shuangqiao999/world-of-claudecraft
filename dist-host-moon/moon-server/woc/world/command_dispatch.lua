@@ -963,7 +963,9 @@ function H.mount_toggle(ctx, pid, cmd)
 end
 function H.learn_riding(ctx, pid, cmd)
     local meta = ctx.players[pid]
+    local e = ctx.entities[pid]
     if meta then meta.ridingTrained = true end
+    if e then e.ridingTrained = true end
     ctx.noteEvents({ { type = "log", text = "Riding trained!", pid = pid } })
     return true
 end

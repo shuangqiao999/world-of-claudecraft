@@ -298,6 +298,8 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
     players[pid] = meta
     -- 实体持有 meta 引用, 供 aura 施加/过期时重算属性
     e.meta = meta
+    -- 同步骑术训练到实体 (startMount 检查 e.ridingTrained)
+    e.ridingTrained = meta.ridingTrained or false
     grid.insert(e)
     quest.initQuestData(meta)
     talent.initTalents(meta, cls)
@@ -315,6 +317,10 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
         if not meta.hotbarLayout then meta.hotbarLayout = { [1] = "heroic_strike", [2] = "charge" } end
         -- 自动装备初始武器
         inventory.equipItem(meta, e, 0, "mainhand")
+        -- 新手坐骑: 首只坐骑所有权 + 骑术已训练
+        if not meta.ownedMounts then meta.ownedMounts = {} end
+        if next(meta.ownedMounts) == nil then meta.ownedMounts["valorsteed"] = true end
+        if not meta.ridingTrained then meta.ridingTrained = true end
         playerStats.recalcPlayerStats(e, cls, meta.equipment, nil, nil)
         playerStats.fullVitals(e, cls)
         e.hp = e.maxHp
