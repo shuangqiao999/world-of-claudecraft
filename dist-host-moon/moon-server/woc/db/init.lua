@@ -110,8 +110,8 @@ end
 -- 消息分发表
 local handlers = {}
 
---- 注册操作处理器 (db:register(op, fn))
-function M.register(op, fn)
+--- 注册操作处理器 (CRUD 模块经 dbMod:register(op, fn) 冒号调用)
+function M.register(self, op, fn)
     handlers[op] = fn
 end
 
@@ -224,7 +224,9 @@ local function loadModules()
     require("db.world_state").register(M)
     require("db.mail").register(M)
     require("db.auction").register(M)
-    print("[DB] CRUD modules loaded")
+    local n = 0
+    for _ in pairs(handlers) do n = n + 1 end
+    print(string.format("[DB] CRUD modules loaded (%d ops)", n))
 end
 
 --- 建立单个连接

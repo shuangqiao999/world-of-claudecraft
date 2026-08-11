@@ -57,26 +57,30 @@ function M.buildCommandOutcomeFrame(rid, ok)
     })
 end
 
---- 构建 events 帧 JSON
+--- 构建 events 帧 JSON (单次编码, 避免逐事件 encode 拼接)
 function M.buildEventsFrame(events)
-    local fragments = {}
-    for i, ev in ipairs(events) do
-        fragments[i] = json.encode(ev)
-    end
-    return string.format('{"t":"events","list":[%s]}', table.concat(fragments, ","))
+    return json.encode({
+        t = "events",
+        list = events,
+    })
 end
 
---- 构建 snap 帧 JSON (手工拼接以控制格式)
+--- 构建 snap 帧 JSON
+--- 注意: selfJson / entsArr / keepArr 为已编码 JSON 片段, 必须嵌入而非再编码
+--- (json.encode 会转义其中的引号破坏结构). 因此这里用手工拼接, 且做输入防护.
 function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVersion)
     local parts = {}
     parts[#parts + 1] = string.format(
-        '{"t":"snap","tick":%d,"time":%.2f',
-        tick, M.round2(simTime)
+        '{"t":"snap","tick":%d,"time":%s',
+        tick, json.encode(M.round2(simTime))
     )
     if timerWireVersion then
         parts[#parts + 1] = string.format(',"tw":%d', timerWireVersion)
     end
+    -- 防护: 确保片段是合法 JSON 字符串
+    if type(selfJson) ~= "string" then selfJson = M.safeEncode(selfJson) end
     parts[#parts + 1] = string.format(',"self":%s', selfJson)
+    if type(entsArr) ~= "table" then entsArr = {} end
     parts[#parts + 1] = string.format(',"ents":[%s]', table.concat(entsArr, ","))
     if keepArr and #keepArr > 0 then
         parts[#parts + 1] = string.format(',"keep":[%s]', table.concat(keepArr, ","))
@@ -85,10 +89,12 @@ function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVe
     return table.concat(parts)
 end
 
---- 构建 social 帧 JSON
+--- 构建 social 帧 JSON (单次编码)
 function M.buildSocialFrame(data)
-    local payload = json.encode(data)
-    return string.format('{"t":"social","data":%s}', payload)
+    return json.encode({
+        t = "social",
+        data = data,
+    })
 end
 
 --- 构建 censor 帧 JSON
