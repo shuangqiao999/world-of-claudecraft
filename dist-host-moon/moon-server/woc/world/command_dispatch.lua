@@ -986,7 +986,7 @@ function H.leave_dungeon(ctx, pid, cmd)
     ctx.instanceMod.leaveInstance(pid)
     local e = ctx.entities[pid]
     if e then
-        local exitEvents = ctx.doorTriggers.exitDungeon(e)
+        local exitEvents = ctx.doorTriggers.exitDungeon(e, ctx.entities)
         for _, ev in ipairs(exitEvents) do ctx.noteEvents({ ev }) end
     end
     return true
