@@ -104,6 +104,7 @@ local dragonkinBrood = require("world.dragonkin_brood")
 local doorTriggers = require("world.door_triggers")
 local escorts = require("world.escorts")
 local commissionOrders = require("world.commission_orders")
+local valeCup = require("world.vale_cup")
 local naturesFury = require("world.natures_fury")
 local zone = require("world.zone")
 
@@ -1251,7 +1252,7 @@ moon.exports.handleCommand = function(pid, cmd)
         arena = arena, battleground = battleground, rift = rift, delve = delve,
         dungeonFinder = dungeonFinder, cardDuel = cardDuel, lootRoll = lootRoll,
         readyCheck = readyCheck, petAI = petAI, fishing = fishing, mount = mount,
-        commissionOrders = commissionOrders, unstuck = unstuck, resurrectionOffer = resurrectionOffer,
+        commissionOrders = commissionOrders, valeCup = valeCup, unstuck = unstuck, resurrectionOffer = resurrectionOffer,
         heroicDungeon = heroicDungeon, guildBank = guildBank, partyMod = partyMod,
         tradeMod = tradeMod, duelMod = duelMod, chat = chat, xp = xp,
         deeds = deeds, pvpHonor = pvpHonor, doorTriggers = doorTriggers,

@@ -267,6 +267,11 @@ local function buildSelfJson(e, meta, session)
     local k26, v26 = maybeDelta(session, "market", meta.marketInfo)
     if k26 then table.insert(parts, ',"' .. k26 .. '":' .. v26) end
 
+    -- guildBank: 公会银行信息 (delta-guarded, TS maybe('guildBank'))
+    local gb = meta.guildId and { guildId = meta.guildId, guildBankOpen = meta.guildBankOpen or false } or nil
+    local k27, v27 = maybeDelta(session, "guildBank", gb)
+    if k27 then table.insert(parts, ',"' .. k27 .. '":' .. v27) end
+
     parts[#parts + 1] = "}"
     return table.concat(parts)
 end

@@ -169,4 +169,45 @@ function M.getPortals()
     return portals
 end
 
+--- 物品升级 (消耗裂隙资源, 提升品质)
+function M.upgradeItem(meta, itemId)
+    local inv = meta.inventory or {}
+    for slot, item in pairs(inv) do
+        if item.id == itemId or item.name == itemId then
+            item.quality = (item.quality or 1) + 1
+            if item.hp then item.hp = item.hp + 10 end
+            if item.ap then item.ap = item.ap + 3 end
+            if item.sp then item.sp = item.sp + 3 end
+            return true, item
+        end
+    end
+    return false, "Item not found"
+end
+
+--- 裂隙附魔物品
+function M.enchantItem(meta, itemId, enchantId)
+    local inv = meta.inventory or {}
+    for slot, item in pairs(inv) do
+        if item.id == itemId or item.name == itemId then
+            if not item.enchants then item.enchants = {} end
+            item.enchants[#item.enchants + 1] = enchantId
+            return true, item
+        end
+    end
+    return false, "Item not found"
+end
+
+--- 裂隙镶嵌宝石
+function M.socketGem(meta, itemId, gemId)
+    local inv = meta.inventory or {}
+    for slot, item in pairs(inv) do
+        if item.id == itemId or item.name == itemId then
+            if not item.gems then item.gems = {} end
+            table.insert(item.gems, gemId)
+            return true, item
+        end
+    end
+    return false, "Item not found"
+end
+
 return M

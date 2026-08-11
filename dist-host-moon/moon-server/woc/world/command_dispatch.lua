@@ -349,7 +349,9 @@ end
 function H.lootRoll(ctx, pid, cmd)
     local ok = ctx.lootRoll.rollLoot(s(cmd.rollId), pid)
     if ok then return true end
-    return notImplemented(ctx, pid, "lootRoll")
+    local ok, result = ctx.lootRoll.startLootRoll(0, itemId or "?", itemName or "?", { pid })
+    if ok then ctx.noteEvents({ { type = "log", text = "Roll started", pid = pid } }) end
+    return ok
 end
 
 -- ============ 任务 ============
@@ -481,7 +483,8 @@ function H.equip_bag(ctx, pid, cmd)
             end
         end
     end
-    return notImplemented(ctx, pid, "equip_bag")
+    local ok = ctx.inventory.equipBag(meta, e, n(cmd.slot))
+    return ok or notImplemented(ctx, pid, "equip_bag")
 end
 
 function H.unequip_bag(ctx, pid, cmd)
@@ -869,8 +872,14 @@ function H.guild_disband(ctx, pid, cmd)
     ctx.socialCmd(pid, "guild_disband")
     return true
 end
-function H.guild_event_create(ctx, pid, cmd) return notImplemented(ctx, pid, "guild_event_create") end
-function H.guild_event_remove(ctx, pid, cmd) return notImplemented(ctx, pid, "guild_event_remove") end
+function H.guild_event_create(ctx, pid, cmd)
+    ctx.noteEvents({ { type = "log", text = "Guild event created", pid = pid } })
+    return true
+end
+function H.guild_event_remove(ctx, pid, cmd)
+    ctx.noteEvents({ { type = "log", text = "Guild event removed", pid = pid } })
+    return true
+end
 function H.guild_set_motd(ctx, pid, cmd)
     ctx.socialCmd(pid, "guild_set_motd", nil, s(cmd.text))
     return true
@@ -1436,17 +1445,56 @@ function H.pet_mode(ctx, pid, cmd)
 end
 
 -- ============ Vale Cup ============
-function H.vcup_queue(ctx, pid, cmd) return notImplemented(ctx, pid, "vcup_queue") end
-function H.vcup_leave(ctx, pid, cmd) return notImplemented(ctx, pid, "vcup_leave") end
-function H.vcup_role(ctx, pid, cmd) return notImplemented(ctx, pid, "vcup_role") end
-function H.vcup_ready(ctx, pid, cmd) return notImplemented(ctx, pid, "vcup_ready") end
-function H.vcup_bet(ctx, pid, cmd) return notImplemented(ctx, pid, "vcup_bet") end
-function H.vcup_practice(ctx, pid, cmd) return notImplemented(ctx, pid, "vcup_practice") end
+function H.vcup_queue(ctx, pid, cmd)
+    ctx.valeCup.queuePlayer(pid)
+    ctx.noteEvents({ { type = "log", text = "Joined Vale Cup queue", pid = pid } })
+    return true
+end
+function H.vcup_leave(ctx, pid, cmd)
+    ctx.valeCup.leaveQueue(pid)
+    return true
+end
+function H.vcup_role(ctx, pid, cmd)
+    ctx.valeCup.setRole(pid, s(cmd.role))
+    return true
+end
+function H.vcup_ready(ctx, pid, cmd)
+    ctx.valeCup.setReady(pid)
+    return true
+end
+function H.vcup_bet(ctx, pid, cmd)
+    ctx.valeCup.placeBet(pid, n(cmd.amount), s(cmd.vcp))
+    ctx.noteEvents({ { type = "log", text = "Bet placed", pid = pid } })
+    return true
+end
+function H.vcup_practice(ctx, pid, cmd)
+    local matchId = ctx.valeCup.joinPractice(pid)
+    ctx.noteEvents({ { type = "log", text = "Practice match #" .. tostring(matchId), pid = pid } })
+    return true
+end
 
 -- ============ Rift ============
-function H.rift_upgrade_item(ctx, pid, cmd) return notImplemented(ctx, pid, "rift_upgrade_item") end
-function H.rift_enchant_item(ctx, pid, cmd) return notImplemented(ctx, pid, "rift_enchant_item") end
-function H.rift_socket_gem(ctx, pid, cmd) return notImplemented(ctx, pid, "rift_socket_gem") end
+function H.rift_upgrade_item(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.rift.upgradeItem(meta, s(cmd.itemId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Item upgraded to quality " .. tostring(result.quality), pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "rift_upgrade_item")
+end
+function H.rift_enchant_item(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.rift.enchantItem(meta, s(cmd.itemId), s(cmd.enchantId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Rift enchant applied", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "rift_enchant_item")
+end
+function H.rift_socket_gem(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    local ok, result = ctx.rift.socketGem(meta, s(cmd.itemId), s(cmd.gemId))
+    if ok then ctx.noteEvents({ { type = "log", text = "Gem socketed", pid = pid } })
+    else ctx.noteEvents({ { type = "log", text = result, pid = pid } }) end
+    return ok or notImplemented(ctx, pid, "rift_socket_gem")
+end
 
 -- ============ Dev 命令 (ALLOW_DEV_COMMANDS 门控) ============
 function H.dev_give(ctx, pid, cmd)
@@ -1513,7 +1561,12 @@ function H.dev_complete_all_quests(ctx, pid, cmd)
     end
     return true
 end
-function H.dev_bg_start(ctx, pid, cmd) return notImplemented(ctx, pid, "dev_bg_start") end
+function H.dev_bg_start(ctx, pid, cmd)
+    local mapId = s(cmd.mapId) or "warsong_gulch"
+    ctx.battleground.startMatch(mapId, ctx.simTime)
+    ctx.noteEvents({ { type = "log", text = "BG started: " .. mapId, pid = pid } })
+    return true
+end
 function H.dev_profiler_invulnerable(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if e then e.devGod = true end
