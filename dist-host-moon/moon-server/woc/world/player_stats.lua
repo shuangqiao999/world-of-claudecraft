@@ -5,6 +5,14 @@
 
 local M = {}
 
+-- 物品定义查找 (按 id; 无 proto 时返回 nil)
+local protoGetItem = function(id)
+    if type(id) ~= "string" then return nil end
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if ok and proto then return proto.getItem(id) end
+    return nil
+end
+
 -- 战斗属性推导常量
 local AGI_PER_DODGE = 0.0005        -- 每点敏捷 = 0.05% 闪避
 local AGI_PER_ARMOR = 2              -- 每点敏捷 = 2 护甲
@@ -465,15 +473,14 @@ function M.recalcPlayerStats(e, cls, equipment, mods, items)
     -- 19. 套装收集 (TS aggregateSetBonuses → 平铺属性 + setProcs)
     e.setCounts = {}
     if equipment then
-        local itemLookup = items
-        if not itemLookup then
-            local ok, proto = pcall(function() return require("proto.load") end)
-            if ok then itemLookup = proto.getItem end
-        end
+        -- meta.equipment 存的是 item 对象 {id=...}; 兼容 slot→itemId 字符串
         for slot, itemId in pairs(equipment) do
-            local item = type(itemLookup) == "function" and itemLookup(itemId) or (itemLookup and itemLookup[itemId])
-            if item and item.setId then
-                e.setCounts[item.setId] = (e.setCounts[item.setId] or 0) + 1
+            local id = type(itemId) == "string" and itemId or (type(itemId) == "table" and itemId.id) or nil
+            if id then
+                local item = protoGetItem(id)
+                if item and item.setId then
+                    e.setCounts[item.setId] = (e.setCounts[item.setId] or 0) + 1
+                end
             end
         end
     end

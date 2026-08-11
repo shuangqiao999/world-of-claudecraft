@@ -110,6 +110,9 @@ local zone = require("world.zone")
 local entities = {}     -- id → Entity
 local players = {}      -- pid → PlayerMeta
 local snapSessions = {} -- pid → { seenEntities, lastDyn, lastSent } 快照 delta 追踪
+
+-- forward 声明 (pushSocialFrame 定义在 joinPlayer 之后, 需先声明)
+local pushSocialFrame
 local simTime = 0
 local tick = 0
 local running = false
@@ -323,6 +326,8 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
     end
     deeds.initPlayer(pid)
     pvpHonor.initPlayer(pid)
+    -- 登录后推送社交帧 (好友/黑名单/公会窗口)
+    pushSocialFrame(pid)
     print(string.format("[World] Player joined: pid=%d name=%s cls=%s lv=%d str=%d ap=%d hp=%d",
         pid, name, cls, level, e.stats.str, e.attackPower, e.maxHp))
 end
@@ -1006,8 +1011,11 @@ moon.dispatch("lua", function(sender, session, msg)
     local t = msg.t
 
     if t == "joinPlayer" then
-        joinPlayer(msg.pid, msg.characterId, msg.accountId, msg.name, msg.cls, msg.level, msg.state, msg.leaseNonce)
-        moon.response("lua", sender, session, { ok = true })
+        local okj, errj = pcall(joinPlayer, msg.pid, msg.characterId, msg.accountId, msg.name, msg.cls, msg.level, msg.state, msg.leaseNonce)
+        if not okj then
+            print(string.format("[World] joinPlayer ERROR pid=%d: %s", msg.pid, tostring(errj)))
+        end
+        moon.response("lua", sender, session, { ok = okj })
     elseif t == "playerLeave" then
         leavePlayer(msg.pid)
         moon.response("lua", sender, session, { ok = true })
@@ -1050,6 +1058,43 @@ end)
 ----------------------------------------------
 
 -- 转发社交命令到 Social Service (pid → character_id 解析, 异步 + 回执 log)
+-- 变更成功后推送 social 帧给客户端 (好友/黑名单/公会窗口)
+local function normalizeSocialList(rows)
+    local out = {}
+    for _, r in ipairs(rows or {}) do
+        table.insert(out, {
+            id = r.friend_id or r.blocked_id or r.ignored_id or r.id,
+            name = r.name or "",
+            class = r.class,
+            level = r.level,
+            online = false,
+        })
+    end
+    return out
+end
+
+pushSocialFrame = function(pid)
+    local meta = players[pid]
+    if not meta or not meta.characterId then return end
+    moon.async(function()
+        local svc = moon.queryservice("social")
+        local gs = gateSvc()
+        if not svc or not gs then return end
+        local charId = meta.characterId
+        local friends = moon.call("lua", svc, { op = "friend_list", charId = charId })
+        local blocks = moon.call("lua", svc, { op = "block_list", charId = charId })
+        local ignores = moon.call("lua", svc, { op = "ignore_list", charId = charId })
+        local guild = moon.call("lua", svc, { op = "guild_info", charId = charId })
+        local frame = jh.buildSocialFrame({
+            friends = normalizeSocialList(friends and friends.data),
+            blocks = normalizeSocialList(blocks and blocks.data),
+            ignores = normalizeSocialList(ignores and ignores.data),
+            guild = guild and guild.data or nil,
+        })
+        moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = frame })
+    end)
+end
+
 local function socialCmd(pid, op, targetPid, name)
     local meta = players[pid]
     if not meta or not meta.characterId then return end
@@ -1081,6 +1126,9 @@ local function socialCmd(pid, op, targetPid, name)
         local text = ok and (resp.data or "ok") or (resp and resp.error or "Failed")
         print(string.format("[World] socialCmd pid=%d op=%s ok=%s text=%s", pid, op, tostring(ok), tostring(text)))
         noteEvents({{ type = "log", text = tostring(text), pid = pid }})
+        if ok then
+            pushSocialFrame(pid)
+        end
     end)
 end
 
