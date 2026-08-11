@@ -166,7 +166,7 @@ end
 --- @param players table 全局玩家元数据
 --- @param pid number 玩家实体 ID
 --- @param session table Gate 会话 (含 seenEntities, lastDyn, lastSent)
-function M.buildForPlayer(entities, players, pid, session)
+function M.buildForPlayer(entities, players, pid, session, tick, simTime)
     local e = entities[pid]
     local meta = players[pid]
     if not e or not meta then return nil end
@@ -176,12 +176,10 @@ function M.buildForPlayer(entities, players, pid, session)
     local keepArr = {}
 
     -- 查询可视实体
-    local interest = getInterestForKind("player")
     local visible = grid.queryRadius(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS, entities)
 
     for _, other in ipairs(visible) do
         if other.id ~= pid then
-            -- 距离检查
             local dx = other.pos.x - anchorPos.x
             local dz = other.pos.z - anchorPos.z
             local distSq = dx * dx + dz * dz
@@ -195,9 +193,9 @@ function M.buildForPlayer(entities, players, pid, session)
                     -- Full record (首次或身份变化)
                     session.seenEntities[other.id] = idHash
                     table.insert(entsArr, buildEntityFull(other))
-                    session.lastDyn[other.id] = nil  -- 重置 delta
+                    session.lastDyn[other.id] = nil
                 else
-                    -- Lite record (delta)
+                    -- Lite record (delta: 只有移动/状态变化才发送)
                     local newDyn = buildEntityLite(other)
                     local oldDyn = session.lastDyn[other.id]
 
@@ -212,16 +210,12 @@ function M.buildForPlayer(entities, players, pid, session)
         end
     end
 
-    -- 构建 self JSON
     local selfJson = buildSelfJson(e, meta)
-
-    -- 组装帧
     local frame = jh.buildSnapFrame(
-        0, 0,  -- tick 和 time 由 World service 提供
+        tick or 0, simTime or 0,
         selfJson, entsArr, keepArr,
         config.STABLE_TIMER_WIRE_VERSION
     )
-
     return frame
 end
 

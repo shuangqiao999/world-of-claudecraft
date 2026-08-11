@@ -12,23 +12,23 @@ function M.loadFromProto()
     if protoLoaded then return end
     local ok, proto = pcall(function() return require("proto.load") end)
     if not ok then return end
-    local abilities = proto.getAbilitiesForClass and nil
+    local abilities = proto.abilities or proto.abilitiesById
+    if not abilities then return end
     local merged = 0
-    for cls, clsAbilities in pairs(proto.abilities or {}) do
-        for id, def in pairs(clsAbilities) do
-            -- 合并 TS 能力 (保留 castTime/cooldown/range/school/effects)
-            if type(def) == "table" and def.id then
-                local entry = {}
-                for k, v in pairs(def) do entry[k] = v end
-                -- TS effects 结构透传给 effect_dispatch (directDamage 等)
-                entry.effects = def.effects or {}
-                if not M.ABILITIES[id] then merged = merged + 1 end
-                M.ABILITIES[id] = entry
-            end
+    local total = 0
+    for id, def in pairs(abilities) do
+        if type(def) == "table" and def.id then
+            local entry = {}
+            for k, v in pairs(def) do entry[k] = v end
+            -- TS effects 结构透传给 effect_dispatch (directDamage 等)
+            entry.effects = def.effects or {}
+            if not M.ABILITIES[id] then merged = merged + 1 end
+            M.ABILITIES[id] = entry
+            total = total + 1
         end
     end
     protoLoaded = true
-    print(string.format("[Abilities] Proto merge: %d new abilities, total %d", merged, #M.ABILITIES))
+    print(string.format("[Abilities] Proto merge: %d new abilities, total %d", merged, total))
 end
 
 M.ABILITIES = {

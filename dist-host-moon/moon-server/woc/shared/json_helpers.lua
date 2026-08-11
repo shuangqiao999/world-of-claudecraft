@@ -2,6 +2,7 @@
 -- 对应原项目 server/game.ts 中的 round2, wireEntity 等辅助函数
 
 local json = require("json")
+local fmt = require("fmt")
 
 local M = {}
 
@@ -65,25 +66,20 @@ function M.buildEventsFrame(events)
     })
 end
 
---- 构建 snap 帧 JSON
+--- 构建 snap 帧 JSON (fmt C 加速帧拼接)
 --- 注意: selfJson / entsArr / keepArr 为已编码 JSON 片段, 必须嵌入而非再编码
---- (json.encode 会转义其中的引号破坏结构). 因此这里用手工拼接, 且做输入防护.
 function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVersion)
     local parts = {}
-    parts[#parts + 1] = string.format(
-        '{"t":"snap","tick":%d,"time":%s',
-        tick, json.encode(M.round2(simTime))
-    )
+    parts[#parts + 1] = fmt('{"t":"snap","tick":%d,"time":%s', tick, json.encode(M.round2(simTime)))
     if timerWireVersion then
-        parts[#parts + 1] = string.format(',"tw":%d', timerWireVersion)
+        parts[#parts + 1] = fmt(',"tw":%d', timerWireVersion)
     end
-    -- 防护: 确保片段是合法 JSON 字符串
     if type(selfJson) ~= "string" then selfJson = M.safeEncode(selfJson) end
-    parts[#parts + 1] = string.format(',"self":%s', selfJson)
+    parts[#parts + 1] = fmt(',"self":%s', selfJson)
     if type(entsArr) ~= "table" then entsArr = {} end
-    parts[#parts + 1] = string.format(',"ents":[%s]', table.concat(entsArr, ","))
+    parts[#parts + 1] = fmt(',"ents":[%s]', table.concat(entsArr, ","))
     if keepArr and #keepArr > 0 then
-        parts[#parts + 1] = string.format(',"keep":[%s]', table.concat(keepArr, ","))
+        parts[#parts + 1] = fmt(',"keep":[%s]', table.concat(keepArr, ","))
     end
     parts[#parts + 1] = "}"
     return table.concat(parts)

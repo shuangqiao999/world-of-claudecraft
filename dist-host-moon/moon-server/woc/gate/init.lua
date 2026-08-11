@@ -38,6 +38,11 @@ local function dbUp()
     return moon.queryservice("db") ~= nil
 end
 
+--- DB Service 是否可用
+local function dbUp()
+    return moon.queryservice("db") ~= nil
+end
+
 ------------------------------------------------------------
 -- HTTP 处理
 ------------------------------------------------------------
@@ -45,13 +50,13 @@ end
 local function sendHttpResponse(fd, status, contentType, body)
     local resp = string.format("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n%s",
         status, contentType, #body, body)
-    socket.write(fd, resp)
+    -- write_then_close: 原子写+关 (socket.write + socket.close 在 CPU 争用下会丢数据)
+    socket.write_then_close(fd, resp)
 end
 
 local function sendJson(fd, data)
     local body = json.encode(data)
     sendHttpResponse(fd, "200 OK", "application/json", body)
-    socket.close(fd)
 end
 
 local function parseHeaders(fd, firstLine)
@@ -236,12 +241,14 @@ local function handleAuth(fd, msg)
         local cr = dbCall("getCharacter", accountId, characterId)
         if not cr then wsWrite(fd, '{"t":"error","error":"no such character"}'); socket.close(fd); return end
         if cr.force_rename then wsWrite(fd, '{"t":"error","error":"This character must be renamed before entering the world."}'); socket.close(fd); return end
-        local nonce = string.format("%s%d", tostring(math.random(100000,999999)), os.time())
+        local nonce = string.format("%s%d", tostring(require("random").rand_range(100000, 999999)), os.time())
         dbCall("acquireLease", characterId, accountId, nonce)
         local pid = nextEntityId; nextEntityId = nextEntityId + 1
         sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false }
         pids[pid] = fd
-        wsWrite(fd, jh.buildHelloFrame(pid, msg.clientSeed ~= "" and msg.clientSeed or tostring(os.time()), cr.name, cr.class, config.getRealm(), {}, nil))
+        -- hello seed 必须是 WORLD_SEED: 客户端用其重建整个地形/水体/植被 (online.ts cfg.seed)
+        -- 服务器 terrain.lua 也用同一常量, 二者必须一致
+        wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
         print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s", fd, pid, cr.name, cr.class))
         local world = moon.queryservice("world")
         if world then
@@ -349,6 +356,18 @@ moon.dispatch("lua", function(sender, session, msg)
             for fd, sess in pairs(sessions) do
                 if not sess.linkdead then wsWrite(fd, msg.data) end
             end
+        end
+    elseif msg.t == "commandOutcome" then
+        -- 把 world 的命令结果回发给特定玩家 (cmdWithOutcome 5s 超时前必须应答)
+        local fd = msg.pid and pids[msg.pid]
+        if fd and sessions[fd] and not sessions[fd].linkdead then
+            wsWrite(fd, jh.buildCommandOutcomeFrame(msg.rid, msg.ok == true))
+        end
+    elseif msg.t == "sendToPlayer" and msg.pid then
+        -- 单玩家定向帧 (social 快照 / 个人事件等)
+        local fd = pids[msg.pid]
+        if fd and sessions[fd] and not sessions[fd].linkdead and msg.frame then
+            wsWrite(fd, msg.frame)
         end
     end
 end)

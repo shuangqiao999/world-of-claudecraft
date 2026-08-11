@@ -4,8 +4,8 @@
 
 local M = {}
 
--- 世界种子 (固定, 确定性)
-local WORLD_SEED = 2147483789
+-- 世界种子 (固定, 确定性) — 与客户端 src/sim/world_seed.ts WORLD_SEED=20061 一致
+local WORLD_SEED = require("config").WORLD_SEED
 
 -- 水体
 local WATER_LEVEL = -1.5

@@ -40,7 +40,8 @@ function M.loadFromProto()
         end
     end
     recipesLoaded = true
-    print(string.format("[Crafting] Loaded %d recipes from proto", #RECIPES))
+    local n = 0; for _ in pairs(RECIPES) do n = n + 1 end
+    print(string.format("[Crafting] Loaded %d recipes from proto", n))
 end
 
 --- 初始化专业技能

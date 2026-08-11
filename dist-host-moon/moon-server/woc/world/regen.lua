@@ -6,7 +6,7 @@ local config = require("config")
 local M = {}
 
 local SECOND_WIND_THRESHOLD = 0.35
-local REGEN_INTERVAL_TICKS = 40  -- 每 2 秒 (20Hz)
+local REGEN_INTERVAL_TICKS = math.round(2.0 / config.DT)  -- 每 2 秒 (随 TICK_RATE 缩放)
 
 --- 更新玩家的回复 (每 2 秒 tick)
 --- @param e Entity

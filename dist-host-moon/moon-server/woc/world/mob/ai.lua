@@ -485,12 +485,12 @@ function M._chaseMovement(mob, target, dt)
     local dz = target.pos.z - mob.pos.z
     local dist = math.sqrt(dx * dx + dz * dz)
     if dist > 0.01 then
-        -- TS pursuit profile: chaseSpeedMult (模板), 默认 0.9x
         local mult = (mob.moveSpeed and mob.moveSpeed / config.RUN_SPEED) or 0.9
         local speed = config.RUN_SPEED * mult
         mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
         mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
         mob.facing = math.atan(dx, -dz)
+        mob._moved = true
     end
 end
 
@@ -503,6 +503,7 @@ function M._returnMovement(mob, data, dt)
         mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
         mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
         mob.facing = math.atan(dx, -dz)
+        mob._moved = true
     end
 end
 
@@ -516,6 +517,7 @@ function M._retreatMovement(mob, target, dt)
         mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
         mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
         mob.facing = math.atan(-dx, dz)
+        mob._moved = true
     end
 end
 
@@ -528,6 +530,7 @@ function M._fleeMovement(mob, target, dt)
         local speed = config.RUN_SPEED * 1.1  -- 逃跑更快
         mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
         mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
+        mob._moved = true
     end
 end
 

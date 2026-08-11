@@ -127,6 +127,52 @@ local function noteEvents(evs)
     end
 end
 
+local function marketOp(pid, msg)
+    moon.async(function()
+        local svc = moon.queryservice("market")
+        if not svc then noteEvents({ { type = "log", text = "Market unavailable", pid = pid } }); return end
+        local resp = moon.call("lua", svc, msg)
+        local ok = resp and resp.ok
+        noteEvents({ { type = "log", text = ok and "Market OK" or (resp and resp.error or "Market failed"), pid = pid } })
+    end)
+end
+
+local function mailOp(pid, msg)
+    moon.async(function()
+        local svc = moon.queryservice("mail")
+        if not svc then noteEvents({ { type = "log", text = "Mail unavailable", pid = pid } }); return end
+        local resp = moon.call("lua", svc, msg)
+        local ok = resp and resp.ok
+        noteEvents({ { type = "log", text = ok and "Mail OK" or (resp and resp.error or "Mail failed"), pid = pid } })
+    end)
+end
+
+local function guildBankOp(pid, msg)
+    moon.async(function()
+        local svc = moon.queryservice("social")
+        if not svc then noteEvents({ { type = "log", text = "Guild unavailable", pid = pid } }); return end
+        local resp = moon.call("lua", svc, msg)
+        local ok = resp and resp.ok
+        noteEvents({ { type = "log", text = ok and "Guild bank OK" or (resp and resp.error or "Guild bank failed"), pid = pid } })
+    end)
+end
+
+local function protoGet(itemId)
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if ok and proto then return proto.getItem(itemId) end
+    return nil
+end
+
+local function nodeTypeFor(nodeId)
+    local ok, proto = pcall(function() return require("proto.load") end)
+    if not ok or not proto then return nil end
+    local node = proto.gather_nodes and proto.gather_nodes[nodeId]
+    if node then
+        return node.resourceType or node.harvestType or node.type or nil
+    end
+    return nil
+end
+
 local function findNearestEnemy(e)
     local best, bestDistSq = nil, math.huge
     for id, other in pairs(entities) do
@@ -876,7 +922,13 @@ moon.dispatch("lua", function(sender, session, msg)
         end
     elseif t == "playerCommand" then
         local hc = moon.exports.handleCommand
-        if hc then hc(msg.pid, msg.msg) end
+        if hc then
+            local ok = hc(msg.pid, msg.msg)
+            if msg.msg and msg.msg.rid then
+                local gs = gateSvc()
+                if gs then moon.send("lua", gs, { t = "commandOutcome", pid = msg.pid, rid = msg.msg.rid, ok = ok }) end
+            end
+        end
     elseif t == "getPlayerCount" then
         local n = 0; for _ in pairs(players) do n = n + 1 end
         moon.response("lua", sender, session, { ok = true, data = n })
@@ -923,417 +975,37 @@ local function socialCmd(pid, op, targetPid, name)
 end
 
 moon.exports.handleCommand = function(pid, cmd)
-    if not pid or not cmd or not cmd.cmd then return end
+    if not pid or not cmd or not cmd.cmd then return false end
     local e = entities[pid]
-    if not e then return end
-    local cname = cmd.cmd
+    if not e then return false end
 
-    -- 战斗命令
-    if cname == "chat" and cmd.text then
-        noteEvents(chat.processMessage(entities, players, pid, cmd.text, cmd.channel or "say", cmd.target))
-
-    elseif cname == "emote" then
-        chat.processEmote(entities, players, pid, cmd.emote)
-
-    elseif cname == "attack" then
-        if not e.dead then
-            local nearest = findNearestEnemy(e)
-            if nearest then e.targetId = nearest.id end
-            autoAttack.startAutoAttack(e, nearest)
-        end
-
-    elseif cname == "stopattack" then
-        autoAttack.stopAutoAttack(e)
-
-    elseif cname == "cast" or cname == "castSlot" then
-        if e.dead then return end
-        local abilityId = cmd.ability or cmd[0]
-        if type(abilityId) == "number" then abilityId = tostring(abilityId) end
-        local ability = abilities.ABILITIES[abilityId]
-        if not ability then
-            noteEvents({{ type = "log", text = "Unknown ability: " .. tostring(abilityId), pid = pid }})
-            return
-        end
-        if castSys.isOnCooldown(e, ability) then
-            noteEvents({{ type = "log", text = "Ability is on cooldown", pid = pid }})
-            return
-        end
-        local targetId = cmd.target
-        local target = targetId and entities[tonumber(targetId)]
-        if not target then target = findNearestEnemy(e) end
-        if not target and ability.effects and ability.effects[1] then
-            local et = ability.effects[1].target
-            if et == "self" then target = e
-            elseif et == "enemy" or et == "single" then target = findNearestEnemy(e)
-            end
-        end
-
-        -- TS applyAbility 1805-1864: 目标射程重验 (+2 码 slack)
-        if ability.requiresTarget and target and target ~= e then
-            local maxRange = (ability.range and ability.range > 0) and ability.range or config.MELEE_RANGE
-            local dx = e.pos.x - target.pos.x
-            local dz = e.pos.z - target.pos.z
-            if math.sqrt(dx * dx + dz * dz) > maxRange + 2 then
-                noteEvents({{ type = "log", text = "Out of range.", pid = pid }})
-                return
-            end
-        end
-
-        local ok, ct = castSys.startCast(e, ability, target)
-        if ok then
-            if ct == 0 then
-                -- 瞬发: 法术抵抗 + CC DR + 免费施法检查
-                if ability.school and ability.school ~= "physical" and target and target ~= e then
-                    if spellResist.isSpellResisted(e.level, target.level, e.hitBonus or 0) then
-                        noteEvents({{ type = "log", text = "Resisted!", pid = pid }})
-                        return
-                    end
-                end
-                -- CC DR 检查
-                if ability.effects then
-                    for _, ef in ipairs(ability.effects) do
-                        if ef.mechanic then
-                            local dur = ccDr.applyDiminishingReturns(target.id, ability.id, ef.mechanic, ef.duration or 0, simTime)
-                            if dur <= 0 then
-                                noteEvents({{ type = "log", text = "Target immune! (DR)", pid = pid }})
-                                return
-                            end
-                            ef.duration = dur
-                        end
-                    end
-                end
-
-                -- 资源/empower 已在 startCast 处理 (含免费施法)
-
-                local evs = fxDispatch.execute(e, target, ability, entities, simTime)
-                noteEvents(evs)
-                -- 怒气生成
-                for _, ev in ipairs(evs) do
-                    if ev.type == "combat_damage" and e.resourceType == "rage" then
-                        e.resource = math.min(e.maxResource, e.resource + rage.rageFromDealing(ev.hp or 0, e.level))
-                    end
-                end
-                setProcs.applySetProcs(e, target, "on_spell_cast", simTime)
-                if target and spirit.checkDeath(target) then
-                    noteEvents({{ type = "death", pid = target.id }})
-                end
-            end
-        else
-            noteEvents({{ type = "log", text = "Cannot cast " .. abilityId, pid = pid }})
-        end
-
-    elseif cname == "cancel_aura" then
-        aura.removeAura(e, cmd.auraId)
-
-    -- 死亡/灵魂
-    elseif cname == "release" then
-        if e.dead and not e.ghost then
-            spirit.releaseSpirit(e)
-            noteEvents({{ type = "release_spirit", pid = pid }})
-            print(string.format("[World] Spirit released: pid=%d", pid))
-        end
-    elseif cname == "resurrect_corpse" then
-        if e.dead and e.ghost then
-            local corpsePos = e.corpsePos or e.pos
-            local ok = spirit.resurrectCorpse(e, corpsePos)
-            if ok then
-                noteEvents({{ type = "resurrect", pid = pid, pos = corpsePos }})
-                print(string.format("[World] Player resurrected: pid=%d", pid))
-            else
-                noteEvents({{ type = "log", text = "You are too far from your corpse", pid = pid }})
-            end
-        end
-    elseif cname == "resurrect_healer" then
-        if not e.dead then
-            local targetId = cmd.target
-            local target = targetId and entities[tonumber(targetId)]
-            if target and target.dead then
-                spirit.resurrectHealer(target)
-                noteEvents({{ type = "resurrect", pid = target.id, sid = pid }})
-            end
-        end
-
-    -- 背包/装备
-    elseif cname == "inv_move" then
-        inventory.invMove(players[pid], tonumber(cmd.from) or 0, tonumber(cmd.to) or 0)
-    elseif cname == "equip" then
-        local ok, msg = inventory.equipItem(players[pid], e, tonumber(cmd.slot) or 0, cmd.equipSlot or "")
-        if ok then
-            -- 装备改变后重算属性
-            playerStats.recalcPlayerStats(e, players[pid].class, players[pid].equipment, nil, nil)
-        end
-        noteEvents({{ type = "log", text = ok and "Equipped" or (msg or "Failed"), pid = pid }})
-    elseif cname == "unequip_item" then
-        inventory.unequipItem(players[pid], e, cmd.slot or "")
-        playerStats.recalcPlayerStats(e, players[pid].class, players[pid].equipment, nil, nil)
-    elseif cname == "use" then
-        inventory.useItem(players[pid], e, tonumber(cmd.slot) or 0)
-    elseif cname == "discard" then
-        inventory.discardItem(players[pid], tonumber(cmd.slot) or 0)
-
-    -- 商店
-    elseif cname == "buy" then
-        -- 找到附近 NPC 的专属库存 (6 码内)
-        local npcStock = nil
-        for _, other in pairs(entities) do
-            if other.kind == "npc" and other.vendorItems and #other.vendorItems > 0 then
-                local dx = other.pos.x - e.pos.x
-                local dz = other.pos.z - e.pos.z
-                if dx * dx + dz * dz <= 36 then
-                    npcStock = other.vendorItems
-                    break
-                end
-            end
-        end
-        local ok, result = vendor.buyItem(players[pid], e, cmd.itemId or "", npcStock)
-        noteEvents({{ type = "log", text = ok and ("Bought " .. (result.name or "")) or (result or "Failed"), pid = pid }})
-    elseif cname == "sell" then
-        local ok, result = vendor.sellItem(players[pid], tonumber(cmd.slot) or 0)
-        noteEvents({{ type = "log", text = ok and ("Sold for " .. (result.price or 0)) or (result or "Failed"), pid = pid }})
-    elseif cname == "buyback" then
-        noteEvents({{ type = "log", text = "Buyback not implemented", pid = pid }})
-    elseif cname == "sell_all_junk" then
-        local total = vendor.sellAllJunk(players[pid])
-        noteEvents({{ type = "log", text = "Sold junk for " .. total .. " copper", pid = pid }})
-
-    -- 任务
-    elseif cname == "accept" then
-        local ok, result = quest.acceptQuest(players[pid], cmd.questId or "")
-        noteEvents({{ type = "log", text = ok and ("Accepted: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
-    elseif cname == "turnin" then
-        local ok, result = quest.turninQuest(players[pid], cmd.questId or "")
-        if ok then
-            local meta = players[pid]
-            local oldLevel = meta.level
-            noteEvents({{ type = "log", text = "Quest complete! +" .. (result.copper or 0) .. " copper", pid = pid }})
-            -- 任务 XP (无 rested 加成, TS: fromKill 才有)
-            local qXp = result.xp or 0
-            if qXp > 0 and meta then
-                local xpEvents = xp.grantXp(qXp, meta, e, nil,
-                    playerStats.recalcPlayerStats,
-                    function(m, ent) talent.recomputeForLevel(m, ent, m.class or ent.templateId) end)
-                for _, xev in ipairs(xpEvents) do noteEvents({xev}) end
-            end
-            -- 功勋追踪: 升级
-            if meta.level > oldLevel then
-                deeds.onLevelUp(pid, meta.level)
-            end
-            -- 功勋追踪: 财富
-            deeds.onCopperChange(pid, meta.copper or 0)
-        end
-    elseif cname == "abandon" then
-        quest.abandonQuest(players[pid], cmd.questId or "")
-
-    -- 天赋
-    elseif cname == "applyTalents" then
-        local ok, result = talent.applyTalents(players[pid], e, cmd.talentId or "")
-        if ok then
-            playerStats.recalcPlayerStats(e, players[pid].class, players[pid].equipment, players[pid].talentMods, nil)
-        end
-        noteEvents({{ type = "log", text = ok and ("Learned: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
-    elseif cname == "respec" then
-        talent.respec(players[pid], e, e.templateId or "warrior")
-        noteEvents({{ type = "log", text = "Respecced!", pid = pid }})
-
-    -- 社交
-    elseif cname == "pinvite" then
-        partyMod.invite(pid, tonumber(cmd.target) or 0, entities)
-    elseif cname == "paccept" then
-        partyMod.accept(pid)
-    elseif cname == "pleave" then
-        partyMod.leave(pid)
-    -- 社交命令 (转发到 Social Service, 经 DB 持久化)
-    elseif cname == "friend_add" then
-        socialCmd(pid, "friend_add", tonumber(cmd.target) or 0)
-    elseif cname == "friend_remove" then
-        socialCmd(pid, "friend_remove", tonumber(cmd.target) or 0)
-    elseif cname == "block_add" then
-        socialCmd(pid, "block_add", tonumber(cmd.target) or 0)
-    elseif cname == "block_remove" then
-        socialCmd(pid, "block_remove", tonumber(cmd.target) or 0)
-    elseif cname == "ignore_add" then
-        socialCmd(pid, "ignore_add", tonumber(cmd.target) or 0)
-    elseif cname == "ignore_remove" then
-        socialCmd(pid, "ignore_remove", tonumber(cmd.target) or 0)
-
-    -- 决斗
-    elseif cname == "duel_req" then
-        duelMod.requestDuel(pid, tonumber(cmd.target) or 0, entities)
-    elseif cname == "duel_accept" then
-        duelMod.acceptDuel(pid, cmd.duelId or "")
-
-    -- 交易
-    elseif cname == "trade_req" then
-        tradeMod.requestTrade(pid, tonumber(cmd.target) or 0, entities)
-    elseif cname == "trade_offer_item" then
-        tradeMod.offerItem(players[pid], tonumber(cmd.slot) or 0)
-
-    -- 银行
-    elseif cname == "bank_deposit" then
-        bankMod.deposit(players[pid], tonumber(cmd.slot) or 0)
-    elseif cname == "bank_withdraw" then
-        bankMod.withdraw(players[pid], tonumber(cmd.slot) or 0)
-    elseif cname == "bank_buy_slots" then
-        bankMod.buySlots(players[pid], tonumber(cmd.count) or 1)
-
-    -- 工会 (经 Social Service)
-    elseif cname == "guild_create" then
-        socialCmd(pid, "guild_create", nil, cmd.name)
-    elseif cname == "guild_invite" then
-        socialCmd(pid, "guild_invite", tonumber(cmd.target) or 0)
-    elseif cname == "guild_kick" then
-        socialCmd(pid, "guild_kick", tonumber(cmd.target) or 0)
-    elseif cname == "guild_leave" then
-        socialCmd(pid, "guild_leave")
-    elseif cname == "guild_promote" then
-        socialCmd(pid, "guild_promote", tonumber(cmd.target) or 0)
-
-    -- 专业
-    elseif cname == "harvest_node" then
-        local ok, result = profession.harvestNode(players[pid], e, cmd.nodeType or "herb")
-        noteEvents({{ type = "log", text = ok and ("Harvested " .. (result.item or "")) or (result or "Failed"), pid = pid }})
-    elseif cname == "craft_item" then
-        local ok, result = profession.craftItem(players[pid], cmd.recipeId or "")
-        noteEvents({{ type = "log", text = ok and ("Crafted " .. (result.name or "")) or (result or "Failed"), pid = pid }})
-
-    -- 副本
-    elseif cname == "enter_dungeon" then
-        instanceMod.enterDungeon(pid, cmd.dungeonId or "test", cmd.difficulty or "normal", entities)
-    elseif cname == "leave_dungeon" then
-        instanceMod.leaveInstance(pid)
-        -- 传送回副本门口 (door trigger 出口偏移)
-        local exitEvents = doorTriggers.exitDungeon(e)
-        for _, ev in ipairs(exitEvents) do noteEvents({ev}) end
-
-    -- ======== 竞技场 ========
-    elseif cname == "arena_queue" then
-        local teamId = arena.createTeam(pid, tonumber(cmd.partner) or 0)
-        if teamId then
-            arena.queueTeam(teamId, simTime)
-            noteEvents({{ type = "log", text = "Joined arena queue", pid = pid }})
-        end
-
-    -- ======== 战场 ========
-    elseif cname == "bg_join" then
-        battleground.queuePlayer(pid, simTime)
-        noteEvents({{ type = "log", text = "Joined battleground queue", pid = pid }})
-
-    -- ======== 裂隙 ========
-    elseif cname == "rift_enter" then
-        local ok, result = rift.enterRift(pid, cmd.portalId or "rift_portal_1", entities)
-        noteEvents({{ type = "log", text = ok and ("Entered rift: " .. (result or "")) or (result or "Failed"), pid = pid }})
-    elseif cname == "rift_leave" then
-        rift.leaveRift(pid, entities)
-        noteEvents({{ type = "log", text = "Left rift", pid = pid }})
-
-    -- ======== 深入探索 ========
-    elseif cname == "delve_enter" then
-        local ok, result = delve.enterDelve(pid, cmd.delveId or "drowned_litany", entities)
-        noteEvents({{ type = "log", text = ok and ("Entered: " .. result) or result, pid = pid }})
-    elseif cname == "delve_leave" then
-        delve.leaveDelve(pid, entities)
-    elseif cname == "delve_lockpick" then
-        local ok, remaining = delve.attemptLockpick(pid)
-        noteEvents({{ type = "log", text = ok and ("Picked! (" .. remaining .. " left)") or "Failed", pid = pid }})
-    elseif cname == "delve_advance" then
-        local ok, result = delve.advanceRoom(pid)
-        noteEvents({{ type = "log", text = ok and ("Room: " .. result) or "Cannot advance", pid = pid }})
-
-    -- ======== 地下城查找器 ========
-    elseif cname == "df_join" then
-        dungeonFinder.joinQueue(pid, cmd.role or "dps", e.level, entities)
-        noteEvents({{ type = "log", text = "Joined dungeon finder", pid = pid }})
-    elseif cname == "df_leave" then
-        dungeonFinder.leaveQueue(pid)
-
-    -- ======== 卡牌决斗 ========
-    elseif cname == "card_duel_req" then
-        cardDuel.startDuel(pid, tonumber(cmd.target) or 0, entities)
-    elseif cname == "card_play" then
-        local ok, val = cardDuel.playCard(pid, tonumber(cmd.index) or 0)
-        noteEvents({{ type = "log", text = ok and ("Played: " .. val) or "Failed", pid = pid }})
-    elseif cname == "card_end_turn" then
-        cardDuel.endTurn(pid)
-
-    -- ======== 战利品 ========
-    elseif cname == "roll_loot" then
-        local ok, val = lootRoll.rollLoot(cmd.rollId or "", pid)
-        noteEvents({{ type = "log", text = ok and ("Rolled: " .. val) or "Failed", pid = pid }})
-
-    -- ======== 就位检查 ========
-    elseif cname == "ready_check" then
-        local rcId = readyCheck.startReadyCheck(pid, {pid})
-        noteEvents({{ type = "log", text = "Ready check started", pid = pid }})
-    elseif cname == "ready" then
-        readyCheck.respond(pid, true)
-
-    -- ======== 宠物 ========
-    elseif cname == "pet_attack" then
-        petAI.commandAttack(e, tonumber(cmd.target) or 0, entities)
-    elseif cname == "pet_follow" then
-        petAI.commandFollow(e, entities)
-    elseif cname == "pet_passive" then
-        petAI.setMode(e, "passive", entities)
-    elseif cname == "pet_defensive" then
-        petAI.setMode(e, "defensive", entities)
-
-    -- ======== 钓鱼 ========
-    elseif cname == "fish_start" then
-        fishing.startFishing(e, "lake")
-    elseif cname == "fish_reel" then
-        local caught, fish = fishing.reel(e)
-        noteEvents({{ type = "log", text = caught and ("Caught: " .. (fish.name or "")) or "Nothing", pid = pid }})
-
-    -- ======== 坐骑 ========
-    elseif cname == "mount_summon" then
-        mount.startMount(e, cmd.mountId or "brown_horse")
-    elseif cname == "mount_dismount" then
-        mount.dismount(e)
-
-    -- ======== 解除卡死 ========
-    elseif cname == "unstuck" then
-        local ok, msg = unstuck.startUnstuck(pid, entities)
-        noteEvents({{ type = "log", text = ok and "Unstuck countdown..." or (msg or "Failed"), pid = pid }})
-
-    -- ======== 复活提议 ========
-    elseif cname == "resurrect_accept" then
-        resurrectionOffer.acceptResurrection(pid, entities, spirit)
-    elseif cname == "resurrect_decline" then
-        resurrectionOffer.declineResurrection(pid)
-
-    -- ======== 英雄副本/军需官 ========
-    elseif cname == "heroic_set" then
-        heroicDungeon.setDifficulty(cmd.dungeonId or "", "heroic")
-    elseif cname == "heroic_buy" then
-        local ok, result = heroicDungeon.buyItem(pid, cmd.itemId or "")
-        if ok and result then
-            -- 加入背包 (修复: 之前购买后不发放)
-            local meta = players[pid]
-            local itemDef = nil
-            local okp, proto = pcall(function() return require("proto.load") end)
-            if okp then itemDef = proto.getItem(result.itemId) end
-            local invItem = inventory.createItem(result.itemId, result.name or result.itemId, "misc", itemDef or result)
-            inventory.addItem(meta, invItem)
-        end
-        noteEvents({{ type = "log", text = ok and ("Bought: " .. (result.name or "")) or (result or "Failed"), pid = pid }})
-
-    -- ======== 公会金库 ========
-    elseif cname == "gbank_deposit" then
-        guildBank.depositItem(cmd.guildId or "", pid, cmd.item, 0)
-    elseif cname == "gbank_withdraw" then
-        guildBank.withdrawItem(cmd.guildId or "", pid, tonumber(cmd.slot) or 0, 0)
-
-    -- Dev 命令
-    elseif cname == "dev_give" and config.getAllowDevCommands() then
-        local level = tonumber(cmd.level) or 1
-        local pos = { x = e.pos.x + 3, y = 0, z = e.pos.z }
-        local mob = createMobEntity("forest_wolf", "Test Wolf", level, pos)
-        entities[mob.id] = mob
-        grid.insert(mob)
-        noteEvents({{ type = "log", text = "Spawned mob id=" .. mob.id .. " lv=" .. level, pid = pid }})
-    end
+    -- 统一分发: 以客户端 COMMAND_NAMES 为准 (command_dispatch.lua)
+    local ok = require("world.command_dispatch").dispatch({
+        entities = entities, players = players, simTime = simTime, tick = tick,
+        grid = grid, config = config,
+        abilities = abilities, autoAttack = autoAttack, castSys = castSys,
+        fxDispatch = fxDispatch, spirit = spirit, aura = aura, ccDr = ccDr,
+        spellResist = spellResist, rage = rage, setProcs = setProcs,
+        empower = empower, regen = regen, playerStats = playerStats,
+        talent = talent, inventory = inventory, vendor = vendor, quest = quest,
+        bank = bankMod, profession = profession, instanceMod = instanceMod,
+        arena = arena, battleground = battleground, rift = rift, delve = delve,
+        dungeonFinder = dungeonFinder, cardDuel = cardDuel, lootRoll = lootRoll,
+        readyCheck = readyCheck, petAI = petAI, fishing = fishing, mount = mount,
+        unstuck = unstuck, resurrectionOffer = resurrectionOffer,
+        heroicDungeon = heroicDungeon, guildBank = guildBank, partyMod = partyMod,
+        tradeMod = tradeMod, duelMod = duelMod, chat = chat, xp = xp,
+        deeds = deeds, pvpHonor = pvpHonor, doorTriggers = doorTriggers,
+        noteEvents = noteEvents, socialCmd = socialCmd,
+        findNearestEnemy = findNearestEnemy,
+        createMobEntity = createMobEntity, allocId = allocId,
+        marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
+        protoGet = protoGet, nodeTypeFor = nodeTypeFor,
+    }, pid, cmd)
+    return ok == true
 end
 
+-- 旧实现保留为死代码 (不执行, 待后续清理)
 -- 启动
 running = true
 

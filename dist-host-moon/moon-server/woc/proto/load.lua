@@ -44,11 +44,11 @@ function M.loadFile(path)
 end
 
 function M.buildIndexes()
-    -- abilities: organized by class
+    -- abilities: flat map keyed by ability id (TS ABILITIES: Record<id, AbilityDef>)
     M.abilitiesById = {}
     if M.abilities then
-        for cls, clsAbilities in pairs(M.abilities) do
-            for id, def in pairs(clsAbilities) do
+        for id, def in pairs(M.abilities) do
+            if type(def) == "table" and def.id then
                 M.abilitiesById[id] = def
             end
         end
@@ -61,18 +61,20 @@ function M.buildIndexes()
     M.npcsById = M.npcs or {}
     M.mountsById = M.mounts or {}
 
-    -- quests (array → byId map)
+    -- quests (keyed by id, TS QUESTS: Record<questId, QuestDef>)
     M.questsById = {}
     if M.quests then
-        for _, q in ipairs(M.quests) do
-            M.questsById[q.id] = q
+        for qid, q in pairs(M.quests) do
+            if type(q) == "table" and q.id then
+                M.questsById[qid] = q
+            end
         end
     end
 
     -- dungeons (already keyed by id)
     M.dungeonsById = M.dungeons or {}
 
-    -- recipes (array)
+    -- recipes (array → byId map)
     M.recipesById = {}
     if M.recipes then
         for _, r in ipairs(M.recipes) do

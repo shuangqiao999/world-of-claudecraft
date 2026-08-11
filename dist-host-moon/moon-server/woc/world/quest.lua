@@ -56,7 +56,8 @@ function M.loadFromProto()
     end
 
     questsLoaded = true
-    print(string.format("[Quest] Loaded %d quests + order from proto", #QUESTS))
+    local n = 0; for _ in pairs(QUESTS) do n = n + 1 end
+    print(string.format("[Quest] Loaded %d quests + order from proto", n))
 end
 
 --- 初始化玩家任务数据

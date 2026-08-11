@@ -394,7 +394,41 @@ function M.applyInput(e, mi, facing, dt)
         deps = { seed = 0, dt = dt or 0.05 }
     end
     deps.dt = dt or 0.05
-    M.stepPlayerMotion(e, mi, facing)
+    M.stepPlayerMotion(e, M.sanitizeMoveInput(mi), facing)
+end
+
+-- 客户端 wire 字段 → 移动内核字段映射 (对应 src/sim/move_input.ts sanitizeMoveInput)
+-- wire: f,b,tl,tr,sl,sr,j,dv,sf,ss  | 内核: forward,back,turnLeft,turnRight,strafeLeft,
+-- strafeRight,jump,dive,surface,swimSteer
+local WIRE_TO_FULL = {
+    { "forward", { "f" } }, { "back", { "b" } },
+    { "turnLeft", { "tl" } }, { "turnRight", { "tr" } },
+    { "strafeLeft", { "sl" } }, { "strafeRight", { "sr" } },
+    { "jump", { "j" } }, { "dive", { "dv" } }, { "surface", { "sf" } },
+}
+
+--- 将客户端紧凑字段标准化为内核字段 (保留紧凑名, 便于既有逻辑; 额外填充完整名)
+function M.sanitizeMoveInput(mi)
+    if type(mi) ~= "table" then return {} end
+    local out = {}
+    for k, v in pairs(mi) do out[k] = v end
+    for _, pair in ipairs(WIRE_TO_FULL) do
+        local full, compacts = pair[1], pair[2]
+        if out[full] == nil then
+            for _, c in ipairs(compacts) do
+                if out[c] == 1 or out[c] == true then out[full] = 1 break end
+            end
+        end
+        -- 只保留布尔/0/1 (TS isMoveFlag)
+        out[full] = (out[full] == true or out[full] == 1) and 1 or nil
+    end
+    -- 游泳转向 (ss 或 swimSteer), 0..1
+    local ss = out.ss
+    if type(out.swimSteer) == "number" and out.swimSteer >= 0 and out.swimSteer <= 1 then
+        ss = out.swimSteer
+    end
+    if type(ss) == "number" and ss >= 0 and ss <= 1 then out.swimSteer = ss end
+    return out
 end
 
 return M

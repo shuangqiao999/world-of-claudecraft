@@ -29,7 +29,8 @@ function M.loadFromProto()
         }
     end
     mountsLoaded = true
-    print(string.format("[Mount] Loaded %d mounts from proto", #MOUNTS))
+    local n = 0; for _ in pairs(MOUNTS) do n = n + 1 end
+    print(string.format("[Mount] Loaded %d mounts from proto", n))
 end
 
 --- 坐骑移动速度分数 (TS mountMoveSpeedPct: 加法分数)

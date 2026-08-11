@@ -18,13 +18,15 @@ function M.loadFromProto()
 
     for id, item in pairs(items) do
         -- 可出售且有价值的普通物品 (非任务/非唯一材料)
-        if item.value and item.value > 0 and item.kind ~= "quest" then
+        -- TS ItemDef: 售价字段为 sellValue (不是 value)
+        local price = item.sellValue or item.value or 0
+        if type(price) == "number" and price > 0 and item.kind ~= "quest" then
             table.insert(VENDOR_ITEMS, {
                 id = id,
                 name = item.name or id,
                 kind = item.kind or "misc",
                 slot = item.slot,
-                value = item.value,
+                value = price,
                 requiredLevel = item.requiredLevel,
                 item = item,
             })

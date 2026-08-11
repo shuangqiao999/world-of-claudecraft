@@ -36,7 +36,8 @@ function M.loadFromProto()
         }
     end
     delvesLoaded = true
-    print(string.format("[Delve] Loaded %d delves from proto", #DELVES))
+    local n = 0; for _ in pairs(DELVES) do n = n + 1 end
+    print(string.format("[Delve] Loaded %d delves from proto", n))
 end
 
 -- 活跃的 Delve 实例: { readonly = {pid, currentRoom, roomTimer, companionHp} }
