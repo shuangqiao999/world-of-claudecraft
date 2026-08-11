@@ -3,6 +3,7 @@
 -- 转向集成 → wish vector → 游泳闩锁 → 陡坡滑落 → 物理求解器 → 垂直状态机 → 墙立面微调
 
 local config = require("config")
+local m3d = require("world.math3d")
 local terrain = require("world.terrain")
 local rideHeight = require("world.ride_height")
 local colliders = require("world.colliders")
@@ -176,7 +177,7 @@ local function verticalPass(p, inp, wishX, wishZ, wishSpeed, swimming, steepGrou
             p.fallStartY = support
         end
     else
-        local run = math.sqrt((p.pos.x - (p.prevPos and p.prevPos.x or p.pos.x))^2 + (p.pos.z - (p.prevPos and p.prevPos.z or p.pos.z))^2)
+        local run = m3d.dist(p.pos.x - (p.prevPos and p.prevPos.x or p.pos.x), p.pos.z - (p.prevPos and p.prevPos.z or p.pos.z))
         local maxStepDown = math.max(charPhysics.MAX_STEP_HEIGHT, 0.4 + run * MAX_CLIMB_SLOPE)
         if support < p.pos.y - maxStepDown then
             p.onGround = false
@@ -311,8 +312,7 @@ function M.stepPlayerMotion(e, mi, facing)
             end
             if not mobile then deps.cancelCast(e) end
         end
-        local len = math.sqrt(mx * mx + mz * mz)
-        local nx, nz = mx / len, mz / len
+        local nx, nz = m3d.norm(mx, mz)
         local speed = config.RUN_SPEED * M.moveSpeedMult(e)
         if mz < 0 then speed = speed * M.BACKPEDAL_MULT end
         if swimming then
@@ -332,16 +332,16 @@ function M.stepPlayerMotion(e, mi, facing)
         local accel = M.AIR_CONTROL_ACCEL * deps.dt
         local dvx = wishX * wishSpeed - (e.vx or 0)
         local dvz = wishZ * wishSpeed - (e.vz or 0)
-        local dLen = math.sqrt(dvx * dvx + dvz * dvz)
+        local dLen = m3d.dist(dvx, dvz)
         if dLen > accel then
             local k = accel / dLen
             dvx = dvx * k
             dvz = dvz * k
         end
-        local before = math.sqrt((e.vx or 0)^2 + (e.vz or 0)^2)
+        local before = m3d.dist(e.vx or 0, e.vz or 0)
         e.vx = (e.vx or 0) + dvx
         e.vz = (e.vz or 0) + dvz
-        local after = math.sqrt((e.vx or 0)^2 + (e.vz or 0)^2)
+        local after = m3d.dist(e.vx or 0, e.vz or 0)
         local cap = math.max(wishSpeed, before)
         if after > cap and after > 1e-9 then
             local k = cap / after

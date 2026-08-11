@@ -3,6 +3,7 @@
 -- 对应原项目 src/sim/pet/pet_ai.ts + src/sim/pet/pet_commands.ts
 
 local config = require("config")
+local m3d = require("world.math3d")
 local simrng = require("world.simrng")
 local M = {}
 
@@ -123,9 +124,9 @@ function M.updatePet(owner, entities, dt)
         -- 移动到目标附近
         local dx = target.pos.x - pet.pos.x
         local dz = target.pos.z - pet.pos.z
-        local distSq = dx * dx + dz * dz
+        local distSq = m3d.distSq(dx, dz)
         if distSq > ATTACK_RANGE_SQ then
-            local dist = math.sqrt(distSq)
+            local dist = m3d.dist(dx, dz)
             if dist > 0.01 then
                 pet.pos.x = pet.pos.x + (dx / dist) * 5 * dt
                 pet.pos.z = pet.pos.z + (dz / dist) * 5 * dt
@@ -163,9 +164,9 @@ function M.updatePet(owner, entities, dt)
         -- 跟随主人
         local dx = owner.pos.x - pet.pos.x
         local dz = owner.pos.z - pet.pos.z
-        local distSq = dx * dx + dz * dz
+        local distSq = m3d.distSq(dx, dz)
         if distSq > FOLLOW_DISTANCE * FOLLOW_DISTANCE then
-            local dist = math.sqrt(distSq)
+            local dist = m3d.dist(dx, dz)
             if dist > 0.01 then
                 pet.pos.x = pet.pos.x + (dx / dist) * config.RUN_SPEED * 0.8 * dt
                 pet.pos.z = pet.pos.z + (dz / dist) * config.RUN_SPEED * 0.8 * dt

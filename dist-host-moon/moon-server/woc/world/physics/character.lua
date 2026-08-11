@@ -3,6 +3,7 @@
 -- 顺序: 去穿透 → 至多4次 sweep-and-slide → STEP UP → 地形墙门控 (等高线滑移)
 
 local colliders = require("world.colliders")
+local m3d = require("world.math3d")
 local rideHeight = require("world.ride_height")
 local terrain = require("world.terrain")
 local sweep = require("world.physics.sweep")
@@ -149,7 +150,7 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
     local entryFeetY = feetY
 
     for iter = 1, MAX_SLIDE_ITERATIONS do
-        local len = math.sqrt(remX * remX + remZ * remZ)
+        local len = m3d.dist(remX, remZ)
         if len < MIN_MOTION then break end
 
         local bestT, bestIndex, bestNx, bestNz = math.huge, -1, 0, 0
@@ -180,7 +181,7 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
         local blocker = candidates[bestIndex]
         if steppableAt(blocker, feetY, params) then
             local lifted = blocker.moveTopY + TOP_EPS
-            local dirLen = math.sqrt(remX * remX + remZ * remZ)
+            local dirLen = m3d.dist(remX, remZ)
             local ux, uz = 0, 0
             if dirLen > MIN_MOTION then ux, uz = remX / dirLen, remZ / dirLen end
             local committed = false
@@ -221,7 +222,7 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
     local rawEnd = terrain.groundHeight(px, pz)
     local groundStart = math.max(terrain.groundHeight(x, z), wls)
     local groundEnd = math.max(rawEnd, wls)
-    local run = math.sqrt(dx * dx + dz * dz)
+    local run = m3d.dist(dx, dz)
     local airborneClears = (not params.grounded) and groundEnd <= feetY
     if (not params.swimming) and (not airborneClears) and groundEnd > groundStart and run > 1e-5 then
         local rise = groundEnd - groundStart
@@ -234,7 +235,7 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
             blocked = true
             local slope = terrain.terrainDownhill(x, z)
             local gx, gz = slope and slope.x or 0, slope and slope.z or 0
-            local glen = math.sqrt(gx * gx + gz * gz)
+            local glen = m3d.dist(gx, gz)
             px, pz = depen.x, depen.z
             feetY = entryFeetY
             stepped = 0
@@ -243,15 +244,15 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
                 local along = dx * ux + dz * uz
                 local contourX = dx - along * ux
                 local contourZ = dz - along * uz
-                if math.sqrt(contourX * contourX + contourZ * contourZ) > MIN_MOTION then
+                local contourLen = m3d.dist(contourX, contourZ)
+                if contourLen > MIN_MOTION then
                     local cx = x + contourX
                     local cz = z + contourZ
                     local contourWls = rideHeight.stepWaterLevel(x, z, cx, cz, params.seed)
                     local contourRaw = terrain.groundHeight(cx, cz)
                     local contourGround = math.max(contourRaw, contourWls)
                     local contourRise = contourGround - math.max(groundStart, contourWls)
-                    local contourRun = math.sqrt(contourX * contourX + contourZ * contourZ)
-                    local contourOk = (contourRise <= 0 or contourRise / contourRun <= params.maxSlope)
+                    local contourOk = (contourRise <= 0 or contourRise / contourLen <= params.maxSlope)
                         and (contourRaw < contourWls or rideHeight.rideSteepnessAt(cx, cz, params.seed) <= params.maxSlope)
                     if contourOk and isClear(cx, cz, feetY, params) then
                         px, pz = cx, cz

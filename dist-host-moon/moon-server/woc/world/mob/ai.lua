@@ -3,6 +3,7 @@
 
 local config = require("config")
 local simrng = require("world.simrng")
+local m3d = require("world.math3d")
 local targeting = require("world.mob.targeting")
 local combatProfile = require("world.mob.combat_profile")
 local threatMod = require("world.mob.threat")
@@ -483,13 +484,14 @@ end
 function M._chaseMovement(mob, target, dt)
     local dx = target.pos.x - mob.pos.x
     local dz = target.pos.z - mob.pos.z
-    local dist = math.sqrt(dx * dx + dz * dz)
+    local dist = m3d.dist(dx, dz)
     if dist > 0.01 then
         local mult = (mob.moveSpeed and mob.moveSpeed / config.RUN_SPEED) or 0.9
         local speed = config.RUN_SPEED * mult
-        mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
-        mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
-        mob.facing = math.atan(dx, -dz)
+        local nx, nz = m3d.norm(dx, dz)
+        mob.pos.x = mob.pos.x + nx * speed * dt
+        mob.pos.z = mob.pos.z + nz * speed * dt
+        mob.facing = m3d.facingTo(mob.pos.x, mob.pos.z, target.pos.x, target.pos.z)
         mob._moved = true
     end
 end
@@ -497,12 +499,13 @@ end
 function M._returnMovement(mob, data, dt)
     local dx = data.spawnPos.x - mob.pos.x
     local dz = data.spawnPos.z - mob.pos.z
-    local dist = math.sqrt(dx * dx + dz * dz)
+    local dist = m3d.dist(dx, dz)
     if dist > 0.01 then
         local speed = config.RUN_SPEED * 0.7
-        mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
-        mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
-        mob.facing = math.atan(dx, -dz)
+        local nx, nz = m3d.norm(dx, dz)
+        mob.pos.x = mob.pos.x + nx * speed * dt
+        mob.pos.z = mob.pos.z + nz * speed * dt
+        mob.facing = m3d.facingTo(mob.pos.x, mob.pos.z, data.spawnPos.x, data.spawnPos.z)
         mob._moved = true
     end
 end
@@ -511,11 +514,12 @@ end
 function M._retreatMovement(mob, target, dt)
     local dx = mob.pos.x - target.pos.x
     local dz = mob.pos.z - target.pos.z
-    local dist = math.sqrt(dx * dx + dz * dz)
+    local dist = m3d.dist(dx, dz)
     if dist > 0.01 then
         local speed = config.RUN_SPEED * 0.7
-        mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
-        mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
+        local nx, nz = m3d.norm(dx, dz)
+        mob.pos.x = mob.pos.x + nx * speed * dt
+        mob.pos.z = mob.pos.z + nz * speed * dt
         mob.facing = math.atan(-dx, dz)
         mob._moved = true
     end
@@ -525,11 +529,12 @@ end
 function M._fleeMovement(mob, target, dt)
     local dx = mob.pos.x - target.pos.x
     local dz = mob.pos.z - target.pos.z
-    local dist = math.sqrt(dx * dx + dz * dz)
+    local dist = m3d.dist(dx, dz)
     if dist > 0.01 then
         local speed = config.RUN_SPEED * 1.1  -- 逃跑更快
-        mob.pos.x = mob.pos.x + (dx / dist) * speed * dt
-        mob.pos.z = mob.pos.z + (dz / dist) * speed * dt
+        local nx, nz = m3d.norm(dx, dz)
+        mob.pos.x = mob.pos.x + nx * speed * dt
+        mob.pos.z = mob.pos.z + nz * speed * dt
         mob._moved = true
     end
 end

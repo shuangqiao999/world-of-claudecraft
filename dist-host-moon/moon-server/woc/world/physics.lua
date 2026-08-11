@@ -3,6 +3,7 @@
 -- 对应原项目 src/sim/physics/ (swept collision + depenetration + stepUp + parkour)
 
 local config = require("config")
+local m3d = require("world.math3d")
 local M = {}
 
 -- 物理常数
@@ -148,7 +149,7 @@ end
 function M._stepUpCheck(e, wishMove)
     if wishMove.dx == 0 and wishMove.dz == 0 then return false end
 
-    local dist = math.sqrt(wishMove.dx * wishMove.dx + wishMove.dz * wishMove.dz)
+    local dist = m3d.dist(wishMove.dx, wishMove.dz)
     local nx = wishMove.dx / dist
     local nz = wishMove.dz / dist
 
@@ -192,13 +193,13 @@ function M._resolvePosition(e, dx, dz, canStep)
                 -- 法线
                 local nnx = (hitX - col.x)
                 local nnz = (hitZ - col.z)
-                local nlen = math.sqrt(nnx * nnx + nnz * nnz)
+                local nlen = m3d.dist(nnx, nnz)
                 if nlen > 0.001 then
                     nnx = nnx / nlen; nnz = nnz / nlen
                 end
 
                 -- 沿法线弹回余量
-                local remainingLen = math.sqrt(remainingDx * remainingDx + remainingDz * remainingDz)
+                local remainingLen = m3d.dist(remainingDx, remainingDz)
                 local dot = remainingDx * nnx + remainingDz * nnz
                 local slideLen = remainingLen * (1 - collisionDist)
 
@@ -269,7 +270,7 @@ function M.depenetrate(e1, e2)
     local r = SWEPT_SPHERE_RADIUS * 2
     local dx = e1.pos.x - e2.pos.x
     local dz = e1.pos.z - e2.pos.z
-    local dist = math.sqrt(dx * dx + dz * dz)
+    local dist = m3d.dist(dx, dz)
     if dist < r and dist > 0.001 then
         local overlap = (r - dist) / 2
         local nx = dx / dist

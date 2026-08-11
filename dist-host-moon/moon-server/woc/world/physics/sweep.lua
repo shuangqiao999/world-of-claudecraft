@@ -4,6 +4,8 @@
 
 local M = {}
 
+local m3d = require("world.math3d")
+
 -- 接触间隙 (防止下一 tick 的 sweep 从表面开始)
 M.SKIN_WIDTH = 0.01
 local MIN_MOTION = 1e-9
@@ -27,7 +29,7 @@ local function sweepPointCircle(px, pz, dx, dz, cx, cz, R, out)
     local fz = pz - cz
     local c = fx * fx + fz * fz - R * R
     if c <= 0 then
-        local d = math.sqrt(fx * fx + fz * fz)
+        local d = m3d.dist(fx, fz)
         out.t = 0
         out.nx = d > 1e-9 and fx / d or 1
         out.nz = d > 1e-9 and fz / d or 0
@@ -43,7 +45,7 @@ local function sweepPointCircle(px, pz, dx, dz, cx, cz, R, out)
     if t < 0 or t > 1 then return false end
     local hx = px + dx * t - cx
     local hz = pz + dz * t - cz
-    local hl = math.sqrt(hx * hx + hz * hz)
+    local hl = m3d.dist(hx, hz)
     out.t = t
     out.nx = hl > 1e-9 and hx / hl or 1
     out.nz = hl > 1e-9 and hz / hl or 0
@@ -133,9 +135,9 @@ function M.overlapCollider(c, x, z, r, out)
         local dx = x - c.x
         local dz = z - c.z
         local min = c.r + r
-        local d2 = dx * dx + dz * dz
+        local d2 = m3d.distSq(dx, dz)
         if d2 >= min * min then return false end
-        local d = math.sqrt(d2)
+        local d = m3d.dist(dx, dz)
         if d < 1e-9 then
             out.nx = 1; out.nz = 0; out.depth = min
             return true
