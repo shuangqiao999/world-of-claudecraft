@@ -27,12 +27,14 @@ function M.query(fmt, ...)
         sqlText = fmt
     end
 
-    -- 从池中取一个健康连接, 失败则换下一个
+    -- 从池中取一个健康连接, 失败则换下一个 (加 busy 互斥, 防两个并发的 moon.async 同时读写同一 socket → "Already reading" 挂死)
     for attempt = 1, POOL_SIZE do
         local entry = pool[poolCursor]
         poolCursor = poolCursor % POOL_SIZE + 1
         if entry.healthy and not entry.busy then
+            entry.busy = true
             local res = entry.conn:query(sqlText)
+            entry.busy = false
             if res.code == "SOCKET" or res.code == "CONNECTION" or res.code == "CONNECTION_NOT_OPEN" then
                 entry.healthy = false
                 -- 触发异步重连
@@ -62,24 +64,25 @@ function M.withTransaction(fn)
     if not entry then return nil, "No free connection" end
     entry.busy = true
 
-    local tx = {
-        query = function(fmt, ...)
-            local args = { ... }
-            local s = #args > 0 and sql.fmt(fmt, table.unpack(args)) or fmt
-            local res = entry.conn:query(s)
-            if res.code == "SOCKET" or res.code == "CONNECTION" then
-                entry.healthy = false
-            end
-            return res
-        end,
-        queryOne = function(fmt, ...)
-            local res = tx.query(fmt, ...)
-            if res.code then return nil end
-            local d = res.data
-            if d and #d > 0 then return d[1] end
-            return nil
-        end,
-    }
+    -- 注意: 不能写成 local tx = { queryOne = function() tx.query() end }
+    -- Lua local 在其自身初始化表达式内不可见 → tx 解析为全局 nil.
+    local tx = {}
+    tx.query = function(fmt, ...)
+        local args = { ... }
+        local s = #args > 0 and sql.fmt(fmt, table.unpack(args)) or fmt
+        local res = entry.conn:query(s)
+        if res.code == "SOCKET" or res.code == "CONNECTION" then
+            entry.healthy = false
+        end
+        return res
+    end
+    tx.queryOne = function(fmt, ...)
+        local res = tx.query(fmt, ...)
+        if res.code then return nil end
+        local d = res.data
+        if d and #d > 0 then return d[1] end
+        return nil
+    end
 
     local ok, r1, r2 = pcall(function()
         local b = entry.conn:query("BEGIN")
@@ -125,9 +128,14 @@ moon.dispatch("lua", function(sender, session, msg)
     local args = msg.args or {}
     local fn = handlers[op]
     if fn then
-        local ok, result = pcall(fn, table.unpack(args))
+        local ok, result, err2 = pcall(fn, table.unpack(args))
         if ok then
-            moon.response("lua", sender, session, { ok = true, data = result })
+            if result == nil and err2 ~= nil then
+                -- handler 返回 (nil, err) 双值约定 → 透传错误
+                moon.response("lua", sender, session, { ok = false, error = tostring(err2) })
+            else
+                moon.response("lua", sender, session, { ok = true, data = result })
+            end
         else
             print(string.format("[DB] Error in '%s': %s", tostring(op), tostring(result)))
             moon.response("lua", sender, session, { ok = false, error = tostring(result) })
@@ -224,6 +232,7 @@ local function loadModules()
     require("db.world_state").register(M)
     require("db.mail").register(M)
     require("db.auction").register(M)
+    require("db.social").register(M)
     local n = 0
     for _ in pairs(handlers) do n = n + 1 end
     print(string.format("[DB] CRUD modules loaded (%d ops)", n))

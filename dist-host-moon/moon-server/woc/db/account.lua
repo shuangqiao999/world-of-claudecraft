@@ -22,7 +22,7 @@ function M.register(dbMod)
     end)
 
     dbMod:register("saveToken", function(token, accountId, ttlHours, scope)
-        q("INSERT INTO auth_tokens (token, account_id, expires_at, scope) VALUES (%s, %s, now() + interval '%s hours', %s)",
+        q("INSERT INTO auth_tokens (token, account_id, expires_at, scope) VALUES (%s, %s, now() + make_interval(hours => %s), %s)",
           token, accountId, tostring(ttlHours or 168), scope or "full")
         return true
     end)
@@ -33,9 +33,30 @@ function M.register(dbMod)
     end)
 
     dbMod:register("getModerationStatus", function(accountId)
-        local row = qOne("SELECT banned_at, suspended_until, chat_muted_until, chat_strikes, deactivated_at FROM accounts WHERE id=%s", accountId)
+        local row = qOne(
+            "SELECT (banned_at IS NOT NULL) AS banned, suspended_until, (deactivated_at IS NOT NULL) AS deactivated, chat_muted_until, chat_strikes FROM accounts WHERE id=%s",
+            accountId)
         if not row then return { locked = false, banned = false, suspendedUntil = nil, reason = "", message = "", chatMutedUntil = nil, chatStrikes = 0 } end
-        local r = { banned = row.banned_at ~= nil, suspendedUntil = row.suspended_until, chatMutedUntil = row.chat_muted_until, chatStrikes = row.chat_strikes or 0, deactivated = row.deactivated_at ~= nil, locked = false, reason = "", message = "" }
+
+        -- 规范化: pg 驱动对 NULL 列返回 "\000" (NUL), 统一转为 nil/false
+        local function truthy(v)
+            if v == nil then return nil end
+            local s = tostring(v):gsub("%z", "")
+            if s == "" or s == "null" or s == "false" or s == "f" then return nil end
+            if s == "t" or s == "true" then return true end
+            return v
+        end
+
+        local bannedFlag = truthy(row.banned)
+        local deactivatedFlag = truthy(row.deactivated)
+        local r = {
+            banned = bannedFlag ~= nil and bannedFlag ~= false,
+            suspendedUntil = truthy(row.suspended_until),
+            deactivated = deactivatedFlag ~= nil and deactivatedFlag ~= false,
+            chatMutedUntil = truthy(row.chat_muted_until),
+            chatStrikes = row.chat_strikes or 0,
+            locked = false, reason = "", message = "",
+        }
         if r.banned then r.locked = true; r.message = "Banned" end
         if r.suspendedUntil then r.locked = true; r.message = "Suspended" end
         if r.deactivated then r.locked = true; r.message = "Deactivated" end

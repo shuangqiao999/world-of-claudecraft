@@ -9,7 +9,7 @@ function M.register(dbMod)
     dbMod:register("saveToken", function(token, accountId, ttlHours, scope, label)
         ttlHours = ttlHours or (24 * 7)
         scope = scope or "full"
-        q("INSERT INTO auth_tokens (token, account_id, expires_at, scope) VALUES (%s, %s, now() + interval '%s hours', %s)",
+        q("INSERT INTO auth_tokens (token, account_id, expires_at, scope) VALUES (%s, %s, now() + make_interval(hours => %s), %s)",
           token, accountId, tostring(ttlHours), scope)
         return true
     end)

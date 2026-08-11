@@ -54,8 +54,8 @@ function M.update(attacker, entities, dt, simTime)
         local distSq = dx * dx + dz * dz
         if distSq > config.MELEE_RANGE_SQ then return nil end
 
-        -- 近战角度: 2/3 * Pi 弧度 = 120 度
-        local MELEE_ARC = math.pi * 2 / 3
+        -- 近战角度: MELEE_ARC = 2.2 弧度 half-arc (TS types.ts:25)
+        local MELEE_ARC = 2.2
         local dist = math.sqrt(distSq)
         if dist > 0.01 then
             local angle = math.abs(math.atan(dx, -dz) - attacker.facing)

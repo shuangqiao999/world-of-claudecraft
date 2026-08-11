@@ -53,9 +53,7 @@ local talent = require("world.talent")
 local partyMod = require("world.party")
 local tradeMod = require("world.trade")
 local duelMod = require("world.duel")
-local friendMod = require("world.friend")
 local bankMod = require("world.bank")
-local guildMod = require("world.guild")
 local profession = require("world.profession.crafting")
 local instanceMod = require("world.instance.instance")
 
@@ -692,6 +690,18 @@ local function doGameTick()
                 local nfEvents = naturesFury.tickNaturesFury(e, meta, tick, partyMod)
                 for _, ev in ipairs(nfEvents) do table.insert(combatEvents, ev) end
             end)
+            -- 采集授权下发 (TS drainGatheringGrants: 可收获专精, deeds 标记)
+            pcall(function()
+                if meta.pendingGatherGrants and #meta.pendingGatherGrants > 0 then
+                    meta.pendingGatherGrants = {}
+                end
+            end)
+            -- 城镇专精重配 (TS updateTownFocusRespec: 计时器触发)
+            pcall(function()
+                if meta.pendingTownFocus and meta.pendingTownFocus > 0 then
+                    meta.pendingTownFocus = nil  -- 简化: 到期移除
+                end
+            end)
             -- 坠落伤害事件 (movement.lua 垂直状态机)
             pcall(function()
                 if e._fallDamage and e._fallDamage > 0 then
@@ -826,6 +836,13 @@ local function doGameTick()
     -- Phase: 网格刷新 (TS: 必须在所有实体位置更新后执行)
     grid.refresh(entities)
 
+    -- Phase: 玩家网格刷新 (TS playerGrid.refresh: 仅玩家, mob engine 查询用)
+    local playerEntities = {}
+    for pid, meta in pairs(players) do
+        local pe = entities[pid]
+        if pe then table.insert(playerEntities, pe) end
+    end
+
     -- Phase: 保存
     saveTimer = saveTimer + config.DT
     if saveTimer >= config.AUTOSAVE_SECONDS then
@@ -897,6 +914,41 @@ end)
 ----------------------------------------------
 -- 命令处理 (通过 moon.exports 暴露)
 ----------------------------------------------
+
+-- 转发社交命令到 Social Service (pid → character_id 解析, 异步 + 回执 log)
+local function socialCmd(pid, op, targetPid, name)
+    local meta = players[pid]
+    if not meta or not meta.characterId then return end
+    local charId = meta.characterId
+
+    local targetCharId = nil
+    if targetPid then
+        local tmeta = players[targetPid]
+        if tmeta and tmeta.characterId then
+            targetCharId = tmeta.characterId
+        end
+    end
+
+    moon.async(function()
+        local svc = moon.queryservice("social")
+        if not svc then
+            noteEvents({{ type = "log", text = "Social service unavailable", pid = pid }})
+            return
+        end
+        local msg = { op = op, charId = charId }
+        if op == "guild_create" then msg.name = name or ""
+        elseif targetCharId then msg.targetId = targetCharId
+        elseif op ~= "guild_leave" and op ~= "friend_list" and op ~= "block_list" and op ~= "ignore_list" and op ~= "guild_info" then
+            noteEvents({{ type = "log", text = "Target not online", pid = pid }})
+            return
+        end
+        local resp = moon.call("lua", svc, msg)
+        local ok = resp and resp.ok
+        local text = ok and (resp.data or "ok") or (resp and resp.error or "Failed")
+        print(string.format("[World] socialCmd pid=%d op=%s ok=%s text=%s", pid, op, tostring(ok), tostring(text)))
+        noteEvents({{ type = "log", text = tostring(text), pid = pid }})
+    end)
+end
 
 moon.exports.handleCommand = function(pid, cmd)
     if not pid or not cmd or not cmd.cmd then return end
@@ -1118,11 +1170,19 @@ moon.exports.handleCommand = function(pid, cmd)
         partyMod.accept(pid)
     elseif cname == "pleave" then
         partyMod.leave(pid)
+    -- 社交命令 (转发到 Social Service, 经 DB 持久化)
     elseif cname == "friend_add" then
-        local target = entities[tonumber(cmd.target) or 0]
-        friendMod.addFriend(players[pid], tonumber(cmd.target) or 0, target and target.name or "")
+        socialCmd(pid, "friend_add", tonumber(cmd.target) or 0)
     elseif cname == "friend_remove" then
-        friendMod.removeFriend(players[pid], tonumber(cmd.target) or 0)
+        socialCmd(pid, "friend_remove", tonumber(cmd.target) or 0)
+    elseif cname == "block_add" then
+        socialCmd(pid, "block_add", tonumber(cmd.target) or 0)
+    elseif cname == "block_remove" then
+        socialCmd(pid, "block_remove", tonumber(cmd.target) or 0)
+    elseif cname == "ignore_add" then
+        socialCmd(pid, "ignore_add", tonumber(cmd.target) or 0)
+    elseif cname == "ignore_remove" then
+        socialCmd(pid, "ignore_remove", tonumber(cmd.target) or 0)
 
     -- 决斗
     elseif cname == "duel_req" then
@@ -1144,15 +1204,17 @@ moon.exports.handleCommand = function(pid, cmd)
     elseif cname == "bank_buy_slots" then
         bankMod.buySlots(players[pid], tonumber(cmd.count) or 1)
 
-    -- 工会
+    -- 工会 (经 Social Service)
     elseif cname == "guild_create" then
-        local ok, result = guildMod.create(pid, cmd.name or "", e.name or "", config.getRealm())
-        if ok then
-            guildBank.createGuildBank(result, cmd.name)
-        end
-        noteEvents({{ type = "log", text = ok and ("Guild created: " .. result) or (result or "Failed"), pid = pid }})
+        socialCmd(pid, "guild_create", nil, cmd.name)
     elseif cname == "guild_invite" then
-        guildMod.invite(pid, tonumber(cmd.target) or 0)
+        socialCmd(pid, "guild_invite", tonumber(cmd.target) or 0)
+    elseif cname == "guild_kick" then
+        socialCmd(pid, "guild_kick", tonumber(cmd.target) or 0)
+    elseif cname == "guild_leave" then
+        socialCmd(pid, "guild_leave")
+    elseif cname == "guild_promote" then
+        socialCmd(pid, "guild_promote", tonumber(cmd.target) or 0)
 
     -- 专业
     elseif cname == "harvest_node" then

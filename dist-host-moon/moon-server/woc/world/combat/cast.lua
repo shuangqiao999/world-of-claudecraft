@@ -7,7 +7,7 @@ local M = {}
 
 local BASE_GCD = config.GCD  -- 1.5s
 local MIN_GCD = 0.75
-local CAST_QUEUE_WINDOW_SEC = 0.3
+local CAST_QUEUE_WINDOW_SEC = 0.4
 local CAST_PUSHBACK_SEC = 0.5
 local CHANNEL_PUSHBACK_FRACTION = 0.25
 local CAST_COMPLETE_EPS = 0.001
