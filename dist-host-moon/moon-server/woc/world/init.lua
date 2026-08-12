@@ -13,6 +13,7 @@ local grid = require("world.grid")
 local chat = require("world.chat")
 local snapshot = require("world.snapshot")
 local jh = require("shared.json_helpers")
+require("shared.sproto_helpers").init()
 local playerStats = require("world.player_stats")
 
 -- 战斗模块
@@ -230,7 +231,7 @@ local function guildBankOp(pid, msg)
             local entries = guildBank.getLog(guild.id)
             local gs = gateSvc()
             if gs then
-                moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = json.encode({ t = "gbanklog", ok = true, entries = entries }) })
+                moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = require("shared.sproto_helpers").packFrame("GbankLogFrame", { ok = true, entries = entries }) })
             end
             return
         end
