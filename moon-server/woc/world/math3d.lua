@@ -1,7 +1,8 @@
--- math3d wrapper: C acceleration via clib/math3d.dll, with pure-Lua fallback
--- All APIs use math3d C library when available for 5-10x speedup on vector ops.
--- 
--- API summary:
+-- math3d wrapper: C acceleration via clib/math3d.dll, with pure-Lua fallback.
+-- Scalar-argument APIs create a temporary vector per call (C alloc + length/dot/cross/lerp).
+-- For high-frequency loops prefer re-using pre-allocated vec objects via M.vec3() + M.lib.
+--
+-- API:
 --   dist(dx,dz)      — 2D distance
 --   distSq(dx,dz)    — 2D distance squared (no sqrt, for range checks)
 --   dist3(dx,dy,dz)  — 3D distance
@@ -26,11 +27,10 @@ end)
 -- C-accelerated path
 -- ===================================================================
 if lib then
-    local _tmp
 
     function M.dist(dx, dz)
-        _tmp = lib.vector(dx, 0, dz, 0)
-        return lib.length(_tmp)
+        local v = lib.vector(dx, 0, dz, 0)
+        return lib.length(v)
     end
 
     function M.distSq(dx, dz)
@@ -38,20 +38,20 @@ if lib then
     end
 
     function M.dist3(dx, dy, dz)
-        _tmp = lib.vector(dx, dy, dz, 0)
-        return lib.length(_tmp)
+        local v = lib.vector(dx, dy, dz, 0)
+        return lib.length(v)
     end
 
     function M.norm(dx, dz)
-        _tmp = lib.vector(dx, 0, dz, 0)
-        local len = lib.length(_tmp)
+        local v = lib.vector(dx, 0, dz, 0)
+        local len = lib.length(v)
         if len < 0.0001 then return 0, 0 end
         return dx / len, dz / len
     end
 
     function M.norm3(dx, dy, dz)
-        _tmp = lib.vector(dx, dy, dz, 0)
-        local len = lib.length(_tmp)
+        local v = lib.vector(dx, dy, dz, 0)
+        local len = lib.length(v)
         if len < 0.0001 then return 0, 0, 0 end
         return dx / len, dy / len, dz / len
     end
@@ -67,8 +67,8 @@ if lib then
     function M.moveToward(px, pz, tx, tz, speed, dt)
         local dx = tx - px
         local dz = tz - pz
-        _tmp = lib.vector(dx, 0, dz, 0)
-        local dist = lib.length(_tmp)
+        local v = lib.vector(dx, 0, dz, 0)
+        local dist = lib.length(v)
         if dist < speed * dt then return tx, tz end
         local step = speed * dt
         return px + (dx / dist) * step, pz + (dz / dist) * step
