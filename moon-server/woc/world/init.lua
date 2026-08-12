@@ -406,6 +406,19 @@ local function leavePlayer(pid)
     grid.remove(e)
     aura.cleanupDRTracker(pid)
     deeds.cleanupPlayer(pid)
+    -- 清理所有 mob 对此玩家的威胁/仇恨
+    for _, m in pairs(entities) do
+        if m.kind == "mob" and m.threat then
+            m.threat[pid] = nil
+            if m.aggroTargetId == pid then m.aggroTargetId = nil end
+            if m.forcedTargetId == pid then m.forcedTargetId = nil; m.forcedTargetTimer = 0 end
+            if m.targetId == pid then m.targetId = nil end
+        end
+    end
+    -- 清除其他玩家指向此玩家的 target
+    for _, other in pairs(entities) do
+        if other.targetId == pid then other.targetId = nil end
+    end
     if dbSvc() and meta.leaseNonce then
         local st = serializeCharacter(pid)
         local dbs = dbSvc()

@@ -67,7 +67,7 @@ function M.fillInitialMobs(entities, worldInitFn, gridModule)
             local mob = worldInitFn(sd.templateId, sd.templateId, M._spawnLevel(sd.templateId, sd.level), newPos)
             if mob then
                 sd.count = sd.count + 1
-                sd.lastRespawn = os.time()
+                sd.lastRespawn = 0
                 table.insert(spawned, mob)
             end
         end
