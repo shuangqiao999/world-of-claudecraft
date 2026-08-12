@@ -286,7 +286,7 @@ function H.interact(ctx, pid, cmd)
         return true
     end
     if best.kind == "node" then
-        return H.harvest_node(ctx, pid, { node = best.templateId or "herb" })
+        return H.harvest_node(ctx, pid, { node = best.templateId or "herb", tier = best.nodeTier or 1 })
     end
     if best.kind == "object" and best.lootable then
         return H.loot(ctx, pid, { id = best.id })
@@ -559,8 +559,8 @@ function H.harvest_node(ctx, pid, cmd)
     -- 解析为节点类型: proto gather node templateId → 资源类型
     local nodeType = nodeId
     if ctx.nodeTypeFor and nodeId then nodeType = ctx.nodeTypeFor(nodeId) or nodeId end
-    local ok, result = ctx.profession.harvestNode(meta, e, nodeType or "herb")
-    ctx.noteEvents({ { type = "log", text = ok and ("Harvested " .. ((result and result.item) or "")) or (result or "Failed"), pid = pid } })
+    local ok, result = ctx.profession.harvestNode(meta, e, nodeType or "herb", n(cmd.tier) or 1)
+    ctx.noteEvents({ { type = "log", text = ok and ("Harvested " .. ((result and result.item) or "") .. " +" .. tostring(result and result.copper or 0) .. "c") or (result or "Failed"), pid = pid } })
     return ok
 end
 

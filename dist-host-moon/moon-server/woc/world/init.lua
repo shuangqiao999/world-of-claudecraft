@@ -1259,6 +1259,7 @@ local function socialCmd(pid, op, targetPid, name)
         end
         local msg = { op = op, charId = charId }
         if op == "guild_create" then msg.name = name or ""
+        elseif op == "guild_set_motd" then msg.motd = name or ""
         elseif targetCharId then msg.targetId = targetCharId
         elseif op == "guild_accept" or op == "guild_decline" or op == "guild_disband"
             or op == "guild_leave" or op == "friend_list" or op == "block_list"
