@@ -17,9 +17,9 @@ M.AUTH_TIMEOUT_MS = 10000
 ----------------------------------------
 -- 仿真
 ----------------------------------------
--- 30Hz tick, DT = 1/30
-M.TICK_RATE = 30
-M.DT = 1 / 30
+-- 20Hz tick, DT = 1/20 (与客户端 src/sim/types.ts TICK_RATE=20 对齐)
+M.TICK_RATE = 20
+M.DT = 1 / 20
 M.GCD = 1.5
 M.RUN_SPEED = 7
 M.MELEE_RANGE = 5
@@ -32,8 +32,8 @@ M.SWEPT_SPHERE_RADIUS = 0.4
 M.WORLD_SEED = 20061
 -- 预计算高度表偏移 (0 = 使用 heightmap terrain 值, 不再加额外偏移)
 M.TERRAIN_Y_OFFSET = 0
--- Sproto: true=二进制帧, false=JSON帧
-M.SPROTO_ENABLED = true
+-- Sproto: true=二进制帧, false=JSON帧 (JSON 为已知稳定路径)
+M.SPROTO_ENABLED = false
 
 ----------------------------------------
 -- 兴趣裁剪 (Interest Management)
