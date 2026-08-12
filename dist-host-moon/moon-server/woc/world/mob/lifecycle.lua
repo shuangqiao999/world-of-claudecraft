@@ -42,7 +42,7 @@ function M.loadCampsFromProto()
                     z = camp.center.z or 0,
                 } },
                 radius = camp.radius or 10,
-                lastRespawn = 0,
+                lastRespawn = -(camp.respawnTime or 15),
                 level = camp.level or 1,
             }
             count = count + 1

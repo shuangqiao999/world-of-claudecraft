@@ -618,11 +618,26 @@ local function combatTick(dt)
     local auraEvents = aura.updateAll(entities, players, dt, simTime)
     for _, ev in ipairs(auraEvents) do table.insert(combatEvents, ev) end
 
-    -- Mob AI 更新
+    -- Mob AI 更新 (空间裁剪: 仅更新 200yd 内有存活玩家的 mob)
+    local MOB_AI_RANGE_SQ = 200 * 200
     for _, e in pairs(entities) do
         if e.kind == "mob" and not e.dead then
-            local mobEvents = mobAI.updateMob(e, entities, players, dt)
-            for _, ev in ipairs(mobEvents) do table.insert(combatEvents, ev) end
+            local nearPlayer = false
+            for pid, _ in pairs(players) do
+                local pe = entities[pid]
+                if pe and not pe.dead then
+                    local dx = e.pos.x - pe.pos.x
+                    local dz = e.pos.z - pe.pos.z
+                    if dx * dx + dz * dz <= MOB_AI_RANGE_SQ then
+                        nearPlayer = true
+                        break
+                    end
+                end
+            end
+            if nearPlayer then
+                local mobEvents = mobAI.updateMob(e, entities, players, dt)
+                for _, ev in ipairs(mobEvents) do table.insert(combatEvents, ev) end
+            end
         end
     end
 
@@ -1065,10 +1080,11 @@ local function doGameTick()
         pcall(sweepLinkdead)
     end
 
-    -- 周期性状态日志
+    -- 周期性状态日志 (含 tick 耗时)
     if tick % (config.TICK_RATE * 10) == 0 then
         local n = 0; for _ in pairs(players) do n = n + 1 end
-        print(string.format("[World] t=%d time=%.1f players=%d", tick, simTime, n))
+        local m = 0; for _, e in pairs(entities) do if e.kind == "mob" and not e.dead then m = m + 1 end end
+        print(string.format("[World] t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
     end
 end
 
@@ -1081,6 +1097,9 @@ local function gameTick()
         print(string.format("[World] TICK CRASH: %s", tostring(err)))
     end
     local elapsed = os.clock() - start
+    if elapsed > config.DT * 1.5 then
+        print(string.format("[World] SLOW TICK: %.0fms (DT=%.0fms)", elapsed * 1000, config.DT * 1000))
+    end
 
     -- Next tick at exactly DT seconds from start (not from end)
     local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
@@ -1371,14 +1390,6 @@ end)
 if not campsOk then
     print(string.format("[World] WARNING: Failed to load camps from proto: %s", tostring(campsErr)))
 end
-
--- 初始 mob 填充 (世界启动时立即生成全部营地 mob, 避免 15 秒延迟)
-local spawned = mobLifecycle.fillInitialMobs(entities, createMobEntity, grid)
-for _, mob in ipairs(spawned) do
-    entities[mob.id] = mob
-    grid.insert(mob)
-end
-print(string.format("[World] Initial mob population: %d spawned", #spawned))
 
 moon.async(function()
     moon.sleep(1500)
