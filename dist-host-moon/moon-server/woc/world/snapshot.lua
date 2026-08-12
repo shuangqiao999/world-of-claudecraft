@@ -11,6 +11,7 @@ local config = require("config")
 local jh = require("shared.json_helpers")
 local grid = require("world.grid")
 local Entity = require("world.entity")
+local inventory = require("world.inventory")
 
 local M = {}
 
@@ -170,10 +171,12 @@ local function buildSelfJson(e, meta, session)
     local aur = wireAuras(e)
     if #aur > 0 and fieldChanged(session, "auras", aur) then self.auras = aur end
 
-    if fieldChanged(session, "inv", meta.inventory) then self.inv = meta.inventory end
+    local invWire = inventory.toWireArray(meta.inventory)
+    if fieldChanged(session, "inv", invWire) then self.inv = invWire end
     local bbk = require("world.vendor").buybackView(meta)
     if #bbk > 0 and fieldChanged(session, "buyback", bbk) then self.buyback = bbk end
-    if fieldChanged(session, "equip", meta.equipment) then self.equip = meta.equipment end
+    local equipWire = inventory.equipmentToWire(meta.equipment)
+    if fieldChanged(session, "equip", equipWire) then self.equip = equipWire end
     if fieldChanged(session, "einst", meta.equipmentInstance) then self.einst = meta.equipmentInstance end
 
     if fieldChanged(session, "qlog", meta.qlog) then self.qlog = meta.qlog end
