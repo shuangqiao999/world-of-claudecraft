@@ -32,8 +32,8 @@ M.SWEPT_SPHERE_RADIUS = 0.4
 M.WORLD_SEED = 20061
 -- 预计算高度表偏移 (0 = 使用 heightmap terrain 值, 不再加额外偏移)
 M.TERRAIN_Y_OFFSET = 0
--- Sproto: true=二进制帧, false=JSON帧 (客户端未适配前设为false)
-M.SPROTO_ENABLED = false
+-- Sproto: true=二进制帧, false=JSON帧
+M.SPROTO_ENABLED = true
 
 ----------------------------------------
 -- 兴趣裁剪 (Interest Management)

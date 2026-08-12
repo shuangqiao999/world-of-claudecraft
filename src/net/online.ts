@@ -162,6 +162,8 @@ import {
 } from './snapshot_timer_wire';
 
 // The online mirror decodes terse legacy wire JSON. Runtime guards below narrow
+import { decodeFrame } from './sproto_decoder';
+
 // individual fields as they are consumed; this alias keeps the decoder local.
 // biome-ignore lint/suspicious/noExplicitAny: legacy wire JSON is intentionally loose at the boundary.
 type LooseJson = any;
@@ -1969,18 +1971,23 @@ export class ClientWorld implements IWorld {
   }
 
   private openSocket(): void {
-    // when a realm was picked, connect to that realm's origin; otherwise the
-    // page's own host
     const wsUrl = this.base
       ? `${this.base.replace(/^http/, 'ws')}/ws`
       : buildWebSocketUrl(location.protocol, location.host);
     this.ws = new WebSocket(wsUrl);
+    this.ws.binaryType = 'arraybuffer';
     this.ws.onopen = () => {
       this.ws.send(
         JSON.stringify(buildWebSocketAuthMessage(this.token, this.characterId, this.clientSeed)),
       );
     };
-    this.ws.onmessage = (ev) => this.onMessage(String(ev.data));
+    this.ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) {
+        const decoded = decodeFrame(ev.data);
+        if (decoded) return this.onMessage(JSON.stringify(decoded.data));
+      }
+      this.onMessage(String(ev.data));
+    };
     this.ws.onclose = () => this.socketClosed();
   }
 
