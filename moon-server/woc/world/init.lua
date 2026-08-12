@@ -1132,8 +1132,7 @@ local function gameTick()
         print(string.format("[World] TICK CRASH: %s", tostring(err)))
     end
     local elapsed = moonCore.clock() - start
-    -- moon.timeout 定时器有 ~8ms 固定开销, 从 delay 减掉以逼近目标频率
-    local delay = math.max(1, math.floor((config.DT - elapsed) * 1000) - 8)
+    local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
     if tick % 200 == 0 then
         print(string.format("[TickDiag] tick=%d elapsed=%.2fms delay=%dms", tick, elapsed * 1000, delay))
     end
