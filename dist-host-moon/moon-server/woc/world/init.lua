@@ -6,6 +6,7 @@
 local moon = require("moon")
 local json = require("json")
 local config = require("config")
+local moonCore = require("moon.core")
 local Entity = require("world.entity")
 local simrng = require("world.simrng")
 local move = require("world.movement")
@@ -1123,14 +1124,16 @@ end
 local function gameTick()
     if not running then return end
 
+    -- 墙上时钟高精度秒测量 tick 耗时, 补偿调度到固定 DT 间隔 (20Hz = 50ms)
+    -- os.clock() 是 CPU 时间, 会因 GC/I/O/多线程漂移; core.clock() 是真实墙上时钟
+    local start = moonCore.clock()
     local ok, err = pcall(doGameTick)
     if not ok then
         print(string.format("[World] TICK CRASH: %s", tostring(err)))
     end
-
-    -- 固定间隔调度 (等价 TS setInterval), 不再用 os.clock CPU 时间做延迟补偿:
-    -- os.clock 返回 CPU 时间而非墙上时钟, 补偿会导致 tick 间隔抖动 → 客户端插值卡顿
-    moon.timeout(math.floor(config.DT * 1000), gameTick)
+    local elapsed = moonCore.clock() - start
+    local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
+    moon.timeout(delay, gameTick)
 end
 
 ----------------------------------------------
