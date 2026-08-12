@@ -81,10 +81,9 @@ function M.releaseSpirit(e)
     if not e.dead then return end
     e.ghost = true
     e.corpsePos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }
-    -- 传送鬼魂至灵魂医者 (安全区域)
     e.pos.x = 0
     e.pos.z = 0
-    -- 到达灵魂医者后自动复活 (50% HP, 带虚弱)
+    e.pos.y = require("world.terrain").groundHeight(0, 0)
     M.resurrectSpiritHealer(e)
 end
 

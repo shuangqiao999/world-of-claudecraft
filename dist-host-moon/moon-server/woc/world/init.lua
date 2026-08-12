@@ -275,9 +275,10 @@ end
 ----------------------------------------------
 
 local function createPlayerEntity(pid, cls, name, level, stateData)
-    local pos = { x = 0, y = 0, z = 0 }
+    local terrain = require("world.terrain")
+    local pos = { x = 0, y = terrain.groundHeight(0, 0), z = 0 }
     if stateData and stateData.pos then
-        pos = { x = stateData.pos.x or 0, y = stateData.pos.y or 0, z = stateData.pos.z or 0 }
+        pos = { x = stateData.pos.x or 0, y = stateData.pos.y or terrain.groundHeight(stateData.pos.x or 0, stateData.pos.z or 0), z = stateData.pos.z or 0 }
     end
 
     local e = Entity.new(pid, "player", cls, name, level, pos)

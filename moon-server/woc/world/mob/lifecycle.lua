@@ -3,6 +3,7 @@
 -- 对应原项目 src/sim/mob/lifecycle.ts + camps.json 分带刷新
 
 local simrng = require("world.simrng")
+local terrain = require("world.terrain")
 local M = {}
 
 local spawnData = {}
@@ -62,7 +63,7 @@ function M.fillInitialMobs(entities, worldInitFn, gridModule)
             local r = sd.radius or 8
             local ang = simrng.randfloat(0, math.pi * 2)
             local dist = simrng.randfloat(0, r)
-            local newPos = { x = cx + math.cos(ang) * dist, y = 0, z = cz + math.sin(ang) * dist }
+            local newPos = { x = cx + math.cos(ang) * dist, y = terrain.groundHeight(cx + math.cos(ang) * dist, cz + math.sin(ang) * dist), z = cz + math.sin(ang) * dist }
             local mob = worldInitFn(sd.templateId, sd.templateId, M._spawnLevel(sd.templateId, sd.level), newPos)
             if mob then
                 sd.count = sd.count + 1
@@ -93,7 +94,7 @@ function M.checkRespawn(entities, worldInitFn, gridModule, currentTime)
             local dist = simrng.randfloat(0, r)
             local newPos = {
                 x = cx + math.cos(ang) * dist,
-                y = 0,
+                y = terrain.groundHeight(cx + math.cos(ang) * dist, cz + math.sin(ang) * dist),
                 z = cz + math.sin(ang) * dist,
             }
             local mob = worldInitFn(sd.templateId, sd.templateId, M._spawnLevel(sd.templateId, sd.level), newPos)
