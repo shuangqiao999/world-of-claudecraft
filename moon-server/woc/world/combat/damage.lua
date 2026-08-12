@@ -447,11 +447,6 @@ function M.dealDamage(ctx, source, target, rawAmount, crit, school, abilityId, o
         target.lastAttackerId = source.id
     end
 
-    -- 17. 路人 NPC 被攻击反击
-    if source and target and amount > 0 and target.kind == "npc" and target.pedestrian and source.id ~= target.id then
-        require("world.pedestrian").onDamaged(target, source)
-    end
-
     return math.floor(amount + 0.5)
 end
 

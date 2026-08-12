@@ -263,8 +263,8 @@ end
 local function findNearestEnemy(e)
     local best, bestDistSq = nil, math.huge
     for id, other in pairs(entities) do
-        -- 开放世界全自由互攻: 目标可为 mob 或玩家 (排除自己/死亡/鬼魂)
-        if (other.kind == "mob" or other.kind == "player") and id ~= e.id and not other.dead and not other.ghost then
+        -- 开放世界全自由互攻: 目标可为 mob/玩家/路人NPC (排除自己/死亡/鬼魂/采集节点)
+        if (other.kind == "mob" or other.kind == "player" or (other.kind == "npc" and other.pedestrian)) and id ~= e.id and not other.dead and not other.ghost then
             local dx = e.pos.x - other.pos.x
             local dz = e.pos.z - other.pos.z
             local dsq = dx * dx + dz * dz
@@ -772,6 +772,20 @@ local function combatTick(dt)
                         if bossMeta then heroicDungeon.awardHeroicMarks(bossMeta.characterId, 1) end
                     end
                 end
+            elseif e.kind == "npc" and e.pedestrian then
+                -- 路人 NPC 死亡: 掉落铜币 + 物品 (尸体可拾取)
+                mobAI.cleanup(e.id)
+                local pedLoot = {}
+                local coinCount = simrng.randint(2, 5)
+                for i = 1, coinCount do
+                    table.insert(pedLoot, { id = "copper_coin_" .. e.id .. "_" .. i, name = "Copper Coin", kind = "misc", value = 5, sellValue = 5 })
+                end
+                if simrng.random() < 0.6 then
+                    table.insert(pedLoot, { id = "cloth_scrap_" .. e.id, name = "Cloth Scrap", kind = "misc", value = 3, sellValue = 3 })
+                end
+                e.loot = pedLoot
+                e.lootable = true
+                table.insert(combatEvents, { type = "death", pid = e.id })
             elseif e.kind == "player" then
                 -- PvP 击杀: 最后造成伤害的玩家 (dealDamage 记录的 lastAttackerId)
                 local killerPid = e.lastAttackerId or e.targetId
