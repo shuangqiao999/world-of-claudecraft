@@ -388,6 +388,22 @@ function M.stepPlayerMotion(e, mi, facing)
     e.prevPos.z = e.pos.z
 
     verticalPass(e, mi, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked, ground, swimLevel)
+
+    -- standoffPass: 每 tick 强制 Y 校正到 terrain surface (TS player_motion.ts:907)
+    -- 防止角色沉入大地/卡在墙壁里
+    if e.onGround and not swimming and deps and deps.seed then
+        local gh = terrain.groundHeight(e.pos.x, e.pos.z)
+        local diff = e.pos.y - gh
+        if diff < -0.01 or diff > 2.0 then
+            -- 沉入地下或浮空太高 → 立即校正
+            e.pos.y = gh
+        elseif diff > 0.5 then
+            -- 逐渐校正: 每 tick 下降 maxStepDown
+            local maxStepDown = math.max(charPhysics.MAX_STEP_HEIGHT, 0.8)
+            e.pos.y = math.max(gh, e.pos.y - maxStepDown)
+        end
+        e.fallStartY = math.max(e.fallStartY or e.pos.y, e.pos.y)
+    end
 end
 
 --- 兼容入口 (processInputs 调用)

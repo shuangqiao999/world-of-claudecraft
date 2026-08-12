@@ -910,6 +910,22 @@ local function doGameTick()
     -- Phase: 玩家状态更新 (TS per-player loop, 仅在在线时执行)
     if hasPlayers then
     processInputs()  -- TS: movement applied inside per-player loop, after prologue
+
+    -- standoffPass: 每 tick 对所有在线玩家做 Y 校正 (TS player_motion.ts:907 等价)
+    -- 防止角色因无输入/慢漂移而沉入大地
+    local standoffTerrain = require("world.terrain")
+    for pid, e in pairs(entities) do
+        if players[pid] and not e.dead and not e.swimming and e.onGround then
+            local gh = standoffTerrain.groundHeight(e.pos.x, e.pos.z)
+            local diff = e.pos.y - gh
+            if diff < -0.01 or diff > 2.0 then
+                e.pos.y = gh
+            elseif diff > 0.5 then
+                e.pos.y = math.max(gh, e.pos.y - 0.8)
+            end
+        end
+    end
+
     for pid, e in pairs(entities) do
         local meta = players[pid]
         if meta then
