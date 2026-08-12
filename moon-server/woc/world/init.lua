@@ -161,12 +161,13 @@ local function marketOp(pid, msg, cb)
     end)
 end
 
-local function mailOp(pid, msg)
+local function mailOp(pid, msg, cb)
     moon.async(function()
         local svc = moon.queryservice("mail")
         if not svc then noteEvents({ { type = "log", text = "Mail unavailable", pid = pid } }); return end
         local resp = moon.call("lua", svc, msg)
         local ok = resp and resp.ok
+        if cb then cb(ok and resp.data or nil, ok and nil or (resp and resp.error)) end
         noteEvents({ { type = "log", text = ok and "Mail OK" or (resp and resp.error or "Mail failed"), pid = pid } })
     end)
 end
