@@ -389,20 +389,19 @@ function M.stepPlayerMotion(e, mi, facing)
 
     verticalPass(e, mi, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked, ground, swimLevel)
 
-    -- standoffPass: 每 tick 强制 Y 校正到 terrain surface (TS player_motion.ts:907)
-    -- 防止角色沉入大地/卡在墙壁里
+    -- standoffPass: 仅在严重偏离时校正 Y (TS player_motion.ts:907)
+    -- 不做渐进校正 — 避免与 verticalPass/道具站立冲突导致穿模振荡
     if e.onGround and not swimming and deps and deps.seed then
         local gh = terrain.groundHeight(e.pos.x, e.pos.z)
-        local diff = e.pos.y - gh
-        if diff < -0.01 or diff > 2.0 then
-            -- 沉入地下或浮空太高 → 立即校正
-            e.pos.y = gh
-        elseif diff > 0.5 then
-            -- 逐渐校正: 每 tick 下降 maxStepDown
-            local maxStepDown = math.max(charPhysics.MAX_STEP_HEIGHT, 0.8)
-            e.pos.y = math.max(gh, e.pos.y - maxStepDown)
+        local fh = charPhysics.floorHeightAt(deps.seed, e.pos.x, e.pos.z, BODY_RADIUS, e.pos.y + 0.5)
+        if fh > gh + 0.1 then
+            -- 站在道具顶 (crate/rock/canopy): 信任 floorHeightAt, 不校正到裸地形
+        else
+            local diff = e.pos.y - gh
+            if diff < -0.01 or diff > 2.0 then
+                e.pos.y = gh
+            end
         end
-        e.fallStartY = math.max(e.fallStartY or e.pos.y, e.pos.y)
     end
 end
 
