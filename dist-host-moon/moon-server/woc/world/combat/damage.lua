@@ -24,12 +24,15 @@ local BASE_PHYS_CRIT = 2.0
 local BASE_SPELL_CRIT = 1.5
 local BASE_HEAL_CRIT = 1.5
 
--- 武器伤害范围 → 单次伤害
+-- 武器伤害标准化 (TS: normalize to ONE_HAND_AUTO_ATTACK_BASE_SPEED = 2.0)
+local ONE_HAND_BASE_SPEED = 2.0
+
+-- 武器伤害范围 → 标准化单次伤害
 local function rollWeaponDamage(weapon)
-    if weapon and weapon.max and weapon.max > weapon.min then
-        return simrng.randint(weapon.min, weapon.max)
-    end
-    return weapon and weapon.min or 1
+    if not weapon then return 1 end
+    local raw = weapon.max and weapon.max > weapon.min and simrng.randint(weapon.min, weapon.max) or (weapon.min or 1)
+    local speed = weapon.speed or 2.0
+    return raw * (speed / ONE_HAND_BASE_SPEED)
 end
 
 -- 护甲减免 (TS armorReduction)
@@ -507,7 +510,7 @@ end
 function M.calcRanged(attacker, defender, baseDamage)
     local ap = attacker.rangedPower or attacker.attackPower or 0
     local speed = attacker.weapon and attacker.weapon.speed or 3.0
-    local rawDmg = baseDamage + (ap / 14) * speed * 0.5
+    local rawDmg = baseDamage + (ap / 14) * speed
     local result = { damage = rawDmg, crit = false }
 
     local critChance = M._getEffectiveCritChance(attacker, defender, false, 0)

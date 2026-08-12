@@ -6,7 +6,7 @@ local config = require("config")
 
 local M = {}
 
-local CELL_SIZE = 50  -- 每个 cell 50 yards
+local CELL_SIZE = 32  -- 每个 cell 32 yards (TS spatial.ts:14)
 local cells = {}       -- cells[hash] = { entityId1, entityId2, ... }
 local entityCells = {} -- entityId → cell hash
 

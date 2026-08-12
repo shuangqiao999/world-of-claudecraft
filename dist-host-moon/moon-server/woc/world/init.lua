@@ -602,21 +602,19 @@ local function combatTick(dt)
             ::continue_player_cast::
 
             -- 自动攻击 (使用命中表 + 形态速度 + 怒气)
-            local aaResult = autoAttack.update(e, entities, dt, simTime)
-            if aaResult then
+            local function processAutoResult(aaResult)
+                if not aaResult then return end
                 if aaResult.damage > 0 then
-                    -- 怒气生成
                     if e.resourceType == "rage" then
                         local rageGain = rage.rageFromDealing(aaResult.damage, e.level)
                         local rageMult = rage.rageGenAuraMult(e.auras)
                         e.resource = math.min(e.maxResource, e.resource + rageGain * rageMult)
                     end
-                    -- 套装触发
                     setProcs.applySetProcs(e, entities[e.targetId], "on_attack", simTime)
                 end
                 table.insert(combatEvents, {
                     type = "auto_attack", pid = pid, targetId = e.targetId,
-                    dmg = aaResult.damage, crit = aaResult.crit,
+                    dmg = aaResult.damage, crit = aaResult.crit, offhand = aaResult.offhand,
                     blocked = aaResult.blocked, dodged = aaResult.dodged, missed = aaResult.missed,
                 })
                 if e.targetId then threatMod.addThreat(e.targetId, pid, aaResult.damage) end
@@ -625,6 +623,9 @@ local function combatTick(dt)
                     table.insert(combatEvents, { type = "death", pid = target.id })
                 end
             end
+            processAutoResult(autoAttack.update(e, entities, dt, simTime))
+            processAutoResult(autoAttack.updateOffhand(e, entities, dt, simTime))
+            processAutoResult(autoAttack.updateRanged(e, entities, dt, simTime))
         end
     end
 
@@ -866,8 +867,6 @@ local function doGameTick()
         print(string.format("[World] Tick #%d — simTime=%.1f", tick, simTime))
     end
 
-    processInputs()
-
     -- Phase: 门触发器 (TS updateDoorTriggers: 移动后检测副本入口)
     pcall(function()
         for pid, e in pairs(entities) do
@@ -910,6 +909,7 @@ local function doGameTick()
 
     -- Phase: 玩家状态更新 (TS per-player loop, 仅在在线时执行)
     if hasPlayers then
+    processInputs()  -- TS: movement applied inside per-player loop, after prologue
     for pid, e in pairs(entities) do
         local meta = players[pid]
         if meta then

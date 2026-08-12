@@ -176,15 +176,12 @@ end
 -- TS STEEPNESS_SAMPLE = 0.35 yards
 local STEEPNESS_SAMPLE = 0.35
 
---- 地形陡峭度 (TS terrainSteepness: 最大局部 rise/run)
+--- 地形陡峭度 (TS terrainSteepness: 中心差分梯度)
 function M.terrainSteepness(x, z)
-    local h = M.groundHeight(x, z)
-    local hN = M.groundHeight(x, z - STEEPNESS_SAMPLE)
-    local hS = M.groundHeight(x, z + STEEPNESS_SAMPLE)
-    local hE = M.groundHeight(x + STEEPNESS_SAMPLE, z)
-    local hW = M.groundHeight(x - STEEPNESS_SAMPLE, z)
-    local maxRise = math.max(hN, hS, hE, hW) - h
-    return math.max(0, maxRise) / STEEPNESS_SAMPLE
+    local e = STEEPNESS_SAMPLE
+    local hx = (M.groundHeight(x + e, z) - M.groundHeight(x - e, z)) / (2 * e)
+    local hz = (M.groundHeight(x, z + e) - M.groundHeight(x, z - e)) / (2 * e)
+    return m3d.dist(hx, hz)
 end
 
 -- 陡峭度缓存 (TS terrainSteepnessAt: 1 码格 memo)
@@ -192,8 +189,8 @@ local steepMemo = {}
 local STEEP_CAP = 400000
 
 function M.terrainSteepnessAt(x, z)
-    local ix = math.floor(x)
-    local iz = math.floor(z)
+    local ix = math.floor(x + 0.5)
+    local iz = math.floor(z + 0.5)
     local key = ix * 100000 + iz
     local v = steepMemo[key]
     if v ~= nil then return v end
@@ -205,11 +202,11 @@ function M.terrainSteepnessAt(x, z)
     return s
 end
 
---- 下坡单位方向 (TS terrainDownhill)
+--- 下坡单位方向 (TS terrainDownhill: 中心差分)
 function M.terrainDownhill(x, z)
-    local h = M.groundHeight(x, z)
-    local hx = M.groundHeight(x + STEEPNESS_SAMPLE, z) - h
-    local hz = M.groundHeight(x, z + STEEPNESS_SAMPLE) - h
+    local e = STEEPNESS_SAMPLE
+    local hx = (M.groundHeight(x + e, z) - M.groundHeight(x - e, z)) / (2 * e)
+    local hz = (M.groundHeight(x, z + e) - M.groundHeight(x, z - e)) / (2 * e)
     local len = m3d.dist(hx, hz)
     if len < 1e-6 then return nil end
     return { x = -hx / len, z = -hz / len }
