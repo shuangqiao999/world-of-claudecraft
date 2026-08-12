@@ -9,6 +9,34 @@ local m3d = require("world.math3d")
 -- 世界种子 (固定, 确定性) — 与客户端 src/sim/world_seed.ts WORLD_SEED=20061 一致
 local WORLD_SEED = require("config").WORLD_SEED
 
+-- 预计算高度表 (Lua→客户端 terrain 对齐): proto/heightmap.json, 5yd 间距, ±50yd 范围
+local HMAP_X = {}
+local HMAP_Z = {}
+local HMAP_POINTS = {}
+local HMAP_GRID = 5
+local HMAP_LOADED = false
+do
+    local ok, err = pcall(function()
+        local f = io.open("proto/heightmap.json", "r")
+        if not f then f = io.open("woc/proto/heightmap.json", "r") end
+        if f then
+            local raw = f:read("*a"); f:close()
+            local jh = require("shared.json_helpers")
+            local data = jh.safeDecode(raw)
+            if data and data.points and data.zTicks then
+                HMAP_Z = data.zTicks
+                HMAP_POINTS = data.points
+                HMAP_LOADED = true
+                print(string.format("[Terrain] Heightmap loaded: %s rows x %d cols, grid=%d", 
+                    tostring(HMAP_Z[1] == -50 and "21" or "?"), #HMAP_Z, HMAP_GRID))
+            end
+        end
+    end)
+    if not ok or not HMAP_LOADED then
+        print("[Terrain] Heightmap NOT loaded, using FBM fallback")
+    end
+end
+
 -- 水体
 local WATER_LEVEL = -4.3
 
@@ -82,9 +110,25 @@ function M.terrainHeight(x, z)
     return height
 end
 
---- 获取地面高度 (含隧道修正)
+--- 高度表查询 (最近邻, 5yd 间隔)
+local function heightmapLookup(x, z)
+    if not HMAP_LOADED then return nil end
+    -- zTicks: [-50,-45,...,0,5,...,50], 1-based Lua array
+    local half = (#HMAP_Z - 1) / 2  -- 10 for 21 entries
+    local iz = math.floor(z / HMAP_GRID + 0.5) + half + 1  -- convert to 1-based index
+    if iz < 1 or iz > #HMAP_Z then return nil end
+    local hx = tostring(math.floor(x / HMAP_GRID + 0.5) * HMAP_GRID)
+    local row = HMAP_POINTS[hx]
+    if not row then return nil end
+    return row[iz]
+end
+
+--- 获取地面高度 (优先高度表, 回退 FBM)
 function M.groundHeight(x, z)
-    local terrainY = M.terrainHeight(x, z)
+    local h = heightmapLookup(x, z)
+    if not h then
+        h = M.terrainHeight(x, z)
+    end
 
     -- 检查是否在隧道内 (隧道内返回水底)
     for _, tunnel in ipairs(TUNNELS) do
