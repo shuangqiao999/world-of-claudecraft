@@ -113,14 +113,15 @@ end
 --- 高度表查询 (最近邻, 5yd 间隔)
 local function heightmapLookup(x, z)
     if not HMAP_LOADED then return nil end
-    -- zTicks: [-50,-45,...,0,5,...,50], 1-based Lua array
-    local half = (#HMAP_Z - 1) / 2  -- 10 for 21 entries
-    local iz = math.floor(z / HMAP_GRID + 0.5) + half + 1  -- convert to 1-based index
+    local half = (#HMAP_Z - 1) / 2
+    local iz = math.floor(z / HMAP_GRID + 0.5) + half + 1
     if iz < 1 or iz > #HMAP_Z then return nil end
     local hx = tostring(math.floor(x / HMAP_GRID + 0.5) * HMAP_GRID)
     local row = HMAP_POINTS[hx]
     if not row then return nil end
-    return row[iz]
+    local h = row[iz]
+    if h == nil then return nil end
+    return h
 end
 
 --- 获取地面高度 (优先高度表, 回退 FBM)

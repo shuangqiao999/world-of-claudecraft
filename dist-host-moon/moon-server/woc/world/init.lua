@@ -1384,10 +1384,11 @@ do
     local samples = { {0,0}, {5,0}, {0,5}, {-5,0}, {0,-5}, {10,10} }
     local parts = {}
     for _, s in ipairs(samples) do
-        table.insert(parts, string.format("(%d,%d)=%.2f", s[1], s[2], t.groundHeight(s[1], s[2])))
+        local h = t.groundHeight(s[1], s[2])
+        table.insert(parts, string.format("(%d,%d)=%s", s[1], s[2], h and string.format("%.2f", h) or "nil"))
     end
     local ws = require("world.ride_height").waterLevelAt(0, 0, 0)
-    print(string.format("[Terrain] Seed=%d WaterLevel=%.1f Heights: %s", t.getWorldSeed(), ws, table.concat(parts, " ")))
+    print(string.format("[Terrain] Seed=%d WaterLevel=%.1f Heights: %s", t.getWorldSeed(), ws and ws or 0, table.concat(parts, " ")))
 end
 
 -- 生成采集节点实体 (从 proto/gather_nodes.json)
