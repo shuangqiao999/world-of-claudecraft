@@ -45,6 +45,13 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
     end
     spawned = true
     print(string.format("[Npc] Spawned %d NPCs", count))
+    -- 诊断: 打印第一个 NPC 位置确认 Y 正确
+    local first = next(npcs)
+    if first then
+        local d = npcs[first]
+        local y = terrain.groundHeight(d.pos.x or 0, d.pos.z or 0)
+        print(string.format("[Npc] First NPC '%s' at (%.1f,%.1f) Y=%.2f", d.name or first, d.pos.x or 0, d.pos.z or 0, y))
+    end
 end
 
 --- 重置 (测试)

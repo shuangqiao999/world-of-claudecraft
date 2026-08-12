@@ -1377,6 +1377,18 @@ if not npcOk then
     print(string.format("[World] WARNING: Failed to spawn NPCs: %s", tostring(npcErr)))
 end
 
+-- 地形诊断: 打印出生点及周边 groundHeight (确认实体 Y 正确)
+do
+    local t = require("world.terrain")
+    local samples = { {0,0}, {5,0}, {0,5}, {-5,0}, {0,-5}, {10,10} }
+    local parts = {}
+    for _, s in ipairs(samples) do
+        table.insert(parts, string.format("(%d,%d)=%.2f", s[1], s[2], t.groundHeight(s[1], s[2])))
+    end
+    local ws = require("world.ride_height").waterLevelAt(0, 0, 0)
+    print(string.format("[Terrain] Seed=%d WaterLevel=%.1f Heights: %s", t.getWorldSeed(), ws, table.concat(parts, " ")))
+end
+
 -- 生成采集节点实体 (从 proto/gather_nodes.json)
 pcall(function()
     require("world.gather_node_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
