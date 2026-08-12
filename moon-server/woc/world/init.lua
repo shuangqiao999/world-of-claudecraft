@@ -231,7 +231,13 @@ local function guildBankOp(pid, msg)
             local entries = guildBank.getLog(guild.id)
             local gs = gateSvc()
             if gs then
-                moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = require("shared.sproto_helpers").packFrame("GbankLogFrame", { ok = true, entries = entries }) })
+                local spack = require("shared.sproto_helpers")
+                local frame = spack.packFrame("GbankLogFrame", { ok = true, entries = entries })
+                if not frame then
+                    local json = require("json")
+                    frame = json.encode({ t = "gbanklog", ok = true, entries = entries })
+                end
+                moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = frame })
             end
             return
         end

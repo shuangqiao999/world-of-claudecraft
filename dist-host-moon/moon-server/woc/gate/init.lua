@@ -5,6 +5,7 @@ local moon = require("moon")
 local socket = require("moon.socket")
 local spack = require("shared.sproto_helpers")
 spack.init()
+local jh = require("shared.json_helpers")
 local json = require("json")
 local crypt = require("crypt")
 local config = require("config")
@@ -232,21 +233,21 @@ end
 local function handleAuth(fd, msg)
     local token, characterId = msg.token, tonumber(msg.character)
     local timerWire = msg.timerWire
-    if timerWire ~= config.STABLE_TIMER_WIRE_VERSION and timerWire ~= 1 then wsWrite(fd, spack.packFrame("ErrorFrame", { error = "incompatible world version" })); socket.close(fd); return end
-    if not characterId or characterId ~= characterId then wsWrite(fd, spack.packFrame("ErrorFrame", { error = "bad auth message" })); socket.close(fd); return end
+    if timerWire ~= config.STABLE_TIMER_WIRE_VERSION and timerWire ~= 1 then wsWrite(fd, jh.buildErrorFrame("incompatible world version")); socket.close(fd); return end
+    if not characterId or characterId ~= characterId then wsWrite(fd, jh.buildErrorFrame("bad auth message")); socket.close(fd); return end
     print(string.format("[Gate] Auth fd=%d char=%d", fd, characterId))
     moon.async(function()
-        if not dbUp() then wsWrite(fd, spack.packFrame("ErrorFrame", { error = "not authenticated" })); socket.close(fd); return end
+        if not dbUp() then wsWrite(fd, jh.buildErrorFrame("not authenticated")); socket.close(fd); return end
         local auth = dbCall("accountAndScopeForToken", token)
-        if not auth then wsWrite(fd, spack.packFrame("ErrorFrame", { error = "not authenticated" })); socket.close(fd); return end
+        if not auth then wsWrite(fd, jh.buildErrorFrame("not authenticated")); socket.close(fd); return end
         local accountId = auth.account_id
         local status = dbCall("getModerationStatus", accountId)
         if status and (status.banned or status.suspendedUntil or status.deactivated) then
-            wsWrite(fd, spack.packFrame("ErrorFrame", { error = "not authenticated" })); socket.close(fd); return
+            wsWrite(fd, jh.buildErrorFrame("not authenticated")); socket.close(fd); return
         end
         local cr = dbCall("getCharacter", accountId, characterId)
-        if not cr then wsWrite(fd, spack.packFrame("ErrorFrame", { error = "no such character" })); socket.close(fd); return end
-        if cr.force_rename then wsWrite(fd, spack.packFrame("ErrorFrame", { error = "This character must be renamed before entering the world." })); socket.close(fd); return end
+        if not cr then wsWrite(fd, jh.buildErrorFrame("no such character")); socket.close(fd); return end
+        if cr.force_rename then wsWrite(fd, jh.buildErrorFrame("This character must be renamed before entering the world.")); socket.close(fd); return end
 
         -- 断线重连: 若该角色已有 linkdead session 且未超宽限期, 复用其 pid/实体
         -- (对应原 linkdead.ts planJoin resume 分支)
@@ -312,7 +313,7 @@ local function wsMessage(fd, text, isBinary)
         -- 速率限制检查
         if not rateLimit.allowMessage(sess.pid) then
             if rateLimit.isKicked(sess.pid) then
-                wsWrite(fd, spack.packFrame("ErrorFrame", { error = "Too many messages. Disconnected." }))
+                wsWrite(fd, jh.buildErrorFrame("Too many messages. Disconnected."))
                 socket.close(fd)
                 sessions[fd] = nil
             end

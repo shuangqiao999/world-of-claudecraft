@@ -1,10 +1,8 @@
--- World of ClaudeCraft — JSON 编码辅助函数
--- 对应原项目 server/game.ts 中的 round2, wireEntity 等辅助函数
+-- World of ClaudeCraft — Wire Frame Builders (Sproto → JSON fallback)
+-- All builders produce Sproto binary by default; fall back to JSON if Sproto not available.
 
 local json = require("json")
-local fmt = require("fmt")
 local spack = require("shared.sproto_helpers")
-
 local M = {}
 
 --- 浮点数保留两位小数
@@ -28,84 +26,80 @@ function M.safeDecode(s)
     return nil
 end
 
---- 构建 hello 帧 (Sproto binary)
+--- 判断是否使用 Sproto (packFrame 非 nil 即代表已初始化)
+local function useSproto()
+    return spack.packFrame ~= nil and spack.packFrame("ErrorFrame", { error = "probe" }) ~= nil
+end
+
+-- ===== Hello Frame =====
 function M.buildHelloFrame(pid, seed, name, cls, realm, softWords, chatMutedUntil)
-    -- softWords/chatMutedUntil unused in current code paths, retained for compatibility
-    return spack.packFrame("HelloFrame", {
-        pid = pid, seed = seed, name = name, cls = cls, realm = realm,
-        level = 1, skin = 0,
-    })
+    if useSproto() then
+        return spack.packFrame("HelloFrame", { pid = pid, seed = seed, name = name, cls = cls, realm = realm, level = 1, skin = 0 })
+    end
+    return json.encode({ t = "hello", pid = pid, seed = seed, name = name, cls = cls, realm = realm, softWords = softWords or {}, chatMutedUntil = chatMutedUntil })
 end
 
---- 构建错误帧 (Sproto binary)
+-- ===== Error Frame =====
 function M.buildErrorFrame(errorLiteral)
-    return spack.packFrame("ErrorFrame", { error = errorLiteral })
+    if useSproto() then
+        return spack.packFrame("ErrorFrame", { error = errorLiteral })
+    end
+    return '{"t":"error","error":' .. M.safeEncode(errorLiteral) .. '}'
 end
 
---- 构建 commandOutcome 帧 (Sproto binary)
+-- ===== Command Outcome Frame =====
 function M.buildCommandOutcomeFrame(rid, ok)
-    return spack.packFrame("CommandOutcomeFrame", { rid = rid, ok = ok })
+    if useSproto() then
+        return spack.packFrame("CommandOutcomeFrame", { rid = rid, ok = ok })
+    end
+    return json.encode({ t = "commandOutcome", rid = rid, ok = ok })
 end
 
---- 构建 events 帧 (Sproto binary)
+-- ===== Events Frame =====
 function M.buildEventsFrame(events)
-    return spack.packFrame("EventsFrame", { list = events })
+    if useSproto() then
+        return spack.packFrame("EventsFrame", { list = events })
+    end
+    return json.encode({ t = "events", list = events })
 end
 
---- 构建 snap 帧 (Sproto binary — self/ents 作为 JSON 字符串嵌入)
+-- ===== Snap Frame =====
 function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVersion)
     if type(selfJson) ~= "string" then selfJson = M.safeEncode(selfJson) end
     if type(entsArr) ~= "table" then entsArr = {} end
     if type(keepArr) ~= "table" then keepArr = {} end
-    return spack.packFrame("SnapFrame", {
-        tick = tick,
-        time = simTime,
-        tw = timerWireVersion or 0,
-        self = selfJson,
-        ents = entsArr,
-        keep = keepArr,
-    })
+    if useSproto() then
+        return spack.packFrame("SnapFrame", { tick = tick, time = simTime, tw = timerWireVersion or 0, self = selfJson, ents = entsArr, keep = keepArr })
+    end
+    local parts = {}
+    parts[#parts + 1] = string.format('{"t":"snap","tick":%d,"time":%.2f', tick, M.round2(simTime))
+    if timerWireVersion then parts[#parts + 1] = string.format(',"tw":%d', timerWireVersion) end
+    parts[#parts + 1] = string.format(',"self":%s', selfJson)
+    parts[#parts + 1] = string.format(',"ents":[%s]', table.concat(entsArr, ","))
+    if keepArr and #keepArr > 0 then parts[#parts + 1] = string.format(',"keep":[%s]', table.concat(keepArr, ",")) end
+    parts[#parts + 1] = "}"
+    return table.concat(parts)
 end
 
---- 构建 social 帧 (Sproto binary)
+-- ===== Social Frame =====
 function M.buildSocialFrame(data)
-    local friends = {}
-    if data and data.friends then
-        for _, f in ipairs(data.friends) do
-            table.insert(friends, {
-                id = f.id or 0, name = f.name or "", class = f.class or "", online = f.online or false,
-            })
+    if useSproto() then
+        local friends = {}
+        if data and data.friends then for _, f in ipairs(data.friends) do table.insert(friends, { id = f.id or 0, name = f.name or "", class = f.class or "", online = f.online or false }) end end
+        local guildTbl = nil
+        if data and data.guild then
+            local g = data.guild; local members = {}
+            if g.members then for _, m in ipairs(g.members) do table.insert(members, { id = m.id or 0, name = m.name or "", class = m.class or "", level = m.level or 1, online = m.online or false }) end end
+            guildTbl = { id = g.id or 0, name = g.name or "", rank = g.rank or 0, members = members }
         end
+        return spack.packFrame("SocialFrame", { friends = friends, blocks = data and data.blocks or {}, ignores = data and data.ignores or {}, guild = guildTbl, pendingInvites = data and data.pendingInvites or {} })
     end
-    local guildTbl = nil
-    if data and data.guild then
-        local g = data.guild
-        local members = {}
-        if g.members then
-            for _, m in ipairs(g.members) do
-                table.insert(members, {
-                    id = m.id or 0, name = m.name or "", class = m.class or "",
-                    level = m.level or 1, online = m.online or false,
-                })
-            end
-        end
-        guildTbl = { id = g.id or 0, name = g.name or "", rank = g.rank or 0, members = members }
-    end
-    return spack.packFrame("SocialFrame", {
-        friends = friends,
-        blocks = data and data.blocks or {},
-        ignores = data and data.ignores or {},
-        guild = guildTbl,
-        pendingInvites = data and data.pendingInvites or {},
-    })
+    return json.encode({ t = "social", friends = data and data.friends or {}, blocks = data and data.blocks or {}, ignores = data and data.ignores or {}, guild = data and data.guild or nil })
 end
 
---- 构建 censor 帧 JSON
+-- ===== Censor Frame (仅 JSON) =====
 function M.buildCensorFrame(softWords)
-    return json.encode({
-        t = "censor",
-        softWords = softWords,
-    })
+    return json.encode({ t = "censor", softWords = softWords })
 end
 
 return M
