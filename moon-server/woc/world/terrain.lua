@@ -12,9 +12,9 @@ local WORLD_SEED = require("config").WORLD_SEED
 -- 水体
 local WATER_LEVEL = -4.3
 
--- 地形参数 (放大振幅以接近客户端 TS 多层管线特征)
-local TERRAIN_AMPLITUDE = 16
-local TERRAIN_SCALE = 0.006
+-- 地形参数
+local TERRAIN_AMPLITUDE = 8
+local TERRAIN_SCALE = 0.008
 local TERRAIN_OCTAVES = 4
 
 -- 隧道定义 (手写胶囊体, 从地形中减去)
