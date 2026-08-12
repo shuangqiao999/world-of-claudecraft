@@ -828,17 +828,17 @@ end
 local function autosave()
     local dbs = dbSvc()
     if not dbs then return end
-    local count = 0
+    local batch = {}
     for pid, meta in pairs(players) do
         local st = serializeCharacter(pid)
         if st and meta.leaseNonce then
-            moon.send("lua", dbs, { op = "saveCharacterState", args = { meta.characterId, meta.level, st, meta.leaseNonce } })
-            -- 同时更新租约心跳
-            moon.send("lua", dbs, { op = "heartbeatLeases", args = {} })
-            count = count + 1
+            table.insert(batch, { charId = meta.characterId, level = meta.level, state = st, nonce = meta.leaseNonce })
         end
     end
-    if count > 0 then print(string.format("[World] Autosave: %d players", count)) end
+    if #batch == 0 then return end
+    moon.send("lua", dbs, { op = "batchSaveCharacters", args = { batch } })
+    moon.send("lua", dbs, { op = "heartbeatLeases", args = {} })
+    print(string.format("[World] Autosave: %d players", #batch))
 end
 
 -- 断线宽限期清理 (5 分钟)
