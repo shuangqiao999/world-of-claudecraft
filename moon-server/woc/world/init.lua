@@ -1123,19 +1123,14 @@ end
 local function gameTick()
     if not running then return end
 
-    local start = os.clock()
     local ok, err = pcall(doGameTick)
     if not ok then
         print(string.format("[World] TICK CRASH: %s", tostring(err)))
     end
-    local elapsed = os.clock() - start
-    if elapsed > config.DT * 1.5 then
-        print(string.format("[World] SLOW TICK: %.0fms (DT=%.0fms)", elapsed * 1000, config.DT * 1000))
-    end
 
-    -- Next tick at exactly DT seconds from start (not from end)
-    local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
-    moon.timeout(delay, gameTick)
+    -- 固定间隔调度 (等价 TS setInterval), 不再用 os.clock CPU 时间做延迟补偿:
+    -- os.clock 返回 CPU 时间而非墙上时钟, 补偿会导致 tick 间隔抖动 → 客户端插值卡顿
+    moon.timeout(math.floor(config.DT * 1000), gameTick)
 end
 
 ----------------------------------------------
