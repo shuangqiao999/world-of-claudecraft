@@ -151,6 +151,15 @@ local function noteEvents(evs)
     end
 end
 
+-- 模块级 safeCall: 供 combatTick 等独立函数复用 (doGameTick 内的局部版本已移除)
+local function safeCall(modName, fn)
+    local ok, result = pcall(fn)
+    if not ok then
+        print(string.format("[World] TICK ERROR in %s: %s", modName, tostring(result)))
+    end
+    return ok and result or {}
+end
+
 local function marketOp(pid, msg, cb)
     moon.async(function()
         local svc = moon.queryservice("market")
@@ -507,6 +516,10 @@ end
 
 local function combatTick(dt)
     local combatEvents = {}
+
+    -- combatTick 是独立函数, 不能访问 doGameTick 的局部 hasPlayers; 本地计算
+    local hasPlayers = false
+    for _ in pairs(players) do hasPlayers = true; break end
 
     -- 玩家施法 + 自动攻击
     for pid, e in pairs(entities) do
@@ -913,14 +926,6 @@ local function doGameTick()
     end)
 
     local combatEvents = {}
-
-    local function safeCall(modName, fn)
-        local ok, result = pcall(fn)
-        if not ok then
-            print(string.format("[World] TICK ERROR in %s: %s", modName, tostring(result)))
-        end
-        return ok and result or {}
-    end
 
     -- Phase: 序章 (TS tick 顺序: respawns → worldBosses → groundAoEs → frozenOrbs → despawnDecay → projectiles)
     local worldBossEvents = safeCall("worldBoss.tick", function() return worldBoss.tick(entities, players, createMobEntity, grid, simTime) end)
