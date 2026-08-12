@@ -53,7 +53,7 @@ function M.threatModifier(source, school)
     return mod
 end
 
---- 选择战斗目标 (idle 索敌): 威胁最高的活跃玩家
+--- 选择战斗目标 (idle 索敌): 反击式 — 只有玩家主动攻击过该 mob (威胁 > 0) 才成为目标
 function M.selectCombatTarget(mob, entities, threatMod)
     local best, bestT = nil, -1
     for _, e in pairs(entities) do
@@ -67,8 +67,9 @@ function M.selectCombatTarget(mob, entities, threatMod)
             local aggroSq = M.getAggroRangeSq(mob, e)
             if distSq > aggroSq then goto continue_target end
 
-            -- 威胁值 (有威胁则优先选威胁高的)
+            -- 威胁值: 反击式门禁 — 无威胁(玩家未攻击过)则不主动索敌
             local t = threatMod.getThreatValue(mob.id, e.id)
+            if t <= 0 then goto continue_target end
             if t > bestT then
                 bestT = t
                 best = e

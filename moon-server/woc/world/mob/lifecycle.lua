@@ -171,23 +171,9 @@ function M.getLoot(mob)
     return loot
 end
 
---- 社交仇恨: mob 被杀时通知周围 mob
+--- 社交仇恨: 反击式世界下禁用 — 被动怪不再因附近同类被杀而主动围攻玩家
 function M.socialAggro(deadMobId, killerId, entities, aiModule)
-    local deadMob = entities[deadMobId]
-    if not deadMob then return end
-
-    local aggroRange = 25
-    local aggroRangeSq = aggroRange * aggroRange
-
-    for id, other in pairs(entities) do
-        if other.kind == "mob" and id ~= deadMobId and not other.dead then
-            local dx = deadMob.pos.x - other.pos.x
-            local dz = deadMob.pos.z - other.pos.z
-            if dx * dx + dz * dz <= aggroRangeSq then
-                aiModule.setSocialAggro(id, killerId)
-            end
-        end
-    end
+    return
 end
 
 return M

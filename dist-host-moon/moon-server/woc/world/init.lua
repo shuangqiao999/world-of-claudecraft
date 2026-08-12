@@ -261,7 +261,8 @@ end
 local function findNearestEnemy(e)
     local best, bestDistSq = nil, math.huge
     for id, other in pairs(entities) do
-        if other.kind == "mob" and not other.dead then
+        -- 开放世界全自由互攻: 目标可为 mob 或玩家 (排除自己/死亡/鬼魂)
+        if (other.kind == "mob" or other.kind == "player") and id ~= e.id and not other.dead and not other.ghost then
             local dx = e.pos.x - other.pos.x
             local dz = e.pos.z - other.pos.z
             local dsq = dx * dx + dz * dz
