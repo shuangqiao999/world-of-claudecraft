@@ -6,17 +6,7 @@ local socket = require("moon.socket")
 local jh = require("shared.json_helpers")
 local json = require("json")
 local crypt = require("crypt")
--- sproto_helpers lazy-loaded to avoid Lua 5.4/5.5 version mismatch
-local _spack = nil
-local function getSpack()
-    if _spack ~= nil then return _spack end
-    local ok, mod = pcall(require, "shared.sproto_helpers")
-    if ok then _spack = mod; pcall(mod.init, mod)
-    else _spack = false; end
-    return _spack
-end
 local config = require("config")
-local jh = require("shared.json_helpers")
 
 -- 速率限制 (Phase 3)
 local rateLimit = require("world.msg_rate_limit")
@@ -200,14 +190,12 @@ local function wsHandshake(fd, req)
     return true
 end
 
-local function wsWrite(fd, data)
-    local len = #data
-    local isBinary = len > 0 and string.byte(data, 1) < 0x20  -- Sproto binary starts with 0x01-0x07 type tag
-    local opbyte = isBinary and 0x82 or 0x81
+local function wsWrite(fd, text)
+    local len = #text
     local frame
-    if len < 126 then frame = string.char(opbyte, len) .. data
-    elseif len < 65536 then frame = string.char(opbyte, 126, math.floor(len/256), len%256) .. data
-    else frame = string.char(opbyte, 127) .. string.pack("<I8", len) .. data end
+    if len < 126 then frame = string.char(0x81, len) .. text
+    elseif len < 65536 then frame = string.char(0x81, 126, math.floor(len/256), len%256) .. text
+    else frame = string.char(0x81, 127) .. string.pack("<I8", len) .. text end
     socket.write(fd, frame)
 end
 
@@ -297,22 +285,9 @@ local function handleAuth(fd, msg)
     end)
 end
 
-local function wsMessage(fd, text, isBinary)
-    local msg = {}
-    if isBinary then
-        local s = getSpack()
-        if s then
-            local typename, tbl = s.unpackFrame(text)
-            if typename == "SnapFrame" or typename == "EventsFrame" or typename == "SocialFrame" then
-                return
-            end
-            msg = tbl or {}
-        end
-    else
-        local ok, decoded = pcall(json.decode, text)
-        if not ok then return end
-        msg = decoded
-    end
+local function wsMessage(fd, text)
+    local ok, msg = pcall(json.decode, text)
+    if not ok then return end
     local t = msg.t
     if t == config.ONLINE_WORLD_AUTH_TYPE then
         handleAuth(fd, msg)
@@ -368,8 +343,7 @@ local function handleConnection(fd)
                         end
                         socket.close(fd); return
                     elseif opcode == 0x9 then socket.write(fd, string.char(0x8A, 0) .. (payload or ""))
-                    elseif opcode == 0x1 then wsMessage(fd, payload, false) -- text/JSON
-                    elseif opcode == 0x2 then wsMessage(fd, payload, true)  -- binary/Sproto
+                    elseif opcode == 0x1 then wsMessage(fd, payload)
                     end
                 end
             end

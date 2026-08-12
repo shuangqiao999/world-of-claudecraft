@@ -232,12 +232,6 @@ local function guildBankOp(pid, msg)
             if gs then
                 local json = require("json")
                 local frame = json.encode({ t = "gbanklog", ok = true, entries = entries })
-                -- try sproto if available
-                local ok3, sp = pcall(require, "shared.sproto_helpers")
-                if ok3 and sp.packFrame then
-                    local f2 = sp.packFrame("GbankLogFrame", { ok = true, entries = entries })
-                    if f2 then frame = f2 end
-                end
                 moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = frame })
             end
             return
