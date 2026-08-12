@@ -26,9 +26,16 @@ function M.safeDecode(s)
     return nil
 end
 
---- 判断是否使用 Sproto (packFrame 非 nil 即代表已初始化)
+--- 判断是否使用 Sproto (配置开关 + 初始化状态)
+local _sprotoOk = nil
 local function useSproto()
-    return spack.packFrame ~= nil and spack.packFrame("ErrorFrame", { error = "probe" }) ~= nil
+    if _sprotoOk ~= nil then return _sprotoOk end
+    if not require("config").SPROTO_ENABLED then
+        _sprotoOk = false; return false
+    end
+    local ok = spack.packFrame and spack.packFrame("ErrorFrame", { error = "probe" })
+    _sprotoOk = (ok ~= nil)
+    return _sprotoOk
 end
 
 -- ===== Hello Frame =====
