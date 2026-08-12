@@ -83,7 +83,7 @@ function M.releaseSpirit(e)
     e.corpsePos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }
     e.pos.x = 0
     e.pos.z = 0
-    e.pos.y = require("world.terrain").groundHeight(0, 0)
+    e.pos.y = require("world.terrain").placementHeight(0, 0)
     M.resurrectSpiritHealer(e)
 end
 

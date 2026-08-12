@@ -55,7 +55,7 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
             local safeX, safeZ = findSafePos(def.pos.x or 0, def.pos.z or 0)
             local eid = allocIdFn()
             local e = entityNewFn(eid, "npc", id, def.name or id, 1, {
-                x = safeX, y = terrain.groundHeight(safeX, safeZ), z = safeZ,
+                x = safeX, y = terrain.placementHeight(safeX, safeZ), z = safeZ,
             })
             e.facing = def.facing or 0
             e.color = def.color or 0xffffff
@@ -80,7 +80,7 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
     local first = next(npcs)
     if first then
         local d = npcs[first]
-        local y = terrain.groundHeight(d.pos.x or 0, d.pos.z or 0)
+        local y = terrain.placementHeight(d.pos.x or 0, d.pos.z or 0)
         print(string.format("[Npc] First NPC '%s' at (%.1f,%.1f) Y=%.2f", d.name or first, d.pos.x or 0, d.pos.z or 0, y))
     end
 end

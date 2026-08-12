@@ -103,6 +103,11 @@ function M.groundHeight(x, z)
     return terrainY
 end
 
+--- 实体放置高度 (groundHeight + 客户端 visual terrain 偏移)
+function M.placementHeight(x, z)
+    return M.groundHeight(x, z) + require("config").TERRAIN_Y_OFFSET
+end
+
 --- 检查点是否在水中
 function M.isUnderwater(pos)
     local groundY = M.groundHeight(pos.x, pos.z)

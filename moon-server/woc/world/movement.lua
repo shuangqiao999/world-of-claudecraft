@@ -392,7 +392,7 @@ function M.stepPlayerMotion(e, mi, facing)
     -- standoffPass: 仅在严重偏离时校正 Y (TS player_motion.ts:907)
     -- 不做渐进校正 — 避免与 verticalPass/道具站立冲突导致穿模振荡
     if e.onGround and not swimming and deps and deps.seed then
-        local gh = terrain.groundHeight(e.pos.x, e.pos.z)
+        local gh = terrain.placementHeight(e.pos.x, e.pos.z)
         local fh = charPhysics.floorHeightAt(deps.seed, e.pos.x, e.pos.z, BODY_RADIUS, e.pos.y + 0.5)
         if fh > gh + 0.1 then
             -- 站在道具顶 (crate/rock/canopy): 信任 floorHeightAt, 不校正到裸地形

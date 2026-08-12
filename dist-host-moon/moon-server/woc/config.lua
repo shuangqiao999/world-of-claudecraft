@@ -30,6 +30,9 @@ M.SWEPT_SPHERE_RADIUS = 0.4
 -- 世界种子 (与客户端 src/sim/world_seed.ts WORLD_SEED 一致)
 ----------------------------------------
 M.WORLD_SEED = 20061
+-- 服务端 terrain 与客户端渲染的 visual terrain 之间存在偏移 (Lua FBM vs TS 多层管道)
+-- groundHeight 输出加此偏移使实体 Y 与客户端可见地表对齐
+M.TERRAIN_Y_OFFSET = 4.0
 
 ----------------------------------------
 -- 兴趣裁剪 (Interest Management)
