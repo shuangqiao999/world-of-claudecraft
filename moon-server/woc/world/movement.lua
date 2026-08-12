@@ -119,7 +119,7 @@ local moveOut = { x = 0, y = 0, z = 0, blocked = false, stepped = 0 }
 
 --- 垂直状态机 (TS verticalPass:582-735; ground/waterHere 由调用方缓存传入)
 local function verticalPass(p, inp, wishX, wishZ, wishSpeed, swimming, steepGround, mountLocked, ground, waterHere)
-    if ground == nil then ground = terrain.groundHeight(p.pos.x, p.pos.z) end
+    if ground == nil then ground = terrain.placementHeight(p.pos.x, p.pos.z) end
     local support = charPhysics.floorHeightAt(deps.seed, p.pos.x, p.pos.z, BODY_RADIUS,
         p.pos.y + (p.onGround and 0 or colliders.MANTLE_REACH))
     if waterHere == nil then waterHere = rideHeight.waterLevelAt(p.pos.x, p.pos.z, deps.seed) end

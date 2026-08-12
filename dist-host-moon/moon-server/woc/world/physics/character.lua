@@ -219,8 +219,8 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
 
     -- 地形墙门控
     local wls = rideHeight.stepWaterLevel(x, z, px, pz, params.seed)
-    local rawEnd = terrain.groundHeight(px, pz)
-    local groundStart = math.max(terrain.groundHeight(x, z), wls)
+    local rawEnd = terrain.placementHeight(px, pz)
+    local groundStart = math.max(terrain.placementHeight(x, z), wls)
     local groundEnd = math.max(rawEnd, wls)
     local run = m3d.dist(dx, dz)
     local airborneClears = (not params.grounded) and groundEnd <= feetY
@@ -249,7 +249,7 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
                     local cx = x + contourX
                     local cz = z + contourZ
                     local contourWls = rideHeight.stepWaterLevel(x, z, cx, cz, params.seed)
-                    local contourRaw = terrain.groundHeight(cx, cz)
+                    local contourRaw = terrain.placementHeight(cx, cz)
                     local contourGround = math.max(contourRaw, contourWls)
                     local contourRise = contourGround - math.max(groundStart, contourWls)
                     local contourOk = (contourRise <= 0 or contourRise / contourLen <= params.maxSlope)
@@ -259,7 +259,7 @@ function M.moveCharacter(params, x, y, z, dx, dz, out)
                     end
                 end
             end
-            groundEnd = terrain.groundHeight(px, pz)
+            groundEnd = terrain.placementHeight(px, pz)
         end
     end
 
