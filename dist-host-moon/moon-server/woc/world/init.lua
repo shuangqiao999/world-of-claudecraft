@@ -1124,7 +1124,7 @@ end
 local function gameTick()
     if not running then return end
 
-    -- 墙上时钟高精度秒测量 tick 耗时, 补偿调度到固定 DT 间隔 (20Hz = 50ms)
+    -- 墙上时钟高精度秒测量 tick 耗时, 补偿调度到固定 DT 间隔
     -- os.clock() 是 CPU 时间, 会因 GC/I/O/多线程漂移; core.clock() 是真实墙上时钟
     local start = moonCore.clock()
     local ok, err = pcall(doGameTick)
@@ -1133,6 +1133,9 @@ local function gameTick()
     end
     local elapsed = moonCore.clock() - start
     local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
+    if tick % 200 == 0 then
+        print(string.format("[TickDiag] tick=%d elapsed=%.2fms delay=%dms total=%.2fms", tick, elapsed * 1000, delay, (elapsed + delay / 1000) * 1000))
+    end
     moon.timeout(delay, gameTick)
 end
 

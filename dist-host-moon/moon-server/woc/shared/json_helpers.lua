@@ -69,7 +69,7 @@ end
 --- 注意: selfJson / entsArr / keepArr 为已编码 JSON 片段, 必须嵌入而非再编码
 function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVersion)
     local parts = {}
-    parts[#parts + 1] = string.format('{"t":"snap","tick":%d,"time":%.2f', tick, M.round2(simTime))
+    parts[#parts + 1] = string.format('{"t":"snap","tick":%d,"time":%.3f', tick, simTime)
     if timerWireVersion then
         parts[#parts + 1] = string.format(',"tw":%d', timerWireVersion)
     end
