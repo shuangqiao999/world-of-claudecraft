@@ -110,26 +110,23 @@ function M.terrainHeight(x, z)
     return height
 end
 
---- 高度表查询 (最近邻, 5yd 间隔)
+--- 高度表查询 (最近邻, 5yd 间隔, 回退 FBM 永不返回 nil)
 local function heightmapLookup(x, z)
-    if not HMAP_LOADED then return nil end
+    if not HMAP_LOADED then return M.terrainHeight(x, z) end
     local half = (#HMAP_Z - 1) / 2
     local iz = math.floor(z / HMAP_GRID + 0.5) + half + 1
-    if iz < 1 or iz > #HMAP_Z then return nil end
-    local hx = tostring(math.floor(x / HMAP_GRID + 0.5) * HMAP_GRID)
-    local row = HMAP_POINTS[hx]
-    if not row then return nil end
+    if iz < 1 or iz > #HMAP_Z then return M.terrainHeight(x, z) end
+    local ikey = math.floor(x / HMAP_GRID + 0.5) * HMAP_GRID
+    local row = HMAP_POINTS[tostring(ikey)] or HMAP_POINTS[ikey]
+    if not row then return M.terrainHeight(x, z) end
     local h = row[iz]
-    if h == nil then return nil end
+    if h == nil then return M.terrainHeight(x, z) end
     return h
 end
 
---- 获取地面高度 (优先高度表, 回退 FBM)
+--- 获取地面高度 (优先高度表, 回退 FBM, 永不返回 nil)
 function M.groundHeight(x, z)
     local h = heightmapLookup(x, z)
-    if not h then
-        h = M.terrainHeight(x, z)
-    end
 
     -- 检查是否在隧道内 (隧道内返回水底)
     for _, tunnel in ipairs(TUNNELS) do
