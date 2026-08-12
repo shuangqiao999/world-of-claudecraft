@@ -142,7 +142,7 @@ function M.groundHeight(x, z)
         end
     end
 
-    return terrainY
+    return h
 end
 
 --- 实体放置高度 (groundHeight + 客户端 visual terrain 偏移)
