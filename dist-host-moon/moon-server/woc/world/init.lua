@@ -102,6 +102,7 @@ local delayedEvents = require("world.delayed_events")
 local xp = require("world.xp")
 local swimFatigue = require("world.swim_fatigue")
 local dragonkinBrood = require("world.dragonkin_brood")
+local pedestrian = require("world.pedestrian")
 local doorTriggers = require("world.door_triggers")
 local escorts = require("world.escorts")
 local commissionOrders = require("world.commission_orders")
@@ -343,6 +344,7 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
         restedXp = (state and state.restedXp) or 0,
         prestigeRank = (state and state.prestigeRank) or 0,
         honor = state and state.honor, lifetimeHonor = state and state.lifetimeHonor,
+        warfare = (state and state.warfare) or 0,
         inventory = (state and state.inventory) or {},
         equipment = (state and state.equipment) or {},
         bags = state and state.bags,
@@ -445,6 +447,7 @@ local function serializeCharacter(pid)
         lifetimeXp = meta.lifetimeXp or 0,
         restedXp = meta.restedXp or 0, prestigeRank = meta.prestigeRank or 0,
         honor = meta.honor, lifetimeHonor = meta.lifetimeHonor,
+        warfare = meta.warfare,
         pos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }, facing = e.facing or 0,
         hp = e.hp or 100, dead = e.dead or false, ghost = e.ghost or false,
         corpsePos = e.corpsePos,
@@ -664,6 +667,9 @@ local function combatTick(dt)
         end
     end
 
+    -- 路人 NPC AI 更新 (漫游 + 反击)
+    safeCall("pedestrian.update", function() pedestrian.update(entities, players, dt, simTime) end)
+
     -- Mob 刷新检查
     local spawned = mobLifecycle.checkRespawn(entities, createMobEntity, grid, simTime)
     for _, mob in ipairs(spawned) do
@@ -767,11 +773,19 @@ local function combatTick(dt)
                     end
                 end
             elseif e.kind == "player" then
-                -- PvP 击杀: 找到最后造成伤害的玩家
-                local killerPid = e.targetId
+                -- PvP 击杀: 最后造成伤害的玩家 (dealDamage 记录的 lastAttackerId)
+                local killerPid = e.lastAttackerId or e.targetId
                 if killerPid and players[killerPid] and killerPid ~= e.id then
-                    pvpHonor.awardHonor(killerPid, e.level)
+                    local honorGain = pvpHonor.awardHonor(killerPid, e.level)
+                    -- 持久化到 meta (serializeCharacter 保存)
+                    local kMeta = players[killerPid]
+                    if kMeta then
+                        kMeta.honor = (kMeta.honor or 0) + honorGain
+                        kMeta.lifetimeHonor = (kMeta.lifetimeHonor or 0) + honorGain
+                        kMeta.warfare = (kMeta.warfare or 0) + math.floor(honorGain * 0.5 + 0.5)
+                    end
                 end
+                e.lastAttackerId = nil
             end
         end
     end
@@ -1412,6 +1426,13 @@ end)
 -- 初始化确定性 RNG (使用固定种子确保可重现)
 simrng.init(42)
 print(string.format("[World] SimRNG initialized seed=%d", simrng.getSeed()))
+
+-- 生成路人 NPC (城镇 + 野外, 漫游 + 被攻击反击)
+pcall(function()
+    pedestrian.spawn(entities, grid, function(id, kind, templateId, name, level, pos)
+        return Entity.new(id, kind, templateId, name, level, pos)
+    end, allocId)
+end)
 
 -- 绑定移动内核依赖 (TS PlayerMotionDeps)
 move.bindDeps({

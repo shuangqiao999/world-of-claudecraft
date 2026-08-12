@@ -442,6 +442,16 @@ function M.dealDamage(ctx, source, target, rawAmount, crit, school, abilityId, o
         amount = 0
     end
 
+    -- 16. 记录 PvP 最后攻击者 (击杀荣誉结算用)
+    if source and target and amount > 0 and source.kind == "player" and target.kind == "player" and source.id ~= target.id then
+        target.lastAttackerId = source.id
+    end
+
+    -- 17. 路人 NPC 被攻击反击
+    if source and target and amount > 0 and target.kind == "npc" and target.pedestrian and source.id ~= target.id then
+        require("world.pedestrian").onDamaged(target, source)
+    end
+
     return math.floor(amount + 0.5)
 end
 

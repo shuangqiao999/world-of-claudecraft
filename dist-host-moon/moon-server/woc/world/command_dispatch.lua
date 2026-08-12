@@ -821,11 +821,11 @@ function H.duel_req(ctx, pid, cmd)
     return ok or notImplemented(ctx, pid, "duel_req")
 end
 function H.duel_accept(ctx, pid, cmd)
-    local ok = ctx.duelMod.acceptDuel(pid, s(cmd.duelId) or "")
+    local ok = ctx.duelMod.acceptDuel(pid, s(cmd.duelId) or "", ctx.entities)
     return ok or notImplemented(ctx, pid, "duel_accept")
 end
 function H.duel_decline(ctx, pid, cmd)
-    local ok = ctx.duelMod.declineDuel and ctx.duelMod.declineDuel(s(cmd.duelId) or "")
+    local ok = ctx.duelMod.declineDuel and ctx.duelMod.declineDuel(s(cmd.duelId) or "", ctx.entities)
     return ok or notImplemented(ctx, pid, "duel_decline")
 end
 
@@ -1057,10 +1057,17 @@ function H.market_buy(ctx, pid, cmd)
     return true
 end
 function H.market_cancel(ctx, pid, cmd)
+    local meta = ctx.players[pid]
+    if not meta then return false end
     ctx.marketOp(pid, { op = "cancel", pid = pid, listingId = n(cmd.id) }, function(data, err)
-        -- 取消上架: 物品退还卖家 (但 DB 未返回 item_data, 故仅记录)
         if data then
-            ctx.noteEvents({ { type = "log", text = "Listing cancelled", pid = pid } })
+            -- 退还物品给卖家
+            if data.item_data and type(data.item_data) == "table" and data.item_data.id then
+                ctx.inventory.addItem(meta, data.item_data)
+                ctx.noteEvents({ { type = "log", text = "Listing cancelled, item returned", pid = pid } })
+            else
+                ctx.noteEvents({ { type = "log", text = "Listing cancelled", pid = pid } })
+            end
         end
     end)
     return true
@@ -1094,22 +1101,28 @@ function H.mail_send(ctx, pid, cmd)
         ctx.noteEvents({ { type = "log", text = "Not enough copper", pid = pid } })
         return false
     end
-    -- 找物品 (单个附件, 取物品数据而非槽位)
-    local itemData, itemSlot = nil, nil
+    -- 收集多个附件 (全部物品数据 + 槽位)
     local items = type(cmd.items) == "table" and cmd.items or {}
+    local attachedItems = {}
     for _, it in ipairs(items) do
         local itemId = s(it.itemId) or s(it.item)
         if itemId then
             for slot, invIt in pairs(meta.inventory or {}) do
-                if invIt.id == itemId then itemData = invIt; itemSlot = tonumber(slot); break end
+                if invIt.id == itemId and not attachedItems[slot] then
+                    attachedItems[tonumber(slot)] = invIt
+                    break
+                end
             end
         end
-        if itemData then break end
     end
     -- 经济结算: 扣铜币 + 移除附件
     meta.copper = (meta.copper or 0) - copper
-    if itemSlot then meta.inventory[itemSlot] = nil end
-    ctx.mailOp(pid, { op = "send", from = meta.characterId, to = s(cmd.to), text = s(cmd.subject) .. "\n" .. (s(cmd.body) or ""), item = itemData, copper = copper })
+    local itemList = {}
+    for slot, item in pairs(attachedItems) do
+        meta.inventory[slot] = nil
+        table.insert(itemList, item)
+    end
+    ctx.mailOp(pid, { op = "send", from = meta.characterId, to = s(cmd.to), text = s(cmd.subject) .. "\n" .. (s(cmd.body) or ""), items = itemList, copper = copper })
     return true
 end
 function H.mail_take(ctx, pid, cmd)
@@ -1117,17 +1130,23 @@ function H.mail_take(ctx, pid, cmd)
     if not meta then return false end
     ctx.mailOp(pid, { op = "take", pid = meta.characterId, mailId = n(cmd.id) }, function(data, err)
         if data then
-            -- 经济结算: 得附件 (铜币 + 物品)
+            -- 经济结算: 得附件 (铜币 + 物品数组)
             if data.copper and data.copper > 0 then
                 meta.copper = (meta.copper or 0) + data.copper
             end
-            local it = data.item_data
-            if type(it) == "string" then
-                local ok, decoded = pcall(require("json").decode, it)
-                if ok then it = decoded end
+            local items = data.item_data
+            if type(items) == "string" then
+                local ok, decoded = pcall(require("json").decode, items)
+                if ok then items = decoded end
             end
-            if type(it) == "table" and it.id then
-                ctx.inventory.addItem(meta, it)
+            if type(items) == "table" then
+                -- 兼容单物品 (旧格式) 或数组 (新格式)
+                if items.id then items = { items } end
+                for _, it in ipairs(items) do
+                    if type(it) == "table" and it.id then
+                        ctx.inventory.addItem(meta, it)
+                    end
+                end
             end
             ctx.noteEvents({ { type = "log", text = "Mail attachment collected", pid = pid } })
         end
