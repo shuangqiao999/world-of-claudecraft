@@ -93,7 +93,6 @@ function Entity.new(id, kind, templateId, name, level, pos)
         dead = false,
         ghost = false,
         lootable = false,
-        hostile = false,
         afk = false,
         gm = false,
         devGod = false,

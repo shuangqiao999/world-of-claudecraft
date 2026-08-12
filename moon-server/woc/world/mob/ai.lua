@@ -86,6 +86,9 @@ function M.initMob(mob, templateId, spawnPos, opts)
         if template.warcry then mob.warcryTimer = template.warcry.every end
         -- 特殊标记
         mob.isBoss = template.boss or false
+        mob.isElite = template.elite or false
+        mob.isRare = template.rare or false
+        mob.family = template.family
         mob.ccImmune = template.ccImmune or false
         mob.slowImmune = template.slowImmune or false
     else
@@ -307,8 +310,10 @@ function M.updateMob(mob, entities, players, dt)
             elseif distSq > targeting.getCombatRangeSq() * 1.5 then
                 data.state = AI_STATE.CHASING
             else
-                -- 逃跑检查 (TS flee: 低血量且非Boss)
-                if not mob.hasFled and not mob.isBoss and (mob.hp or 0) < mob.maxHp * FLEE_HEALTH_PCT then
+                -- 逃跑检查 (TS flee: 低血量且非Boss/精英/稀有, 限定逃跑族群)
+                local canFlee = not mob.isBoss and not mob.isElite and not mob.isRare
+                if canFlee and mob.family then canFlee = FLEEING_FAMILIES[mob.family] end
+                if not mob.hasFled and canFlee and (mob.hp or 0) < mob.maxHp * FLEE_HEALTH_PCT then
                     data.state = AI_STATE.FLEEING
                     mob.fleeTimer = 0
                     mob.hostile = false
