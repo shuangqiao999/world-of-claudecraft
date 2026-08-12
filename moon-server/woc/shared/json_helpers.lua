@@ -2,8 +2,17 @@
 -- All builders produce Sproto binary by default; fall back to JSON if Sproto not available.
 
 local json = require("json")
-local spack = require("shared.sproto_helpers")
 local M = {}
+
+-- Lazy-loaded sproto handle (avoids Lua 5.4/5.5 version mismatch at import time)
+local _spack = nil
+local function getSpack()
+    if _spack ~= nil then return _spack end
+    local ok, mod = pcall(require, "shared.sproto_helpers")
+    if ok then _spack = mod
+    else _spack = false end
+    return _spack
+end
 
 --- 浮点数保留两位小数
 function M.round2(n)
@@ -33,7 +42,11 @@ local function useSproto()
     if not require("config").SPROTO_ENABLED then
         _sprotoOk = false; return false
     end
-    local ok = spack.packFrame and spack.packFrame("ErrorFrame", { error = "probe" })
+    local s = getSpack()
+    if not s or not s.packFrame then
+        _sprotoOk = false; return false
+    end
+    local ok = s.packFrame("ErrorFrame", { error = "probe" })
     _sprotoOk = (ok ~= nil)
     return _sprotoOk
 end
@@ -41,7 +54,7 @@ end
 -- ===== Hello Frame =====
 function M.buildHelloFrame(pid, seed, name, cls, realm, softWords, chatMutedUntil)
     if useSproto() then
-        return spack.packFrame("HelloFrame", { pid = pid, seed = seed, name = name, cls = cls, realm = realm, level = 1, skin = 0 })
+        return getSpack().packFrame("HelloFrame", { pid = pid, seed = seed, name = name, cls = cls, realm = realm, level = 1, skin = 0 })
     end
     return json.encode({ t = "hello", pid = pid, seed = seed, name = name, cls = cls, realm = realm, softWords = softWords or {}, chatMutedUntil = chatMutedUntil })
 end
@@ -49,7 +62,7 @@ end
 -- ===== Error Frame =====
 function M.buildErrorFrame(errorLiteral)
     if useSproto() then
-        return spack.packFrame("ErrorFrame", { error = errorLiteral })
+        return getSpack().packFrame("ErrorFrame", { error = errorLiteral })
     end
     return '{"t":"error","error":' .. M.safeEncode(errorLiteral) .. '}'
 end
@@ -57,7 +70,7 @@ end
 -- ===== Command Outcome Frame =====
 function M.buildCommandOutcomeFrame(rid, ok)
     if useSproto() then
-        return spack.packFrame("CommandOutcomeFrame", { rid = rid, ok = ok })
+        return getSpack().packFrame("CommandOutcomeFrame", { rid = rid, ok = ok })
     end
     return json.encode({ t = "commandOutcome", rid = rid, ok = ok })
 end
@@ -65,7 +78,7 @@ end
 -- ===== Events Frame =====
 function M.buildEventsFrame(events)
     if useSproto() then
-        return spack.packFrame("EventsFrame", { list = events })
+        return getSpack().packFrame("EventsFrame", { list = events })
     end
     return json.encode({ t = "events", list = events })
 end
@@ -76,7 +89,7 @@ function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVe
     if type(entsArr) ~= "table" then entsArr = {} end
     if type(keepArr) ~= "table" then keepArr = {} end
     if useSproto() then
-        return spack.packFrame("SnapFrame", { tick = tick, time = simTime, tw = timerWireVersion or 0, self = selfJson, ents = entsArr, keep = keepArr })
+        return getSpack().packFrame("SnapFrame", { tick = tick, time = simTime, tw = timerWireVersion or 0, self = selfJson, ents = entsArr, keep = keepArr })
     end
     local parts = {}
     parts[#parts + 1] = string.format('{"t":"snap","tick":%d,"time":%.2f', tick, M.round2(simTime))
@@ -99,7 +112,7 @@ function M.buildSocialFrame(data)
             if g.members then for _, m in ipairs(g.members) do table.insert(members, { id = m.id or 0, name = m.name or "", class = m.class or "", level = m.level or 1, online = m.online or false }) end end
             guildTbl = { id = g.id or 0, name = g.name or "", rank = g.rank or 0, members = members }
         end
-        return spack.packFrame("SocialFrame", { friends = friends, blocks = data and data.blocks or {}, ignores = data and data.ignores or {}, guild = guildTbl, pendingInvites = data and data.pendingInvites or {} })
+        return getSpack().packFrame("SocialFrame", { friends = friends, blocks = data and data.blocks or {}, ignores = data and data.ignores or {}, guild = guildTbl, pendingInvites = data and data.pendingInvites or {} })
     end
     return json.encode({ t = "social", friends = data and data.friends or {}, blocks = data and data.blocks or {}, ignores = data and data.ignores or {}, guild = data and data.guild or nil })
 end

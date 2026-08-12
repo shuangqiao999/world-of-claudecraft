@@ -13,7 +13,6 @@ local grid = require("world.grid")
 local chat = require("world.chat")
 local snapshot = require("world.snapshot")
 local jh = require("shared.json_helpers")
-require("shared.sproto_helpers").init()
 local playerStats = require("world.player_stats")
 
 -- 战斗模块
@@ -231,11 +230,13 @@ local function guildBankOp(pid, msg)
             local entries = guildBank.getLog(guild.id)
             local gs = gateSvc()
             if gs then
-                local spack = require("shared.sproto_helpers")
-                local frame = spack.packFrame("GbankLogFrame", { ok = true, entries = entries })
-                if not frame then
-                    local json = require("json")
-                    frame = json.encode({ t = "gbanklog", ok = true, entries = entries })
+                local json = require("json")
+                local frame = json.encode({ t = "gbanklog", ok = true, entries = entries })
+                -- try sproto if available
+                local ok3, sp = pcall(require, "shared.sproto_helpers")
+                if ok3 and sp.packFrame then
+                    local f2 = sp.packFrame("GbankLogFrame", { ok = true, entries = entries })
+                    if f2 then frame = f2 end
                 end
                 moon.send("lua", gs, { t = "sendToPlayer", pid = pid, frame = frame })
             end

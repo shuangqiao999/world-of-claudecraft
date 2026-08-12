@@ -3,11 +3,18 @@
 
 local moon = require("moon")
 local socket = require("moon.socket")
-local spack = require("shared.sproto_helpers")
-spack.init()
 local jh = require("shared.json_helpers")
 local json = require("json")
 local crypt = require("crypt")
+-- sproto_helpers lazy-loaded to avoid Lua 5.4/5.5 version mismatch
+local _spack = nil
+local function getSpack()
+    if _spack ~= nil then return _spack end
+    local ok, mod = pcall(require, "shared.sproto_helpers")
+    if ok then _spack = mod; pcall(mod.init, mod)
+    else _spack = false; end
+    return _spack
+end
 local config = require("config")
 local jh = require("shared.json_helpers")
 
@@ -293,13 +300,14 @@ end
 local function wsMessage(fd, text, isBinary)
     local msg = {}
     if isBinary then
-        -- Sproto binary frame: decode via type tag
-        local spack = require("shared.sproto_helpers")
-        local typename, tbl = spack.unpackFrame(text)
-        if typename == "SnapFrame" or typename == "EventsFrame" or typename == "SocialFrame" then
-            return  -- server→client frames shouldn't arrive from client
+        local s = getSpack()
+        if s then
+            local typename, tbl = s.unpackFrame(text)
+            if typename == "SnapFrame" or typename == "EventsFrame" or typename == "SocialFrame" then
+                return
+            end
+            msg = tbl or {}
         end
-        msg = tbl or {}
     else
         local ok, decoded = pcall(json.decode, text)
         if not ok then return end
