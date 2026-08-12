@@ -2491,6 +2491,10 @@ const NPC_KEYS: Record<string, string> = {
   cook_marlow: 'npc_villager',
   tanner_hesk: 'npc_villager',
   huntsman_deral: 'npc_scout',
+  // GTA-style pedestrians (路人): townsfolk wandering town/wilderness. Rendered
+  // as plain villagers (no dedicated GLB); the individual wire name shows on the
+  // nameplate, see entity_labels for the unrecognized-id fallback.
+  pedestrian: 'npc_villager',
 };
 
 export function visualKeyFor(e: Entity): string {
@@ -2504,6 +2508,10 @@ export function visualKeyFor(e: Entity): string {
     const family = MOBS[e.templateId]?.family;
     return (family && FAMILY_KEYS[family]) || 'mob_bandit';
   }
+  // gather nodes / pets are not rigged characters: they render via the world
+  // decoration / pet systems, not the character manifest. Return an empty key
+  // so the renderer skips a character view for them.
+  if (e.kind === 'node' || e.kind === 'pet') return '';
   // npcs — Brother Aldric recurs in every hub under suffixed ids
   if (e.templateId.startsWith('brother_aldric')) return 'npc_aldric';
   return NPC_KEYS[e.templateId] ?? 'npc_villager';

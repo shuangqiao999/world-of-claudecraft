@@ -17919,7 +17919,12 @@ function dungeonDisplayNameFromSource(name: string): string {
 function entityDisplayName(entity: Entity): string {
   if (entity.kind === 'mob')
     return entity.ownerId !== null ? entity.name : mobDisplayName(entity.templateId);
-  if (entity.kind === 'npc') return npcDisplayName(entity.templateId);
+  if (entity.kind === 'npc') {
+    const resolved = tEntity({ kind: 'npc', id: entity.templateId, field: 'name' });
+    // Unrecognized NPC ids (GTA-style pedestrian wire names "Elder"/"Farmer")
+    // resolve to their raw templateId; show the generated proper-noun wire name.
+    return resolved === entity.templateId ? entity.name : resolved;
+  }
   return entity.name;
 }
 

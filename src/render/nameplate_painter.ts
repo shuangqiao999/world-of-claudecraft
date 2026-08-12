@@ -22,7 +22,7 @@ import { raidMarkerDataUrl } from '../ui/icons';
 import { type IWorld, OVERHEAD_EMOTES } from '../world_api';
 
 import { castBarState } from './cast_bar';
-import { mobDisplayName, npcDisplayName, objectDisplayName } from './entity_labels';
+import { mobDisplayName, npcDisplayNameForEntity, objectDisplayName } from './entity_labels';
 import {
   createNameplateCanvasState,
   type NameplateCanvasState,
@@ -407,7 +407,7 @@ export class NameplatePainter {
     if (entity.kind === 'npc' || (!entity.hostile && entity.questIds.length > 0)) {
       state.name =
         entity.kind === 'npc'
-          ? npcDisplayName(entity.templateId)
+          ? npcDisplayNameForEntity(entity)
           : tEntity({ kind: 'mob', id: entity.templateId, field: 'name' });
       state.nameColor = FRIENDLY;
       const questMarker = this.questMarker(entity);

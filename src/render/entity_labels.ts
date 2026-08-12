@@ -16,6 +16,13 @@ export function npcDisplayName(npcId: string): string {
   return tEntity({ kind: 'npc', id: npcId, field: 'name' });
 }
 
+export function npcDisplayNameForEntity(entity: Entity): string {
+  const resolved = tEntity({ kind: 'npc', id: entity.templateId, field: 'name' });
+  // Unrecognized NPC ids (the GTA-style pedestrian wire names "Elder"/"Farmer")
+  // resolve to their raw templateId; show the generated proper-noun wire name.
+  return resolved === entity.templateId ? entity.name : resolved;
+}
+
 export function objectDisplayName(entity: Entity): string {
   if (entity.templateId === 'mailbox') {
     return t('worldContent.mailboxName');

@@ -276,7 +276,7 @@ export interface Vec3 {
   z: number;
 }
 
-export type EntityKind = 'player' | 'mob' | 'npc' | 'object';
+export type EntityKind = 'player' | 'mob' | 'npc' | 'object' | 'node' | 'pet';
 
 export type AiState = 'idle' | 'chase' | 'attack' | 'flee' | 'evade' | 'dead';
 
