@@ -17,9 +17,9 @@ M.AUTH_TIMEOUT_MS = 10000
 ----------------------------------------
 -- 仿真
 ----------------------------------------
--- 20Hz tick, DT = 1/20 (与客户端 src/sim/types.ts TICK_RATE=20 对齐)
-M.TICK_RATE = 20
-M.DT = 1 / 20
+-- 40Hz tick, DT = 1/40
+M.TICK_RATE = 40
+M.DT = 1 / 40
 M.GCD = 1.5
 M.RUN_SPEED = 7
 M.MELEE_RANGE = 5
