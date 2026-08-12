@@ -75,12 +75,17 @@ function M.fillInitialMobs(entities, worldInitFn, gridModule)
 end
 
 --- 尝试刷新 mob (tick 检查, 使用确定性 RNG)
+-- 每 tick 最多生成 5 个营地, 避免启动时 207 营地同时创建 700 mob
+local MAX_SPAWNS_PER_TICK = 5
+local spawnsThisTick = 0
+
 function M.checkRespawn(entities, worldInitFn, gridModule, currentTime)
     local spawned = {}
+    spawnsThisTick = 0
 
     for key, sd in pairs(spawnData) do
+        if spawnsThisTick >= MAX_SPAWNS_PER_TICK then break end
         if sd.count < sd.max and (currentTime - sd.lastRespawn) >= sd.respawnTime then
-            -- 营地: 在半径内随机 (TS camp spawn)
             local cx = sd.positions[1].x
             local cz = sd.positions[1].z
             local r = sd.radius or 3
@@ -91,13 +96,12 @@ function M.checkRespawn(entities, worldInitFn, gridModule, currentTime)
                 y = 0,
                 z = cz + math.sin(ang) * dist,
             }
-
             local mob = worldInitFn(sd.templateId, sd.templateId, M._spawnLevel(sd.templateId, sd.level), newPos)
-
             if mob then
                 sd.count = sd.count + 1
                 sd.lastRespawn = currentTime
                 table.insert(spawned, mob)
+                spawnsThisTick = spawnsThisTick + 1
             end
         end
     end

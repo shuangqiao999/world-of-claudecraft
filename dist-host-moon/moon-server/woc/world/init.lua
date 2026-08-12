@@ -678,23 +678,21 @@ local function combatTick(dt)
                 e.followTargetId = nil
                 table.insert(combatEvents, { type = "death", pid = e.id, x = e.pos.x, z = e.pos.z })
                 print(string.format("[World] Player died: pid=%d name=%s hp=0", e.id, e.name or "?"))
+                -- 从所有 mob 仇恨表移除死亡玩家 (TS 1164-1172)
+                for _, m in pairs(entities) do
+                    if m.kind == "mob" and m.threat then
+                        m.threat[e.id] = nil
+                        if m.forcedTargetId == e.id then
+                            m.forcedTargetId = nil
+                            m.forcedTargetTimer = 0
+                        end
+                    end
+                end
             else
-                -- mob 死亡: 设置尸体/重生计时 (TS 1240-1250)
                 e.aiState = "dead"
                 e.corpseTimer = 60
                 e.respawnTimer = 60
                 table.insert(combatEvents, { type = "death", pid = e.id })
-            end
-
-            -- 从所有 mob 仇恨表移除死亡实体 (TS 1164-1172)
-            for _, m in pairs(entities) do
-                if m.kind == "mob" and m.id ~= e.id and m.threat then
-                    m.threat[e.id] = nil
-                    if m.forcedTargetId == e.id then
-                        m.forcedTargetId = nil
-                        m.forcedTargetTimer = 0
-                    end
-                end
             end
 
             if e.kind == "mob" then
@@ -843,6 +841,10 @@ local function doGameTick()
     simTime = simTime + config.DT
     tick = tick + 1
 
+    -- 快速路径: 无在线玩家时跳过重量级 entity 遍历
+    local hasPlayers = false
+    for _ in pairs(players) do hasPlayers = true; break end
+
     if tick <= 3 then
         print(string.format("[World] Tick #%d — simTime=%.1f", tick, simTime))
     end
@@ -889,7 +891,8 @@ local function doGameTick()
         end
     end
 
-    -- Phase: 玩家状态更新 (TS per-player loop: ensureWarriorStance → movement → doors → swimFatigue → regen → mountTransition → casting → autoAttack → breath → auras)
+    -- Phase: 玩家状态更新 (TS per-player loop, 仅在在线时执行)
+    if hasPlayers then
     for pid, e in pairs(entities) do
         local meta = players[pid]
         if meta then
@@ -940,8 +943,10 @@ local function doGameTick()
             end)
         end
     end
+    end -- hasPlayers guard for player state update
 
-    -- Phase: 战斗
+    -- Phase: 战斗 (仅在有玩家时)
+    if hasPlayers then
     local cEvents = safeCall("combatTick", function() return combatTick(config.DT) end)
     for _, ev in ipairs(cEvents) do table.insert(combatEvents, ev) end
     for _, ev in ipairs(worldBossEvents) do table.insert(combatEvents, ev) end
@@ -985,8 +990,10 @@ local function doGameTick()
     for _, ev in ipairs(cdEvents) do table.insert(combatEvents, ev) end
     for _, ev in ipairs(lrEvents) do table.insert(combatEvents, ev) end
     for _, ev in ipairs(rcEvents) do table.insert(combatEvents, ev) end
+    end -- hasPlayers combat guard
 
     -- Phase: 功勋 + 解除卡死 + 复活提议 + Raid Boss
+    if hasPlayers then
     for pid, meta in pairs(players) do
         local deedEvents = safeCall("deeds.update", function() return deeds.update(pid) end)
         for _, ev in ipairs(deedEvents) do table.insert(combatEvents, ev) end
@@ -1010,18 +1017,24 @@ local function doGameTick()
         return escorts.update(entities, players, createMobEntity, grid, config.DT)
     end)
     for _, ev in ipairs(escortEvents) do table.insert(combatEvents, ev) end
+    end -- hasPlayers: deeds/unstuck/nyth/escort guard
 
-    -- Phase: 广播 — 每 tick 发快照+事件 (20Hz)
+    -- Phase: 广播 — 每 tick 发快照+事件
+    if hasPlayers then
     pcall(broadcastSnapshot)
     pcall(function() sendCombatEvents(combatEvents) end)
+    end -- hasPlayers broadcast guard
 
-    -- Phase: Dragonkin Brood (TS sim.ts 5836: 龙蛋靠近偷袭/孵化, 在 engaged pass 之前)
+    -- Phase: Dragonkin Brood (龙蛋靠近偷袭/孵化, 仅在有玩家时)
+    if hasPlayers then
     local broodEvents = safeCall("dragonkinBrood.update", function()
         return dragonkinBrood.update(entities, players, createMobEntity, grid, config.DT)
     end)
     for _, ev in ipairs(broodEvents) do table.insert(combatEvents, ev) end
+    end
 
-    -- Phase: EngagedPids pass + NPC aura cleanse + object respawn (合并为一次遍历)
+    -- Phase: EngagedPids pass + NPC aura cleanse + object respawn (仅在有玩家时)
+    if hasPlayers then
     local engagedPids = {}
     for _, e in pairs(entities) do
         -- engaged 收集
@@ -1060,8 +1073,9 @@ local function doGameTick()
             p.inCombat = engagedPids[pid] or (p.combatTimer or 0) < 5
         end
     end
+    end -- hasPlayers engagedPids guard
 
-    -- Phase: 玩家网格刷新 (TS playerGrid.refresh: 仅玩家列表, mob engine 查询用)
+    -- Phase: 玩家网格刷新
     -- grid.update 已在 processInputs / mob AI 按实体调用, 无需全量 refresh
     local playerEntities = {}
     for pid, meta in pairs(players) do
