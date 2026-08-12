@@ -614,8 +614,11 @@ local function combatTick(dt)
         end
     end
 
-    -- 光环更新 (传递 simTime 用于 DR)
-    local auraEvents = aura.updateAll(entities, players, dt, simTime)
+    -- 光环更新 (传递 simTime 用于 DR, 仅在有玩家时)
+    local auraEvents = {}
+    if hasPlayers then
+        auraEvents = safeCall("aura.updateAll", function() return aura.updateAll(entities, players, dt, simTime) end)
+    end
     for _, ev in ipairs(auraEvents) do table.insert(combatEvents, ev) end
 
     -- Mob AI 更新 (空间裁剪: 仅更新 200yd 内有存活玩家的 mob)
@@ -1019,11 +1022,9 @@ local function doGameTick()
     for _, ev in ipairs(escortEvents) do table.insert(combatEvents, ev) end
     end -- hasPlayers: deeds/unstuck/nyth/escort guard
 
-    -- Phase: 广播 — 每 tick 发快照+事件
-    if hasPlayers then
+    -- Phase: 广播 — 每 tick 发快照+事件 (内部遍历 players 表, 空表时零开销)
     pcall(broadcastSnapshot)
     pcall(function() sendCombatEvents(combatEvents) end)
-    end -- hasPlayers broadcast guard
 
     -- Phase: Dragonkin Brood (龙蛋靠近偷袭/孵化, 仅在有玩家时)
     if hasPlayers then
