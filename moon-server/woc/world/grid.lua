@@ -9,6 +9,7 @@ local M = {}
 local CELL_SIZE = 32  -- 每个 cell 32 yards (TS spatial.ts:14)
 local cells = {}       -- cells[hash] = { entityId1, entityId2, ... }
 local entityCells = {} -- entityId → cell hash
+local resultPool = {}  -- queryRadius 结果表池 (复用, 减少每 tick 分配)
 
 --- 计算 cell hash (数值键, 无字符串分配)
 local function hashCell(x, z)
@@ -76,7 +77,12 @@ end
 --- @param maxCount number|nil 最多返回的实体数 (螺旋最近优先, 达到即提前停止)
 --- @return table 实体列表 (近似最近优先, 供 AOI 上限直接截断)
 function M.queryRadius(x, z, radius, entities, maxCount)
-    local result = {}
+    local result = table.remove(resultPool)
+    if result then
+        for i = #result, 1, -1 do result[i] = nil end
+    else
+        result = {}
+    end
     local radiusSq = radius * radius
     local cellRadius = math.ceil(radius / CELL_SIZE) + 1
     local cx = math.floor(x / CELL_SIZE)
@@ -124,6 +130,13 @@ function M.queryRadius(x, z, radius, entities, maxCount)
     end
 
     return result
+end
+
+--- 归还 queryRadius 结果表到池 (调用方用完 result 后调用)
+function M.releaseRadiusResult(result)
+    if result and #resultPool < 4096 then
+        resultPool[#resultPool + 1] = result
+    end
 end
 
 --- 获取网格统计

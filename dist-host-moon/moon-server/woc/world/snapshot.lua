@@ -365,15 +365,22 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
     if not session.lastRefresh then session.lastRefresh = {} end
 
     local anchorPos = e.pos
-    local entsArr = {}
-    local keepArr = {}
+    -- 复用 session 内的 scratch 表 (避免每 tick 分配/GC)
+    local entsArr = session.entsArr
+    if entsArr then for i = #entsArr, 1, -1 do entsArr[i] = nil end
+    else entsArr = {}; session.entsArr = entsArr end
+    local keepArr = session.keepArr
+    if keepArr then for i = #keepArr, 1, -1 do keepArr[i] = nil end
+    else keepArr = {}; session.keepArr = keepArr end
 
     -- 查询可视实体 (螺旋最近优先, 提前停止: 只需最近 maxVisible*2 个再按 leave 半径过滤)
     local maxVisible = config.MAX_VISIBLE_ENTITIES or 50
     local visible = grid.queryRadius(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS, entities, maxVisible * 2)
 
     -- 本次可见实体集合 (用于清理离场实体的 seen 记录)
-    local seenThisTick = {}
+    local seenThisTick = session.seenThisTick
+    if seenThisTick then for k in pairs(seenThisTick) do seenThisTick[k] = nil end
+    else seenThisTick = {}; session.seenThisTick = seenThisTick end
 
     -- AOI: visible 已按螺旋(中心优先)顺序返回, 直接截断最近 N 个, 无需排序/候选表
     local shown = 0
@@ -440,6 +447,7 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
         selfJson, entsArr, keepArr,
         config.STABLE_TIMER_WIRE_VERSION
     )
+    grid.releaseRadiusResult(visible)
     return frame
 end
 

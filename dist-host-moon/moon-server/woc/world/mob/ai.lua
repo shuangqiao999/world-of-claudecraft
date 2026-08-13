@@ -474,7 +474,11 @@ end
 ----------------------------------------
 
 function M._patrolMovement(mob, data, dt)
-    local speed = (mob.moveSpeed or 7) * 0.35  -- TS: moveSpeed * 0.35 for idle wander
+    -- 降频巡逻: 每 4 tick 才移动一次 (总速度不变), 降低快照重建频率
+    mob._patrolTick = (mob._patrolTick or 0) + 1
+    if mob._patrolTick % 4 ~= 0 then return end
+
+    local speed = (mob.moveSpeed or 7) * 0.35 * 4  -- 一次移动 4 tick 的量
     mob.pos.x = mob.pos.x + math.sin(data.patrolDir) * speed * dt
     mob.pos.z = mob.pos.z - math.cos(data.patrolDir) * speed * dt
     mob.facing = data.patrolDir
