@@ -844,9 +844,6 @@ local function processInputs()
         inputQueue[pid] = nil
     end
 end
-        inputQueue[pid] = nil
-    end
-end
 
 local function broadcastSnapshot()
     if not gateSvc() then return end
