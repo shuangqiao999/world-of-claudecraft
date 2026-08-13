@@ -838,10 +838,12 @@ local function processInputs()
     for pid, input in pairs(inputQueue) do
         local e = entities[pid]
         if e and (not e.dead or e.ghost) then
-            -- 使用原有移动引擎 (已验证可用)
             move.applyInput(e, input.mi, input.facing, config.DT)
             grid.update(e)
         end
+        inputQueue[pid] = nil
+    end
+end
         inputQueue[pid] = nil
     end
 end

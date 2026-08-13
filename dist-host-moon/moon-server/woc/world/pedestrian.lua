@@ -6,6 +6,7 @@ local M = {}
 
 local simrng = require("world.simrng")
 local mobAI = require("world.mob.ai")
+local terrain = require("world.terrain")
 
 -- 路人名字池
 local NAMES = {
@@ -23,13 +24,14 @@ function M.spawn(entities, grid, entityNewFn, allocIdFn)
     local count = 0
     local function makePedestrian(x, z)
         local eid = allocIdFn()
-        local e = entityNewFn(eid, "npc", "pedestrian", randomName(), 5, { x = x, y = 0, z = z })
+        local y = terrain.placementHeight(x, z)
+        local e = entityNewFn(eid, "npc", "pedestrian", randomName(), 5, { x = x, y = y, z = z })
         e.pedestrian = true
         e.hostile = false
         e.moveSpeed = 5
         e.level = 5
         -- 接入 mob AI 行为树 (fallback profile: 50HP/5AP, 此处覆盖为 10AP)
-        mobAI.initMob(e, "pedestrian", { x = x, y = 0, z = z })
+        mobAI.initMob(e, "pedestrian", { x = x, y = y, z = z })
         -- 覆盖属性 (5级 50HP 攻击力10)
         e.maxHp = 50
         e.hp = 50
