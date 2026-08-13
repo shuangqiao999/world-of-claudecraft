@@ -15,15 +15,6 @@ local inventory = require("world.inventory")
 
 local M = {}
 
--- 兴趣半径映射
-local function getInterestForKind(kind)
-    if kind == "player" or kind == "pet" then
-        return { enter = config.INTEREST_RADIUS, leave = config.INTEREST_DROP_RADIUS_SQ }
-    else
-        return { enter = config.NPC_INTEREST_RADIUS, leave = config.NPC_DROP_RADIUS_SQ }
-    end
-end
-
 --- 计算身份哈希 (检测实体身份变化); 缓存到实体, 仅 level 变化时重算
 local function identityHash(e)
     local h = e._idHash
@@ -36,7 +27,7 @@ local function identityHash(e)
 end
 
 -- LITE 周期刷新间隔 (tick): 冷字段(外观/公会/头衔/血量等)最多延迟这么久才下发
-local LITE_REFRESH_TICKS = 10
+local LITE_REFRESH_TICKS = 20
 
 --- 序列化玩家 buff/debuff 列表 (客户端 ClientWireAura 形状)
 local function wireAuras(e)
@@ -383,8 +374,9 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
             local dz = other.pos.z - anchorPos.z
             local distSq = dx * dx + dz * dz
 
-            local otherInterest = getInterestForKind(other.kind)
-            if distSq <= otherInterest.leave then
+            local leaveSq = (other.kind == "player" or other.kind == "pet")
+                and config.INTEREST_DROP_RADIUS_SQ or config.NPC_DROP_RADIUS_SQ
+            if distSq <= leaveSq then
                 seenThisTick[other.id] = true
                 local seenBefore = session.seenEntities[other.id]
                 local idHash = identityHash(other)

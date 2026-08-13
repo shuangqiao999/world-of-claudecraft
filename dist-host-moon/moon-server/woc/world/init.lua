@@ -678,25 +678,33 @@ local function combatTick(dt)
     end
     for _, ev in ipairs(auraEvents) do table.insert(combatEvents, ev) end
 
-    -- Mob AI 更新 (空间裁剪: 仅更新 200yd 内有存活玩家的 mob)
-    local MOB_AI_RANGE_SQ = 200 * 200
-    for _, e in pairs(entities) do
-        if e.kind == "mob" and not e.dead then
-            local nearPlayer = false
-            for pid, _ in pairs(players) do
-                local pe = entities[pid]
-                if pe and not pe.dead then
-                    local dx = e.pos.x - pe.pos.x
-                    local dz = e.pos.z - pe.pos.z
-                    if dx * dx + dz * dz <= MOB_AI_RANGE_SQ then
-                        nearPlayer = true
-                        break
+    -- Mob AI 更新 (空间裁剪: 用玩家 cell 集合快速判断 200yd 内是否有存活玩家, 避免 O(mobs×players))
+    local playerCells = {}
+    for pid, _ in pairs(players) do
+        local pe = entities[pid]
+        if pe and not pe.dead then
+            playerCells[grid.cellKey(pe.pos.x, pe.pos.z)] = true
+        end
+    end
+    if next(playerCells) ~= nil then
+        for _, e in pairs(entities) do
+            if e.kind == "mob" and not e.dead then
+                local cx = math.floor(e.pos.x / 32)
+                local cz = math.floor(e.pos.z / 32)
+                local nearPlayer = false
+                for dcx = -7, 7 do
+                    for dcz = -7, 7 do
+                        if playerCells[(cx + dcx) * 100000 + (cz + dcz)] then
+                            nearPlayer = true
+                            break
+                        end
                     end
+                    if nearPlayer then break end
                 end
-            end
-            if nearPlayer then
-                local mobEvents = mobAI.updateMob(e, entities, players, dt)
-                for _, ev in ipairs(mobEvents) do table.insert(combatEvents, ev) end
+                if nearPlayer then
+                    local mobEvents = mobAI.updateMob(e, entities, players, dt)
+                    for _, ev in ipairs(mobEvents) do table.insert(combatEvents, ev) end
+                end
             end
         end
     end

@@ -7,6 +7,7 @@ local M = {}
 local simrng = require("world.simrng")
 local mobAI = require("world.mob.ai")
 local terrain = require("world.terrain")
+local grid = require("world.grid")
 
 -- 路人名字池
 local NAMES = {
@@ -65,18 +66,26 @@ end
 
 --- 路人 AI 更新 (委托给 mob AI 行为树, 空间裁剪: 只更新玩家 200yd 内的路人)
 function M.update(entities, players, dt, simTime)
-    local RANGE_SQ = 200 * 200
+    -- 玩家 cell 集合 (避免 O(npc×players) 距离检查)
+    local playerCells = {}
+    for pid, _ in pairs(players) do
+        local pe = entities[pid]
+        if pe and not pe.dead then
+            playerCells[grid.cellKey(pe.pos.x, pe.pos.z)] = true
+        end
+    end
+    if next(playerCells) == nil then return end
+
     for _, e in pairs(entities) do
         if e.kind == "npc" and e.pedestrian and not e.dead then
-            -- 检查是否有存活玩家在 200yd 内 (无玩家则跳过, 避免全量遍历 + m3d 临时对象暴涨)
+            local cx = math.floor(e.pos.x / 32)
+            local cz = math.floor(e.pos.z / 32)
             local nearPlayer = false
-            for pid, _ in pairs(players) do
-                local pe = entities[pid]
-                if pe and not pe.dead then
-                    local dx = e.pos.x - pe.pos.x
-                    local dz = e.pos.z - pe.pos.z
-                    if dx * dx + dz * dz <= RANGE_SQ then nearPlayer = true; break end
+            for dcx = -7, 7 do
+                for dcz = -7, 7 do
+                    if playerCells[(cx + dcx) * 100000 + (cz + dcz)] then nearPlayer = true; break end
                 end
+                if nearPlayer then break end
             end
             if nearPlayer then
                 mobAI.updateMob(e, entities, players, dt)

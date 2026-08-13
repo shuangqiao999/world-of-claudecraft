@@ -56,6 +56,8 @@ end
 --- 选择战斗目标 (idle 索敌): 反击式 — 只有玩家主动攻击过该 mob (威胁 > 0) 才成为目标
 --- 直接遍历 players 表 (而非全量 entities), 避免每 tick 每 mob 扫描全部实体
 function M.selectCombatTarget(mob, entities, players, threatMod)
+    -- 反击式门禁: 无仇恨直接返回, 跳过遍历全部玩家
+    if not threatMod.hasThreat(mob.id) then return nil end
     local best, bestT = nil, -1
     for pid, _ in pairs(players) do
         local e = entities[pid]

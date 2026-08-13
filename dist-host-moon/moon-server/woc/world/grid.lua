@@ -15,6 +15,11 @@ local function hashCell(x, z)
     return math.floor(x / CELL_SIZE) * 100000 + math.floor(z / CELL_SIZE)
 end
 
+--- 位置 → cell 键 (供外部空间裁剪复用)
+function M.cellKey(x, z)
+    return math.floor(x / CELL_SIZE) * 100000 + math.floor(z / CELL_SIZE)
+end
+
 --- 添加实体到网格
 function M.insert(entity)
     local id = entity.id
@@ -72,7 +77,6 @@ end
 --- @return table 实体列表 (近似最近优先, 供 AOI 上限直接截断)
 function M.queryRadius(x, z, radius, entities, maxCount)
     local result = {}
-    local seen = {}
     local radiusSq = radius * radius
     local cellRadius = math.ceil(radius / CELL_SIZE) + 1
     local cx = math.floor(x / CELL_SIZE)
@@ -85,17 +89,14 @@ function M.queryRadius(x, z, radius, entities, maxCount)
         local cell = cells[gx * 100000 + gz]
         if cell then
             for _, eid in ipairs(cell) do
-                if not seen[eid] then
-                    seen[eid] = true
-                    local e = entities[eid]
-                    if e then
-                        local dx = e.pos.x - x
-                        local dz = e.pos.z - z
-                        if dx * dx + dz * dz <= radiusSq then
-                            table.insert(result, e)
-                            count = count + 1
-                            if maxCount and count >= maxCount then done = true; return end
-                        end
+                local e = entities[eid]
+                if e then
+                    local dx = e.pos.x - x
+                    local dz = e.pos.z - z
+                    if dx * dx + dz * dz <= radiusSq then
+                        table.insert(result, e)
+                        count = count + 1
+                        if maxCount and count >= maxCount then done = true; return end
                     end
                 end
             end
