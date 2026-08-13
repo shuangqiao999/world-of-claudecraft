@@ -6,6 +6,7 @@
 local config = require("config")
 local simrng = require("world.simrng")
 local damage = require("world.combat.damage")
+local m3d = require("world.math3d")
 
 local M = {}
 
@@ -103,7 +104,7 @@ function M._performSwing(attacker, entities, simTime, isOffhand)
     if distSq > config.MELEE_RANGE_SQ then return nil end
 
     local MELEE_ARC = 2.2
-    local dist = math.sqrt(distSq)
+    local dist = m3d.dist(dx, dz)
     if dist > 0.01 then
         local angle = math.abs(math.atan(dx, -dz) - attacker.facing)
         if angle > MELEE_ARC / 2 then return nil end

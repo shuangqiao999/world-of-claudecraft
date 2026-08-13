@@ -209,7 +209,7 @@ function M.updateMob(mob, entities, players, dt)
         data.patrolTimer = data.patrolTimer + dt
 
         -- 尝试寻找玩家
-        local target = targeting.selectCombatTarget(mob, entities, threatMod)
+        local target = targeting.selectCombatTarget(mob, entities, players, threatMod)
         if target then
             data.targetId = target.id
             data.state = AI_STATE.CHASING
