@@ -478,6 +478,7 @@ function M._patrolMovement(mob, data, dt)
     mob.pos.x = mob.pos.x + math.sin(data.patrolDir) * speed * dt
     mob.pos.z = mob.pos.z - math.cos(data.patrolDir) * speed * dt
     mob.facing = data.patrolDir
+    mob._wireVer = (mob._wireVer or 0) + 1
 
     -- 限制巡逻范围 (出生点 10 yards)
     local dx = mob.pos.x - data.spawnPos.x
@@ -499,6 +500,7 @@ function M._chaseMovement(mob, target, dt)
         mob.pos.z = mob.pos.z + nz * speed * dt
         mob.facing = m3d.facingTo(mob.pos.x, mob.pos.z, target.pos.x, target.pos.z)
         mob._moved = true
+        mob._wireVer = (mob._wireVer or 0) + 1
     end
 end
 
@@ -513,6 +515,7 @@ function M._returnMovement(mob, data, dt)
         mob.pos.z = mob.pos.z + nz * speed * dt
         mob.facing = m3d.facingTo(mob.pos.x, mob.pos.z, data.spawnPos.x, data.spawnPos.z)
         mob._moved = true
+        mob._wireVer = (mob._wireVer or 0) + 1
     end
 end
 
@@ -528,6 +531,7 @@ function M._retreatMovement(mob, target, dt)
         mob.pos.z = mob.pos.z + nz * speed * dt
         mob.facing = math.atan(-dx, dz)
         mob._moved = true
+        mob._wireVer = (mob._wireVer or 0) + 1
     end
 end
 
@@ -542,6 +546,7 @@ function M._fleeMovement(mob, target, dt)
         mob.pos.x = mob.pos.x + nx * speed * dt
         mob.pos.z = mob.pos.z + nz * speed * dt
         mob._moved = true
+        mob._wireVer = (mob._wireVer or 0) + 1
     end
 end
 

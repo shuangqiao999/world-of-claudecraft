@@ -372,6 +372,7 @@ function M.stepPlayerMotion(e, mi, facing)
         e.pos.x = moveOut.x
         e.pos.z = moveOut.z
         if moveOut.stepped > 0 then e.pos.y = moveOut.y end
+        e._wireVer = (e._wireVer or 0) + 1
         if not e.onGround and moveOut.blocked then
             e.vx = (e.pos.x - stepStartX) / deps.dt
             e.vz = (e.pos.z - stepStartZ) / deps.dt

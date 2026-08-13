@@ -35,25 +35,8 @@ local function identityHash(e)
     return h
 end
 
--- LITE 周期刷新间隔 (tick): 冷字段(外观/公会/头衔等)最多延迟这么久才下发
-local LITE_REFRESH_TICKS = 20
-
---- 计算 LITE 快速变化字段的廉价指纹 (用于跳过未变化实体的 dyn 重建)
-local function wireStamp(e)
-    local p = e.pos
-    local castId = e.castingAbility and (e.castingAbility.id or e.castingAbility) or ""
-    return string.format("%.2f,%.2f,%.2f,%.2f,%d,%d,%.2f,%s,%s,%s,%s,%s,%s,%s,%s,%d",
-        p.x, p.y, p.z, e.facing or 0,
-        math.floor(e.hp or 0), e.maxHp or 100,
-        e.resource or 0,
-        tostring(e.resourceType or ""),
-        tostring(castId),
-        tostring(e.channeling),
-        tostring(e.targetId or 0), tostring(e.aggroTargetId or 0), tostring(e.forcedTargetId or 0),
-        e.dead and "1" or "0", e.ghost and "1" or "0", e.lootable and "1" or "0",
-        e.hostile and "1" or "0",
-        (e.auras and next(e.auras)) and 1 or 0)
-end
+-- LITE 周期刷新间隔 (tick): 冷字段(外观/公会/头衔/血量等)最多延迟这么久才下发
+local LITE_REFRESH_TICKS = 10
 
 --- 序列化玩家 buff/debuff 列表 (客户端 ClientWireAura 形状)
 local function wireAuras(e)
@@ -385,14 +368,14 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
     local entsArr = {}
     local keepArr = {}
 
-    -- 查询可视实体
-    local visible = grid.queryRadius(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS, entities)
+    -- 查询可视实体 (螺旋最近优先, 提前停止: 只需最近 maxVisible*2 个再按 leave 半径过滤)
+    local maxVisible = config.MAX_VISIBLE_ENTITIES or 50
+    local visible = grid.queryRadius(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS, entities, maxVisible * 2)
 
     -- 本次可见实体集合 (用于清理离场实体的 seen 记录)
     local seenThisTick = {}
 
     -- AOI: visible 已按螺旋(中心优先)顺序返回, 直接截断最近 N 个, 无需排序/候选表
-    local maxVisible = config.MAX_VISIBLE_ENTITIES or 50
     local shown = 0
     for _, other in ipairs(visible) do
         if other.id ~= pid then
@@ -414,15 +397,15 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                     session.lastStamp[other.id] = nil
                     session.lastRefresh[other.id] = tick
                 else
-                    -- Lite record: 廉价指纹 + 周期刷新(冷字段), 仅变化时才 JSON 编码
-                    local stamp = wireStamp(other)
-                    local lastStamp = session.lastStamp[other.id]
+                    -- Lite record: _wireVer 脏标记 + 周期刷新(冷字段), 仅变化时才 JSON 编码
+                    local ver = other._wireVer or 0
+                    local lastVer = session.lastStamp[other.id]
                     local lastRefresh = session.lastRefresh[other.id] or -LITE_REFRESH_TICKS
-                    if stamp == lastStamp and tick - lastRefresh < LITE_REFRESH_TICKS then
+                    if ver == lastVer and tick - lastRefresh < LITE_REFRESH_TICKS then
                         table.insert(keepArr, tostring(other.id))
                     else
                         local dyn = buildEntityLiteTable(other)
-                        session.lastStamp[other.id] = stamp
+                        session.lastStamp[other.id] = ver
                         session.lastRefresh[other.id] = tick
                         local lastDyn = session.lastDyn[other.id]
                         if not liteEqual(dyn, lastDyn) then

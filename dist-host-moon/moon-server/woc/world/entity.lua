@@ -21,6 +21,9 @@ function Entity.new(id, kind, templateId, name, level, pos)
         name = name or "",
         level = level or 1,
 
+        -- wire 脏标记: 每次 wire 可见字段变化 +1, 供快照增量跳过未变化实体
+        _wireVer = 0,
+
         -- 位置和朝向
         pos = pos or M.defaultPos(),
         prevPos = { x = pos.x, y = pos.y, z = pos.z },

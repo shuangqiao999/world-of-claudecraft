@@ -10,11 +10,9 @@ local CELL_SIZE = 32  -- 每个 cell 32 yards (TS spatial.ts:14)
 local cells = {}       -- cells[hash] = { entityId1, entityId2, ... }
 local entityCells = {} -- entityId → cell hash
 
---- 计算 cell hash
+--- 计算 cell hash (数值键, 无字符串分配)
 local function hashCell(x, z)
-    local cx = math.floor(x / CELL_SIZE)
-    local cz = math.floor(z / CELL_SIZE)
-    return string.format("%d:%d", cx, cz)
+    return math.floor(x / CELL_SIZE) * 100000 + math.floor(z / CELL_SIZE)
 end
 
 --- 添加实体到网格
@@ -70,17 +68,21 @@ end
 --- @param z number 中心 Z
 --- @param radius number 查询半径 (yards)
 --- @param entities table 全局实体表 {id → Entity}
+--- @param maxCount number|nil 最多返回的实体数 (螺旋最近优先, 达到即提前停止)
 --- @return table 实体列表 (近似最近优先, 供 AOI 上限直接截断)
-function M.queryRadius(x, z, radius, entities)
+function M.queryRadius(x, z, radius, entities, maxCount)
     local result = {}
     local seen = {}
     local radiusSq = radius * radius
     local cellRadius = math.ceil(radius / CELL_SIZE) + 1
     local cx = math.floor(x / CELL_SIZE)
     local cz = math.floor(z / CELL_SIZE)
+    local count = 0
+    local done = false
 
     local function visitCell(gx, gz)
-        local cell = cells[string.format("%d:%d", gx, gz)]
+        if done then return end
+        local cell = cells[gx * 100000 + gz]
         if cell then
             for _, eid in ipairs(cell) do
                 if not seen[eid] then
@@ -91,6 +93,8 @@ function M.queryRadius(x, z, radius, entities)
                         local dz = e.pos.z - z
                         if dx * dx + dz * dz <= radiusSq then
                             table.insert(result, e)
+                            count = count + 1
+                            if maxCount and count >= maxCount then done = true; return end
                         end
                     end
                 end
@@ -100,15 +104,19 @@ function M.queryRadius(x, z, radius, entities)
 
     visitCell(cx, cz) -- ring 0 (中心 cell)
     for ring = 1, cellRadius do
+        if done then break end
         local top = cz - ring
         local bottom = cz + ring
         local left = cx - ring
         local right = cx + ring
         for d = left, right do
+            if done then break end
             visitCell(d, top)
             visitCell(d, bottom)
         end
+        if done then break end
         for d = cz - ring + 1, cz + ring - 1 do
+            if done then break end
             visitCell(left, d)
             visitCell(right, d)
         end

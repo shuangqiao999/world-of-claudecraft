@@ -162,7 +162,7 @@ end
 
 -- 分相计时 (PhaseDiag): 每 200 tick (10s) 打印各相耗时(ms) + 内存/GC
 local phaseAcc = {}
-local phaseOrder = { "prologue", "player", "combat", "misc", "broadcast", "brood", "engaged", "save" }
+local phaseOrder = { "prologue", "player", "combat", "misc", "broadcast", "bcastBuild", "bcastSend", "brood", "engaged", "save" }
 local phaseLastReport = 0
 local function phaseEnd(name, t0)
     phaseAcc[name] = (phaseAcc[name] or 0) + (moonCore.clock() - t0)
@@ -869,6 +869,7 @@ end
 local function broadcastSnapshot()
     if not gateSvc() then return end
     local frames = {}
+    local tb = moonCore.clock()
     for pid, meta in pairs(players) do
         local session = snapSessions[pid]
         if not session then
@@ -880,9 +881,12 @@ local function broadcastSnapshot()
             print(string.format("[World] SNAPSHOT ERROR pid=%d: %s", pid, tostring(frame)))
         elseif frame then frames[pid] = frame end
     end
+    phaseEnd("bcastBuild", tb)
+    local ts = moonCore.clock()
     if next(frames) then
         moon.send("lua", gateSvc(), { t = "broadcastSnap", data = frames })
     end
+    phaseEnd("bcastSend", ts)
 end
 
 local function sendCombatEvents(combatEvents)
