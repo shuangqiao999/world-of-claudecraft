@@ -47,14 +47,16 @@ function M.spawn(entities, grid, entityNewFn, allocIdFn)
     end
 
     -- 城镇路人 (出生点周边 ±20yd, 密集)
-    for i = 1, 24 do
+    -- 注: 移动端弱 GPU 下 24 个满细节骨骼动画角色会让城镇 FPS 掉到个位数,
+    -- 降为 6 个 (与野外共 ~14 个) 在保留"路人"风味的同时保住移动端帧率
+    for i = 1, 6 do
         local ang = simrng.randfloat(0, math.pi * 2)
         local dist = simrng.randfloat(0, 20)
         makePedestrian(math.cos(ang) * dist, math.sin(ang) * dist)
     end
 
     -- 野外路人 (散布 ±50yd, 稀疏)
-    for i = 1, 30 do
+    for i = 1, 8 do
         local x = simrng.randfloat(-50, 50)
         local z = simrng.randfloat(-50, 50)
         makePedestrian(x, z)
