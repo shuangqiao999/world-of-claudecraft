@@ -171,48 +171,57 @@ local function buildSelfJson(e, meta, session)
     local aur = wireAuras(e)
     if #aur > 0 and fieldChanged(session, "auras", aur) then self.auras = aur end
 
-    local invWire = inventory.toWireArray(meta.inventory)
-    if fieldChanged(session, "inv", invWire) then self.inv = invWire end
-    local bbk = require("world.vendor").buybackView(meta)
-    if #bbk > 0 and fieldChanged(session, "buyback", bbk) then self.buyback = bbk end
-    local equipWire = inventory.equipmentToWire(meta.equipment)
-    if fieldChanged(session, "equip", equipWire) then self.equip = equipWire end
-    if fieldChanged(session, "einst", meta.equipmentInstance) then self.einst = meta.equipmentInstance end
+    -- 玩家 meta 字段 (inventory/bank/talents 等): 仅在 meta 变化或周期刷新时才计算/编码,
+    -- 避免每 tick 对空/未变化的 meta 表做 toWireArray + json.encode
+    session.selfCall = (session.selfCall or 0) + 1
+    local selfVer = meta._wireVer or 0
+    local metaDirty = (selfVer ~= session.lastSelfVer) or (session.selfCall % 20 == 0)
+    session.lastSelfVer = selfVer
 
-    if fieldChanged(session, "qlog", meta.qlog) then self.qlog = meta.qlog end
-    if fieldChanged(session, "qdone", meta.qdone) then self.qdone = meta.qdone end
-    if fieldChanged(session, "milestones", meta.unlockedMilestones) then self.milestones = meta.unlockedMilestones end
+    if metaDirty then
+        local invWire = inventory.toWireArray(meta.inventory)
+        if fieldChanged(session, "inv", invWire) then self.inv = invWire end
+        local bbk = require("world.vendor").buybackView(meta)
+        if #bbk > 0 and fieldChanged(session, "buyback", bbk) then self.buyback = bbk end
+        local equipWire = inventory.equipmentToWire(meta.equipment)
+        if fieldChanged(session, "equip", equipWire) then self.equip = equipWire end
+        if fieldChanged(session, "einst", meta.equipmentInstance) then self.einst = meta.equipmentInstance end
 
-    if fieldChanged(session, "tal", meta.talents) then self.tal = meta.talents end
+        if fieldChanged(session, "qlog", meta.qlog) then self.qlog = meta.qlog end
+        if fieldChanged(session, "qdone", meta.qdone) then self.qdone = meta.qdone end
+        if fieldChanged(session, "milestones", meta.unlockedMilestones) then self.milestones = meta.unlockedMilestones end
 
-    if fieldChanged(session, "party", meta.party) then self.party = meta.party end
-    if fieldChanged(session, "duel", meta.duel) then self.duel = meta.duel end
-    if fieldChanged(session, "arena", meta.arena) then self.arena = meta.arena end
+        if fieldChanged(session, "tal", meta.talents) then self.tal = meta.talents end
 
-    if fieldChanged(session, "honor", meta.honor) then self.honor = meta.honor end
-    if fieldChanged(session, "lhonor", meta.lifetimeHonor) then self.lhonor = meta.lifetimeHonor end
+        if fieldChanged(session, "party", meta.party) then self.party = meta.party end
+        if fieldChanged(session, "duel", meta.duel) then self.duel = meta.duel end
+        if fieldChanged(session, "arena", meta.arena) then self.arena = meta.arena end
 
-    if fieldChanged(session, "bank", meta.bank) then self.bank = meta.bank end
+        if fieldChanged(session, "honor", meta.honor) then self.honor = meta.honor end
+        if fieldChanged(session, "lhonor", meta.lifetimeHonor) then self.lhonor = meta.lifetimeHonor end
 
-    if fieldChanged(session, "deeds", meta.deedsEarned) then self.deeds = meta.deedsEarned end
-    if fieldChanged(session, "atitle", meta.activeTitle) then self.atitle = meta.activeTitle end
-    if fieldChanged(session, "renown", meta.renown) then self.renown = meta.renown end
+        if fieldChanged(session, "bank", meta.bank) then self.bank = meta.bank end
 
-    if fieldChanged(session, "prof", meta.professions) then self.prof = meta.professions end
-    if fieldChanged(session, "cprof", meta.currentProfession) then self.cprof = meta.currentProfession end
+        if fieldChanged(session, "deeds", meta.deedsEarned) then self.deeds = meta.deedsEarned end
+        if fieldChanged(session, "atitle", meta.activeTitle) then self.atitle = meta.activeTitle end
+        if fieldChanged(session, "renown", meta.renown) then self.renown = meta.renown end
 
-    if fieldChanged(session, "mntOwn", meta.ownedMounts) then self.mntOwn = meta.ownedMounts end
-    if fieldChanged(session, "mntRtd", meta.ridingTrained and true or nil) then self.mntRtd = meta.ridingTrained and true or nil end
+        if fieldChanged(session, "prof", meta.professions) then self.prof = meta.professions end
+        if fieldChanged(session, "cprof", meta.currentProfession) then self.cprof = meta.currentProfession end
 
-    if fieldChanged(session, "hbl", meta.hotbarLayout) then self.hbl = meta.hotbarLayout end
+        if fieldChanged(session, "mntOwn", meta.ownedMounts) then self.mntOwn = meta.ownedMounts end
+        if fieldChanged(session, "mntRtd", meta.ridingTrained and true or nil) then self.mntRtd = meta.ridingTrained and true or nil end
 
-    if fieldChanged(session, "mktU", meta.marketUncollected and true or nil) then self.mktU = meta.marketUncollected and true or nil end
-    if fieldChanged(session, "mailU", meta.mailUnread) then self.mailU = meta.mailUnread end
+        if fieldChanged(session, "hbl", meta.hotbarLayout) then self.hbl = meta.hotbarLayout end
 
-    if fieldChanged(session, "market", meta.marketInfo) then self.market = meta.marketInfo end
+        if fieldChanged(session, "mktU", meta.marketUncollected and true or nil) then self.mktU = meta.marketUncollected and true or nil end
+        if fieldChanged(session, "mailU", meta.mailUnread) then self.mailU = meta.mailUnread end
 
-    local gb = meta.guildId and { guildId = meta.guildId, guildBankOpen = meta.guildBankOpen or false } or nil
-    if fieldChanged(session, "guildBank", gb) then self.guildBank = gb end
+        if fieldChanged(session, "market", meta.marketInfo) then self.market = meta.marketInfo end
+
+        local gb = meta.guildId and { guildId = meta.guildId, guildBankOpen = meta.guildBankOpen or false } or nil
+        if fieldChanged(session, "guildBank", gb) then self.guildBank = gb end
+    end
 
     -- 地面/水面状态 (TS 基础字段, delta-guarded)
     if fieldChanged(session, "grd", e.onGround and true or nil) then self.grd = e.onGround and true or nil end

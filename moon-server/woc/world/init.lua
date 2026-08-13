@@ -368,6 +368,7 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
         characterId = characterId, accountId = accountId,
         name = name, class = cls, level = level or 1,
         leaseNonce = leaseNonce,
+        _wireVer = 0,
         xp = (state and state.xp) or 0,
         copper = (state and state.copper) or 0,
         lifetimeXp = (state and state.lifetimeXp) or 0,
@@ -1407,6 +1408,8 @@ moon.exports.handleCommand = function(pid, cmd)
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
         protoGet = protoGet, nodeTypeFor = nodeTypeFor,
     }, pid, cmd)
+    local meta = players[pid]
+    if meta then meta._wireVer = (meta._wireVer or 0) + 1 end
     return ok == true
 end
 
