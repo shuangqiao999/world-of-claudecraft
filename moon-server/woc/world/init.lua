@@ -160,6 +160,27 @@ local function safeCall(modName, fn)
     return ok and result or {}
 end
 
+-- 分相计时 (PhaseDiag): 每 200 tick (10s) 打印各相耗时(ms) + 内存/GC
+local phaseAcc = {}
+local phaseOrder = { "prologue", "player", "combat", "misc", "broadcast", "brood", "engaged", "save" }
+local phaseLastReport = 0
+local function phaseEnd(name, t0)
+    phaseAcc[name] = (phaseAcc[name] or 0) + (moonCore.clock() - t0)
+end
+local function phaseReport()
+    local parts = {}
+    for _, name in ipairs(phaseOrder) do
+        table.insert(parts, string.format("%s=%.2f", name, (phaseAcc[name] or 0) * 1000))
+    end
+    local memBefore = collectgarbage("count")
+    local gcT0 = moonCore.clock()
+    local memAfter = collectgarbage("collect")
+    local gcMs = (moonCore.clock() - gcT0) * 1000
+    print(string.format("[PhaseDiag] tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB %s",
+        tick, gcMs, memAfter, memBefore - memAfter, table.concat(parts, " ")))
+    phaseAcc = {}
+end
+
 local function marketOp(pid, msg, cb)
     moon.async(function()
         local svc = moon.queryservice("market")
@@ -912,6 +933,8 @@ local function doGameTick()
         print(string.format("[World] Tick #%d — simTime=%.1f", tick, simTime))
     end
 
+    local t0 = moonCore.clock()
+
     -- Phase: 门触发器 (TS updateDoorTriggers: 移动后检测副本入口)
     pcall(function()
         for pid, e in pairs(entities) do
@@ -943,6 +966,8 @@ local function doGameTick()
             end
         end
     end
+
+    phaseEnd("prologue", t0); t0 = moonCore.clock()
 
     -- Phase: 玩家状态更新 (TS per-player loop, 仅在在线时执行)
     if hasPlayers then
@@ -1000,6 +1025,8 @@ local function doGameTick()
     end
     end -- hasPlayers guard for player state update
 
+    phaseEnd("player", t0); t0 = moonCore.clock()
+
     -- Phase: 战斗 (仅在有玩家时)
     if hasPlayers then
     local cEvents = safeCall("combatTick", function() return combatTick(config.DT) end)
@@ -1047,6 +1074,8 @@ local function doGameTick()
     for _, ev in ipairs(rcEvents) do table.insert(combatEvents, ev) end
     end -- hasPlayers combat guard
 
+    phaseEnd("combat", t0); t0 = moonCore.clock()
+
     -- Phase: 功勋 + 解除卡死 + 复活提议 + Raid Boss
     if hasPlayers then
     for pid, meta in pairs(players) do
@@ -1074,9 +1103,13 @@ local function doGameTick()
     for _, ev in ipairs(escortEvents) do table.insert(combatEvents, ev) end
     end -- hasPlayers: deeds/unstuck/nyth/escort guard
 
+    phaseEnd("misc", t0); t0 = moonCore.clock()
+
     -- Phase: 广播 — 每 tick 发快照+事件 (内部遍历 players 表, 空表时零开销)
     pcall(broadcastSnapshot)
     pcall(function() sendCombatEvents(combatEvents) end)
+
+    phaseEnd("broadcast", t0); t0 = moonCore.clock()
 
     -- Phase: Dragonkin Brood (龙蛋靠近偷袭/孵化, 仅在有玩家时)
     if hasPlayers then
@@ -1085,6 +1118,8 @@ local function doGameTick()
     end)
     for _, ev in ipairs(broodEvents) do table.insert(combatEvents, ev) end
     end
+
+    phaseEnd("brood", t0); t0 = moonCore.clock()
 
     -- Phase: EngagedPids pass + NPC aura cleanse + object respawn (仅在有玩家时)
     if hasPlayers then
@@ -1128,6 +1163,8 @@ local function doGameTick()
     end
     end -- hasPlayers engagedPids guard
 
+    phaseEnd("engaged", t0); t0 = moonCore.clock()
+
     -- Phase: 玩家网格刷新
     -- grid.update 已在 processInputs / mob AI 按实体调用, 无需全量 refresh
     local playerEntities = {}
@@ -1147,11 +1184,20 @@ local function doGameTick()
         pcall(sweepLinkdead)
     end
 
+    phaseEnd("save", t0)
+
     -- 周期性状态日志 (含 tick 耗时)
     if tick % (config.TICK_RATE * 10) == 0 then
         local n = 0; for _ in pairs(players) do n = n + 1 end
         local m = 0; for _, e in pairs(entities) do if e.kind == "mob" and not e.dead then m = m + 1 end end
         print(string.format("[World] t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
+    end
+
+    -- 分相计时: 每 10 秒墙上时间打印一次 (tick 慢时不受 200-tick 间隔影响)
+    local phaseNow = moonCore.clock()
+    if phaseNow - phaseLastReport >= 10 then
+        phaseLastReport = phaseNow
+        phaseReport()
     end
 end
 
