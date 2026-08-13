@@ -110,18 +110,37 @@ function M.terrainHeight(x, z)
     return height
 end
 
---- 高度表查询 (最近邻, 5yd 间隔, 回退 FBM 永不返回 nil)
+--- 高度表查询 (双线性插值, 5yd 间隔, 回退 FBM 永不返回 nil)
+--- 消除最近邻的阶梯跳变, 让移动物理看到的地形高度与客户端 FBM 地形平滑对齐
 local function heightmapLookup(x, z)
     if not HMAP_LOADED then return M.terrainHeight(x, z) end
-    local half = (#HMAP_Z - 1) / 2
-    local iz = math.floor(z / HMAP_GRID + 0.5) + half + 1
-    if iz < 1 or iz > #HMAP_Z then return M.terrainHeight(x, z) end
-    local ikey = math.floor(x / HMAP_GRID + 0.5) * HMAP_GRID
-    local row = HMAP_POINTS[tostring(ikey)] or HMAP_POINTS[ikey]
-    if not row then return M.terrainHeight(x, z) end
-    local h = row[iz]
-    if h == nil then return M.terrainHeight(x, z) end
-    return h
+    local g = HMAP_GRID
+    local x0 = HMAP_Z[1]  -- 第一个 zTick (=-50), 与 x 共用同一组刻度
+    local gx = (x - x0) / g
+    local gz = (z - x0) / g
+    local ix0 = math.floor(gx)
+    local iz0 = math.floor(gz)
+    local fx = gx - ix0
+    local fz = gz - iz0
+
+    local function cell(ix, iz)
+        if ix < 0 or ix > #HMAP_Z - 1 or iz < 0 or iz > #HMAP_Z - 1 then return nil end
+        local row = HMAP_POINTS[tostring(x0 + ix * g)]
+        if not row then return nil end
+        return row[iz + 1]
+    end
+
+    local h00 = cell(ix0, iz0)
+    local h10 = cell(ix0 + 1, iz0)
+    local h01 = cell(ix0, iz0 + 1)
+    local h11 = cell(ix0 + 1, iz0 + 1)
+    if h00 == nil or h10 == nil or h01 == nil or h11 == nil then
+        return M.terrainHeight(x, z)
+    end
+
+    local top = h00 * (1 - fx) + h10 * fx
+    local bot = h01 * (1 - fx) + h11 * fx
+    return top * (1 - fz) + bot * fz
 end
 
 --- 获取地面高度 (优先高度表, 回退 FBM, 永不返回 nil)

@@ -315,6 +315,11 @@ local function createPlayerEntity(pid, cls, name, level, stateData)
     local pos = { x = 0, y = terrain.placementHeight(0, 0), z = 0 }
     if stateData and stateData.pos then
         pos = { x = stateData.pos.x or 0, y = stateData.pos.y or terrain.placementHeight(stateData.pos.x or 0, stateData.pos.z or 0), z = stateData.pos.z or 0 }
+        -- 兜底: 存档 y 明显偏离地形 (陷地/浮空, 由旧高度表最近邻误差或半空坠落产生) 时 snap 到放置高度
+        local ph = terrain.placementHeight(pos.x, pos.z)
+        if type(pos.y) ~= "number" or math.abs(pos.y - ph) > 1.0 then
+            pos.y = ph
+        end
     end
 
     local e = Entity.new(pid, "player", cls, name, level, pos)

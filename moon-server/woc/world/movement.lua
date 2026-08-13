@@ -413,6 +413,8 @@ function M.applyInput(e, mi, facing, dt)
         deps = { seed = 0, dt = dt or 0.05 }
     end
     deps.dt = dt or 0.05
+    -- 只接受数字 facing (json.null 等非数字会被 stepPlayerMotion 的规范化比较抛错)
+    if type(facing) ~= "number" then facing = nil end
     M.stepPlayerMotion(e, M.sanitizeMoveInput(mi), facing)
 end
 
