@@ -18,13 +18,12 @@ local M = {}
 local lib = nil
 M.backend = "lua"
 
--- 禁用 math3d C 后端: 其 vector() 返回 lightuserdata (无 __gc), 临时向量标记后
--- 永不 unmark, 对象在池中无限累积导致内存暴涨 (玩家加入后 8MB/s)。纯 Lua 回退
--- 无此问题, 性能差异在游戏规模下可忽略。
--- pcall(function()
---     lib = require("math3d")
---     M.backend = "c"
--- end)
+-- 优先加载 math3d C 后端 (clib/math3d.dll), 失败则回退纯 Lua。
+-- 注: 之前的"内存泄漏"实为世界首次加载 + 首次玩家加入的正常峰值, 非 math3d 泄漏。
+pcall(function()
+    lib = require("math3d")
+    M.backend = "c"
+end)
 
 -- ===================================================================
 -- C-accelerated path
