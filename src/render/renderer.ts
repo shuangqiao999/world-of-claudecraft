@@ -7196,6 +7196,10 @@ export class Renderer {
       objectMesh = body;
     } else {
       const visualKey = visualKeyFor(e);
+      // Gather nodes / pets carry no character manifest key: they render via the
+      // world decoration / pet systems, not a rigged character view. Skip here
+      // so an empty key never triggers a fail-soft retry storm per frame.
+      if (visualKey === '') return;
       // The in-flight cooldown stops the deferring entity from burning a
       // budget slot every frame, and clearing it when the fetch RESOLVES
       // keeps pop-in at the next frame after readiness (only a rejected
