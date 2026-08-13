@@ -394,7 +394,7 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                     local lastVer = session.lastStamp[other.id]
                     local lastRefresh = session.lastRefresh[other.id] or -LITE_REFRESH_TICKS
                     if ver == lastVer and tick - lastRefresh < LITE_REFRESH_TICKS then
-                        table.insert(keepArr, tostring(other.id))
+                        table.insert(keepArr, other.id)
                     else
                         local dyn = buildEntityLiteTable(other)
                         session.lastStamp[other.id] = ver
@@ -404,7 +404,7 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                             session.lastDyn[other.id] = dyn
                             table.insert(entsArr, jh.safeEncode(dyn))
                         else
-                            table.insert(keepArr, tostring(other.id))
+                            table.insert(keepArr, other.id)
                         end
                     end
                 end
