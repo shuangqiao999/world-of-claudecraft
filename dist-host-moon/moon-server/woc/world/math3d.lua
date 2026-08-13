@@ -63,7 +63,7 @@ if lib then
     end
 
     function M.facingTo(px, pz, tx, tz)
-        return math.atan(tx - px, -(tz - pz))
+        return math.atan(tx - px, tz - pz)
     end
 
     function M.moveToward(px, pz, tx, tz, speed, dt)
@@ -137,7 +137,7 @@ else
     end
 
     function M.facingTo(px, pz, tx, tz)
-        return math.atan(tx - px, -(tz - pz))
+        return math.atan(tx - px, tz - pz)
     end
 
     function M.moveToward(px, pz, tx, tz, speed, dt)

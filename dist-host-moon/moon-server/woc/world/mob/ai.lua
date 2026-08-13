@@ -480,7 +480,7 @@ function M._patrolMovement(mob, data, dt)
 
     local speed = (mob.moveSpeed or 7) * 0.35 * 4  -- 一次移动 4 tick 的量
     mob.pos.x = mob.pos.x + math.sin(data.patrolDir) * speed * dt
-    mob.pos.z = mob.pos.z - math.cos(data.patrolDir) * speed * dt
+    mob.pos.z = mob.pos.z + math.cos(data.patrolDir) * speed * dt
     mob.facing = data.patrolDir
     mob._wireVer = (mob._wireVer or 0) + 1
 
@@ -533,7 +533,7 @@ function M._retreatMovement(mob, target, dt)
         local nx, nz = m3d.norm(dx, dz)
         mob.pos.x = mob.pos.x + nx * speed * dt
         mob.pos.z = mob.pos.z + nz * speed * dt
-        mob.facing = math.atan(-dx, dz)
+        mob.facing = math.atan(-dx, -dz)
         mob._moved = true
         mob._wireVer = (mob._wireVer or 0) + 1
     end
@@ -549,6 +549,7 @@ function M._fleeMovement(mob, target, dt)
         local nx, nz = m3d.norm(dx, dz)
         mob.pos.x = mob.pos.x + nx * speed * dt
         mob.pos.z = mob.pos.z + nz * speed * dt
+        mob.facing = math.atan(dx, dz)
         mob._moved = true
         mob._wireVer = (mob._wireVer or 0) + 1
     end
@@ -616,7 +617,7 @@ end
 
 function M._startCombat(mob, data, target, entities)
     mob.hostile = true
-    mob.facing = math.atan(target.pos.x - mob.pos.x, -(target.pos.z - mob.pos.z))
+    mob.facing = math.atan(target.pos.x - mob.pos.x, target.pos.z - mob.pos.z)
     -- TS: aggroTargetId 用于 engagedPids pass
     mob.aggroTargetId = target.id
     mob.combatTimer = 0

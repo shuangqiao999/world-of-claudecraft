@@ -106,8 +106,11 @@ function M._performSwing(attacker, entities, simTime, isOffhand)
     local MELEE_ARC = 2.2
     local dist = m3d.dist(dx, dz)
     if dist > 0.01 then
-        local angle = math.abs(math.atan(dx, -dz) - attacker.facing)
-        if angle > MELEE_ARC / 2 then return nil end
+        -- 朝向差: angleTo(p,t)=atan2(dx,dz), 归一化到 [-π,π] 后与 facing 比较 (对齐 TS auto_attack.ts)
+        local diff = math.atan(dx, dz) - attacker.facing
+        while diff > math.pi do diff = diff - 2 * math.pi end
+        while diff < -math.pi do diff = diff + 2 * math.pi end
+        if math.abs(diff) > MELEE_ARC then return nil end
     end
 
     if not isOffhand and attacker.queuedOnSwing then
