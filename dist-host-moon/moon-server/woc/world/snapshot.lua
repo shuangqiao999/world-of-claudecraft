@@ -221,8 +221,8 @@ local function buildSelfJson(e, meta, session)
     return jh.safeEncode(self)
 end
 
---- 构建 Entity LITE 记录 (动态字段)
-local function buildEntityLite(e)
+--- 构建 Entity LITE 记录表 (动态字段, 返回 table 供字段级 delta 比较)
+local function buildEntityLiteTable(e)
     local dyn = {
         id = e.id,
         x = jh.round2(e.pos.x),
@@ -292,11 +292,32 @@ local function buildEntityLite(e)
     if e.petAutoTaunt then dyn.pa = true end
     if e.petAutoWaterJet then dyn.pw = true end
 
-    -- buffs/debuffs
-    local aur = wireAuras(e)
-    if #aur > 0 then dyn.auras = aur end
+    -- buffs/debuffs (仅在存在光环时才分配/编码)
+    if e.auras and next(e.auras) then
+        local aur = wireAuras(e)
+        if #aur > 0 then dyn.auras = aur end
+    end
 
-    return jh.safeEncode(dyn)
+    return dyn
+end
+
+--- 深度比较两个 LITE dyn 表 (字段级, 避免每 tick 对未变化实体做 JSON 编码)
+local function liteEqual(a, b)
+    if a == b then return true end
+    if a == nil or b == nil then return false end
+    local an = 0
+    for k, v in pairs(a) do
+        an = an + 1
+        local bv = b[k]
+        if type(v) == "table" then
+            if type(bv) ~= "table" or not liteEqual(v, bv) then return false end
+        elseif v ~= bv then
+            return false
+        end
+    end
+    local bn = 0
+    for _ in pairs(b) do bn = bn + 1 end
+    return an == bn
 end
 
 --- 构建 Entity FULL 记录 (LITE + 身份字段)
@@ -341,6 +362,9 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
     -- 本次可见实体集合 (用于清理离场实体的 seen 记录)
     local seenThisTick = {}
 
+    -- AOI: visible 已按螺旋(中心优先)顺序返回, 直接截断最近 N 个, 无需排序/候选表
+    local maxVisible = config.MAX_VISIBLE_ENTITIES or 50
+    local shown = 0
     for _, other in ipairs(visible) do
         if other.id ~= pid then
             local dx = other.pos.x - anchorPos.x
@@ -359,24 +383,27 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                     table.insert(entsArr, buildEntityFull(other))
                     session.lastDyn[other.id] = nil
                 else
-                    -- Lite record (delta: 只有移动/状态变化才发送)
-                    local newDyn = buildEntityLite(other)
-                    local oldDyn = session.lastDyn[other.id]
+                    -- Lite record (delta: 字段级比较, 仅变化时才 JSON 编码)
+                    local dyn = buildEntityLiteTable(other)
+                    local lastDyn = session.lastDyn[other.id]
 
-                    if newDyn ~= oldDyn then
-                        session.lastDyn[other.id] = newDyn
-                        table.insert(entsArr, newDyn)
+                    if not liteEqual(dyn, lastDyn) then
+                        session.lastDyn[other.id] = dyn
+                        table.insert(entsArr, jh.safeEncode(dyn))
                     else
                         table.insert(keepArr, tostring(other.id))
                     end
                 end
+
+                shown = shown + 1
+                if shown >= maxVisible then break end
             end
         end
     end
 
-    -- 清理已离场实体的 seen/delta 记录 (避免重入场只发 lite 而无 full)
+    -- 清理已离场/被裁剪实体的 seen/delta 记录 (重入场一律发 FULL, 避免 lite 无 full 前导)
     for id in pairs(session.seenEntities) do
-        if not seenThisTick[id] and not entities[id] then
+        if not seenThisTick[id] then
             session.seenEntities[id] = nil
             session.lastDyn[id] = nil
         end

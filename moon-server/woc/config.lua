@@ -45,6 +45,9 @@ M.NPC_DROP_RADIUS_SQ = 16900
 M.BG_MATCH_INTEREST_RADIUS = 300
 M.BG_MATCH_DROP_RADIUS = 320
 M.INTEREST_QUERY_RADIUS = 135
+-- AOI 上限: 每玩家每 tick 最多广播的可见实体数 (按距离升序保留最近 N 个),
+-- 掐死 O(n²) 聚集场景 (城镇枢纽/世界Boss/PvP活动)
+M.MAX_VISIBLE_ENTITIES = 50
 
 ----------------------------------------
 -- 玩家限制
