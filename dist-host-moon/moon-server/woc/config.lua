@@ -125,6 +125,10 @@ M.getDatabaseUrl = function()
     return os.getenv("DATABASE_URL") or "postgres://eastbrook:e20182a19889fa1a33e8593b66f0c042bf8d3c1de3554a01@127.0.0.1:5433/postgres"
 end
 
+M.getDbPoolSize = function()
+    return tonumber(os.getenv("DB_POOL_SIZE")) or 8
+end
+
 M.getPort = function()
     return tonumber(os.getenv("PORT") or tostring(M.DEFAULT_PORT))
 end

@@ -10,7 +10,7 @@ local sql = require("shared.sql")
 local M = {}
 
 -- 连接池
-local POOL_SIZE = 8              -- 连接池大小 (扩大以支持批量存档)
+local POOL_SIZE = config.getDbPoolSize() or 8  -- 连接池大小 (env DB_POOL_SIZE 覆盖, 异步查询并发度)
 local BUSY_TIMEOUT_MS = 30000    -- busy 超时: 30s 后强制释放
 local pool = {}                  -- { {conn, healthy, busy, busySince}, ... }
 local poolCursor = 1
@@ -28,32 +28,35 @@ function M.query(fmt, ...)
         sqlText = fmt
     end
 
-    -- 从池中取一个健康连接, 失败则换下一个 (busy 超时 30s 自动回收)
-    for attempt = 1, POOL_SIZE do
-        local entry = pool[poolCursor]
-        poolCursor = poolCursor % POOL_SIZE + 1
-        if entry.healthy then
-            -- 超时回收: busy 超过 30s → 强制重置
-            if entry.busy and entry.busySince then
-                local elapsed = (os.time() * 1000) - entry.busySince
-                if elapsed > BUSY_TIMEOUT_MS then
-                    entry.busy = false; entry.busySince = nil
-                    entry.healthy = false
+    -- 从池中取健康空闲连接; 全忙则让出协程短暂重试 (异步连接池, 最多等 ~400ms)
+    for wait = 1, 200 do
+        for attempt = 1, POOL_SIZE do
+            local entry = pool[poolCursor]
+            poolCursor = poolCursor % POOL_SIZE + 1
+            if entry.healthy then
+                -- 超时回收: busy 超过 30s → 强制重置
+                if entry.busy and entry.busySince then
+                    local elapsed = (os.time() * 1000) - entry.busySince
+                    if elapsed > BUSY_TIMEOUT_MS then
+                        entry.busy = false; entry.busySince = nil
+                        entry.healthy = false
+                    end
                 end
-            end
-            if not entry.busy then
-                entry.busy = true
-                entry.busySince = os.time() * 1000
-                local res = entry.conn:query(sqlText)
-                entry.busy = false; entry.busySince = nil
-                if res.code == "SOCKET" or res.code == "CONNECTION" or res.code == "CONNECTION_NOT_OPEN" then
-                    entry.healthy = false
-                    M._scheduleReconnect()
-                else
-                    return res
+                if not entry.busy then
+                    entry.busy = true
+                    entry.busySince = os.time() * 1000
+                    local res = entry.conn:query(sqlText)
+                    entry.busy = false; entry.busySince = nil
+                    if res.code == "SOCKET" or res.code == "CONNECTION" or res.code == "CONNECTION_NOT_OPEN" then
+                        entry.healthy = false
+                        M._scheduleReconnect()
+                    else
+                        return res
+                    end
                 end
             end
         end
+        moon.sleep(2)
     end
     return { code = -1, message = "No healthy connection" }
 end
@@ -229,11 +232,27 @@ local function ensureSchema()
     M.query("ALTER TABLE character_leases ADD COLUMN IF NOT EXISTS account_id INT")
     -- 邮件 + 拍卖行 (mail/market 持久化)
     M.query("CREATE TABLE IF NOT EXISTS mail (id BIGSERIAL PRIMARY KEY, from_pid INT NOT NULL, to_pid INT NOT NULL, text TEXT, item_data JSONB, copper INT DEFAULT 0, is_read BOOLEAN DEFAULT FALSE, is_taken BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT now())")
-    M.query("CREATE INDEX IF NOT EXISTS idx_mail_to_pid ON mail(to_pid)")
-    M.query("CREATE INDEX IF NOT EXISTS idx_mail_taken ON mail(is_taken)")
     M.query("CREATE TABLE IF NOT EXISTS auctions (id BIGSERIAL PRIMARY KEY, seller_pid INT NOT NULL, item_data JSONB NOT NULL, price INT NOT NULL CHECK (price > 0), sold BOOLEAN DEFAULT FALSE, buyer_pid INT, collected BOOLEAN DEFAULT FALSE, created_at TIMESTAMPTZ DEFAULT now())")
-    M.query("CREATE INDEX IF NOT EXISTS idx_auctions_sold_price ON auctions(sold, price)")
     print("[DB] Schema migrations applied")
+
+    -- ===== 高频查询索引 (性能优化) =====
+    -- 角色列表: 按账号+区服查询 (getCharactersByAccount)
+    M.query("CREATE INDEX IF NOT EXISTS idx_characters_account_realm ON characters(account_id, realm)")
+    -- 租约心跳: 按 holder 批量更新 (heartbeatLeases)
+    M.query("CREATE INDEX IF NOT EXISTS idx_character_leases_holder ON character_leases(holder)")
+    -- 公会反向查询: 按角色查所属公会 (getGuildByCharacter / removeGuildMember)
+    M.query("CREATE INDEX IF NOT EXISTS idx_guild_members_character ON guild_members(character_id)")
+    -- 邮件收件箱: 收件人 + 未提取 + 时间倒序 (listInbox 覆盖 filter + sort)
+    M.query("CREATE INDEX IF NOT EXISTS idx_mail_inbox ON mail(to_pid, is_taken, created_at DESC)")
+    -- 市场搜索: 未售 + 价格 + id (searchAuctions 覆盖 filter + sort)
+    M.query("CREATE INDEX IF NOT EXISTS idx_auctions_search ON auctions(sold, price, id)")
+    -- 卖家已售/结算: 卖家 + 状态 (collectAuctions / cancelAuction)
+    M.query("CREATE INDEX IF NOT EXISTS idx_auctions_seller ON auctions(seller_pid, sold, collected)")
+    -- 清理被复合索引取代的旧单列索引 (避免过度索引)
+    M.query("DROP INDEX IF EXISTS idx_mail_to_pid")
+    M.query("DROP INDEX IF EXISTS idx_mail_taken")
+    M.query("DROP INDEX IF EXISTS idx_auctions_sold_price")
+    print("[DB] Indexes ensured")
 end
 
 --- 加载 CRUD 模块
