@@ -24,9 +24,35 @@ local function getInterestForKind(kind)
     end
 end
 
---- 计算身份哈希 (检测实体身份变化)
+--- 计算身份哈希 (检测实体身份变化); 缓存到实体, 仅 level 变化时重算
 local function identityHash(e)
-    return (e.kind or "?") .. "|" .. (e.templateId or "") .. "|" .. (e.name or "") .. "|" .. tostring(e.level or 1)
+    local h = e._idHash
+    if not h or e._idHashLevel ~= e.level then
+        h = (e.kind or "?") .. "|" .. (e.templateId or "") .. "|" .. (e.name or "") .. "|" .. tostring(e.level or 1)
+        e._idHash = h
+        e._idHashLevel = e.level
+    end
+    return h
+end
+
+-- LITE 周期刷新间隔 (tick): 冷字段(外观/公会/头衔等)最多延迟这么久才下发
+local LITE_REFRESH_TICKS = 20
+
+--- 计算 LITE 快速变化字段的廉价指纹 (用于跳过未变化实体的 dyn 重建)
+local function wireStamp(e)
+    local p = e.pos
+    local castId = e.castingAbility and (e.castingAbility.id or e.castingAbility) or ""
+    return string.format("%.2f,%.2f,%.2f,%.2f,%d,%d,%.2f,%s,%s,%s,%s,%s,%s,%s,%s,%d",
+        p.x, p.y, p.z, e.facing or 0,
+        math.floor(e.hp or 0), e.maxHp or 100,
+        e.resource or 0,
+        tostring(e.resourceType or ""),
+        tostring(castId),
+        tostring(e.channeling),
+        tostring(e.targetId or 0), tostring(e.aggroTargetId or 0), tostring(e.forcedTargetId or 0),
+        e.dead and "1" or "0", e.ghost and "1" or "0", e.lootable and "1" or "0",
+        e.hostile and "1" or "0",
+        (e.auras and next(e.auras)) and 1 or 0)
 end
 
 --- 序列化玩家 buff/debuff 列表 (客户端 ClientWireAura 形状)
@@ -352,6 +378,9 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
     local meta = players[pid]
     if not e or not meta then return nil end
 
+    if not session.lastStamp then session.lastStamp = {} end
+    if not session.lastRefresh then session.lastRefresh = {} end
+
     local anchorPos = e.pos
     local entsArr = {}
     local keepArr = {}
@@ -382,16 +411,26 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                     session.seenEntities[other.id] = idHash
                     table.insert(entsArr, buildEntityFull(other))
                     session.lastDyn[other.id] = nil
+                    session.lastStamp[other.id] = nil
+                    session.lastRefresh[other.id] = tick
                 else
-                    -- Lite record (delta: 字段级比较, 仅变化时才 JSON 编码)
-                    local dyn = buildEntityLiteTable(other)
-                    local lastDyn = session.lastDyn[other.id]
-
-                    if not liteEqual(dyn, lastDyn) then
-                        session.lastDyn[other.id] = dyn
-                        table.insert(entsArr, jh.safeEncode(dyn))
-                    else
+                    -- Lite record: 廉价指纹 + 周期刷新(冷字段), 仅变化时才 JSON 编码
+                    local stamp = wireStamp(other)
+                    local lastStamp = session.lastStamp[other.id]
+                    local lastRefresh = session.lastRefresh[other.id] or -LITE_REFRESH_TICKS
+                    if stamp == lastStamp and tick - lastRefresh < LITE_REFRESH_TICKS then
                         table.insert(keepArr, tostring(other.id))
+                    else
+                        local dyn = buildEntityLiteTable(other)
+                        session.lastStamp[other.id] = stamp
+                        session.lastRefresh[other.id] = tick
+                        local lastDyn = session.lastDyn[other.id]
+                        if not liteEqual(dyn, lastDyn) then
+                            session.lastDyn[other.id] = dyn
+                            table.insert(entsArr, jh.safeEncode(dyn))
+                        else
+                            table.insert(keepArr, tostring(other.id))
+                        end
                     end
                 end
 
@@ -406,6 +445,8 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
         if not seenThisTick[id] then
             session.seenEntities[id] = nil
             session.lastDyn[id] = nil
+            session.lastStamp[id] = nil
+            session.lastRefresh[id] = nil
         end
     end
 
