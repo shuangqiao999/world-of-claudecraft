@@ -1,0 +1,431 @@
+---@meta buffer
+
+--- High-performance buffer for binary data operations
+---
+--- C++ Buffer object optimized for network I/O and binary data manipulation.
+--- Not managed by Lua GC - requires manual memory management.
+---
+--- **Memory Management:**
+--- - Manual deletion required with `buffer.delete()`
+--- - Auto-released when used with `moon.raw_send` or `socket.write`
+--- - Memory leaks occur if not properly released
+---
+--- **Key Features:**
+--- - Zero-copy operations
+--- - Efficient memory allocation
+--- - Binary data packing/unpacking
+--- - Network protocol support
+---
+---@class buffer
+local buffer = {}
+
+--- Create a new buffer (unsafe - manual memory management)
+---
+--- Creates unmanaged C++ Buffer object for maximum performance.
+--- **WARNING:** Must be manually released to prevent memory leaks.
+---
+--- **Memory Management:**
+--- - Call `buffer.delete()` for manual cleanup
+--- - OR pass to `moon.raw_send`/`socket.write` for auto-release
+---
+--- **Examples:**
+--- ```lua
+--- local buf = buffer.unsafe_new()
+--- buffer.write_back(buf, "Hello, World!")
+--- socket.write(fd, buf) -- auto-released
+---
+--- local large_buf = buffer.unsafe_new(4096)
+--- -- ... use buffer ...
+--- buffer.delete(large_buf) -- manual cleanup
+--- ```
+---
+---@param capacity? integer @ Initial capacity in bytes (default: 128)
+---@return buffer_ptr @ Unmanaged buffer pointer - MUST be manually released
+function buffer.unsafe_new(capacity) end
+
+--- Release buffer memory (unsafe operation)
+---
+--- Manually frees buffer memory. Dangerous operation - can cause crashes if misused.
+---
+--- **Safety:**
+--- - Buffer must be created with `buffer.unsafe_new()`
+--- - Must not be auto-released by send operations
+--- - Buffer becomes invalid after call
+--- - Do not call twice on same buffer
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.unsafe_new(1024)
+--- buffer.write_back(buf, "data")
+--- buffer.delete(buf) -- Safe cleanup
+--- -- buf is now invalid
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to release - becomes invalid after call
+function buffer.delete(buf) end
+
+--- Clear all data from buffer
+---
+--- Resets buffer to empty state while preserving allocated capacity.
+--- More efficient than creating new buffer for reuse.
+---
+--- **Behavior:**
+--- - Sets readable size to 0
+--- - Preserves allocated memory capacity
+--- - Resets read/write positions
+---
+---@param buf buffer_ptr @ Buffer to clear
+function buffer.clear(buf) end
+
+--- Get buffer's readable data size
+---
+--- Returns number of bytes available for reading (actual data content).
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.unsafe_new(1024)
+--- print(buffer.size(buf)) -- 0
+---
+--- buffer.write_back(buf, "Hello")
+--- print(buffer.size(buf)) -- 5
+---
+--- if buffer.size(buf) >= 10 then
+---     local data = buffer.read(buf, 10)
+--- end
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to query
+---@return integer @ Number of readable bytes
+---@nodiscard
+function buffer.size(buf) end
+
+--- Unpack binary data from buffer
+---
+--- Two modes: string extraction and binary unpacking with format string.
+---
+--- **String Mode:** `buffer.unpack(buf, pos, count)`
+--- - Extracts raw bytes as string
+---
+--- **Binary Mode:** `buffer.unpack(buf, fmt, pos)`
+--- - Parses binary data using format string
+---
+--- **Format Characters:**
+--- - `'>'` - Big-endian (network byte order)
+--- - `'<'` - Little-endian (host byte order, default)
+--- - `'h'` - Signed 16-bit integer
+--- - `'H'` - Unsigned 16-bit integer
+--- - `'i'` - Signed 32-bit integer
+--- - `'I'` - Unsigned 32-bit integer
+--- - `'C'` - Raw data pointer + size (lightuserdata, integer)
+---
+--- **Examples:**
+--- ```lua
+--- -- String extraction
+--- local buf = buffer.concat("Hello, World!")
+--- local hello = buffer.unpack(buf, 0, 5) -- "Hello"
+---
+--- -- Binary unpacking
+--- local magic, version, length = buffer.unpack(packet, ">III", 0)
+--- local data_ptr, data_size = buffer.unpack(buf, "C", 0)
+--- ```
+---
+---@param buf buffer_ptr|buffer_shr_ptr @ Buffer to unpack from
+---@param fmt_or_pos? string|integer @ Format string for binary mode, or start position for string mode
+---@param pos_or_count? integer @ Start position for binary mode, or byte count for string mode
+---@param count? integer @ Byte count for string mode
+---@return string|any ... @ Extracted string or unpacked values
+---@overload fun(buf:buffer_ptr|buffer_shr_ptr):string
+---@overload fun(buf:buffer_ptr|buffer_shr_ptr, pos:integer, count?:integer):string
+---@overload fun(buf:buffer_ptr|buffer_shr_ptr, fmt:string, pos?:integer):any ...
+---@nodiscard
+function buffer.unpack(buf, fmt_or_pos, pos_or_count, count) end
+
+--- Pack values into a binary buffer using a format string
+---
+--- Encodes arguments according to compact format directives and returns a new unmanaged buffer.
+---
+--- **Format Characters:**
+--- - `'>'` - Switch to big-endian encoding for following integers
+--- - `'<'` - Switch to little-endian encoding for following integers (default)
+--- - `'h'` - Pack signed 16-bit integer
+--- - `'H'` - Pack unsigned 16-bit integer
+--- - `'i'` - Pack signed 32-bit integer
+--- - `'I'` - Pack unsigned 32-bit integer
+--- - `'S'` - Serialize one Lua value with Moon's internal serializer
+--- - `'C'` - Pack raw memory from `(lightuserdata, length)`
+---
+--- **Argument Rules:**
+--- - Integer directives each consume one integer argument
+--- - `'S'` consumes one Lua value
+--- - `'C'` consumes two arguments: `lightuserdata`, `integer`
+--- - Endianness directives do not consume arguments
+---
+--- **Examples:**
+--- ```lua
+--- local buf = buffer.pack(">HI", 0x1234, 0x12345678)
+--- local payload = "hello"
+--- local raw = buffer.pack("C", lightuserdata_ptr, #payload)
+--- local mixed = buffer.pack("<hSI", -7, { ok = true }, 99)
+--- ```
+---
+--- **Memory:** Returns unmanaged buffer. Release it manually or pass it to an API that takes ownership.
+---
+---@param fmt string @ Format string containing packing directives
+---@param ... any @ Values consumed by the format directives
+---@return buffer_ptr @ Packed unmanaged buffer
+---@nodiscard
+function buffer.pack(fmt, ...) end
+
+--- Read and consume data from buffer
+---
+--- Extracts bytes and advances read position. Destructive operation.
+---
+--- **Behavior:**
+--- - Returns data as Lua string
+--- - Advances read position by `n` bytes
+--- - Reduces buffer size by `n` bytes
+--- - Data permanently removed from buffer
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.concat("Hello, World!")
+--- local hello = buffer.read(buf, 5) -- "Hello"
+--- print(buffer.size(buf)) -- 8 (reduced)
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to read from
+---@param n integer @ Number of bytes to read and consume
+---@return string @ The read data
+---@nodiscard
+function buffer.read(buf, n) end
+
+--- Write strings to front of buffer (prepend)
+---
+--- Inserts strings at buffer beginning. **16-byte limit applies.**
+---
+--- **16-Byte Limit:**
+--- - Total argument size must be ≤ 16 bytes
+--- - Throws error if exceeded: "write_front out of range"
+--- - Arguments processed in reverse order
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.unsafe_new()
+--- buffer.write_back(buf, "World!")
+--- buffer.write_front(buf, "Hello, ") -- 7 bytes - OK
+--- -- Result: "Hello, World!"
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to prepend to
+---@param ... string @ Strings to prepend (reverse order)
+---@error Throws if total size > 16 bytes
+function buffer.write_front(buf, ...) end
+
+--- Write data to end of buffer (append)
+---
+--- Appends various data types with automatic conversion.
+---
+--- **Supported Types:**
+--- - `string` - Raw string data
+--- - `number` - Converted to string
+--- - `boolean` - "true" or "false"
+--- - `table` - Processed as array recursively
+--- - `nil` - Ignored
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.unsafe_new()
+--- buffer.write_back(buf, "Count: ", 42, ", Active: ", true)
+--- -- Result: "Count: 42, Active: true"
+---
+--- local parts = {"HTTP/1.1 200 OK\r\n", "Content-Length: ", 1234}
+--- buffer.write_back(buf, parts)
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to append to
+---@param ... string|number|boolean|table|nil @ Data to append
+function buffer.write_back(buf, ...) end
+
+--- Move buffer read position for sequential access
+---
+--- Advances read position for streaming protocols. Non-destructive.
+---
+--- **Origin Modes:**
+--- - `0` (Begin) - Position relative to buffer start
+--- - `1` (Current) - Position relative to current read position (default)
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.concat("Hello, World!")
+--- local data1 = buffer.unpack(buf, 0, 5) -- "Hello"
+--- buffer.seek(buf, 7, 1) -- skip 7 bytes
+--- local data2 = buffer.unpack(buf, 0, 5) -- "World"
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to seek in
+---@param pos integer @ Position to seek to
+---@param origin? integer @ Seek origin: 0=Begin, 1=Current (default: 1)
+function buffer.seek(buf, pos, origin) end
+
+--- Commit written data to make it readable
+---
+--- Advances write position to make data readable. Used with `prepare()`.
+---
+--- **Usage Pattern:**
+--- 1. Call `prepare(n)` to reserve space
+--- 2. Write data directly to reserved memory
+--- 3. Call `commit(n)` to make data readable
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.unsafe_new()
+--- buffer.prepare(buf, 10) -- reserve 10 bytes
+--- -- Write data directly to buffer memory
+--- buffer.commit(buf, 6) -- make 6 bytes readable
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to commit data in
+---@param n integer @ Number of bytes to commit (≤ prepared space)
+function buffer.commit(buf, n) end
+
+--- Reserve buffer space for zero-copy writes
+---
+--- Ensures sufficient capacity for upcoming writes. Pre-allocates memory.
+---
+--- **Benefits:**
+--- - Prevents reallocations during writes
+--- - Enables zero-copy operations
+--- - Improves performance for large writes
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.unsafe_new()
+--- buffer.prepare(buf, 4096) -- ensure 4KB available
+--- buffer.write_back(buf, large_data) -- no reallocation
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to prepare
+---@param n integer @ Bytes to ensure available (must be > 0)
+function buffer.prepare(buf, n) end
+
+--- Create buffer by concatenating multiple values
+---
+--- Efficiently combines values into single buffer for network transmission.
+---
+--- **Supported Types:** Same as `write_back()`: strings, numbers, booleans, tables, nil
+---
+--- **Example:**
+--- ```lua
+--- local buf = buffer.concat("Hello", " ", "World", "!")
+--- socket.write(fd, buf) -- auto-released
+---
+--- local response = buffer.concat(
+---     "HTTP/1.1 200 OK\r\n",
+---     "Content-Length: ", 1234, "\r\n\r\n"
+--- )
+--- ```
+---
+--- **Memory:** Returns unmanaged buffer - auto-released by send functions
+---
+---@param ... string|number|boolean|table|nil @ Values to concatenate
+---@return buffer_ptr @ Buffer with concatenated data (unmanaged)
+---@nodiscard
+function buffer.concat(...) end
+
+--- Concatenate values into Lua string
+---
+--- Similar to `buffer.concat()` but returns Lua string instead of buffer.
+---
+--- **Use Cases:**
+--- - Result needed as Lua string for processing
+--- - String manipulation or pattern matching
+--- - Logging and debugging output
+---
+--- **Example:**
+--- ```lua
+--- local message = buffer.concat_string("Error ", 404, ": ", "Not Found")
+--- local sql = buffer.concat_string("SELECT * FROM users WHERE id = ", user_id)
+--- ```
+---
+---@param ... string|number|boolean|table|nil @ Values to concatenate
+---@return string @ Concatenated string
+---@nodiscard
+function buffer.concat_string(...) end
+
+--- Convert buffer to shared reference
+---
+--- Converts unmanaged buffer to GC-managed userdata. Safe for long-term storage.
+---
+--- **Memory Management:**
+--- - Input buffer ownership transferred to shared reference
+--- - Result managed by Lua GC
+--- - Original buffer becomes invalid
+--- - No manual deletion required
+---
+--- **Example:**
+--- ```lua
+--- local unsafe_buf = buffer.unsafe_new(1024)
+--- buffer.write_back(unsafe_buf, "data")
+--- local safe_buf = buffer.to_shared(unsafe_buf)
+--- -- safe_buf is GC-managed, unsafe_buf is invalid
+--- ```
+---
+---@param buf buffer_ptr @ Unmanaged buffer to convert (becomes invalid)
+---@return buffer_shr_ptr? @ GC-managed reference, or nil if empty
+function buffer.to_shared(buf) end
+
+--- Check if buffer has specific bitmask
+---
+--- Tests for protocol-specific metadata flags (WebSocket frames, etc.).
+---
+--- **Example:**
+--- ```lua
+--- local WEBSOCKET_TEXT_FRAME = 0x1
+--- if buffer.has_bitmask(frame_buf, WEBSOCKET_TEXT_FRAME) then
+---     process_text_message(frame_buf)
+--- end
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to check
+---@param mask integer @ Bitmask value to test for
+---@return boolean @ True if buffer has the bitmask
+---@nodiscard
+function buffer.has_bitmask(buf, mask) end
+
+--- Add bitmask flag to buffer
+---
+--- Sets protocol-specific metadata flag on buffer.
+---
+--- **Example:**
+--- ```lua
+--- local frame = buffer.concat("Hello, WebSocket!")
+--- buffer.add_bitmask(frame, 0x1) -- text frame
+--- buffer.add_bitmask(frame, 0x80) -- final frame
+--- ```
+---
+---@param buf buffer_ptr @ Buffer to modify
+---@param mask integer @ Bitmask value to add
+function buffer.add_bitmask(buf, mask) end
+
+--- Append multiple buffers into first buffer
+---
+--- Efficiently combines buffer contents. First buffer is modified.
+---
+--- **Behavior:**
+--- - First buffer modified (data appended)
+--- - Subsequent buffers read-only (data copied)
+--- - All buffers remain valid after operation
+---
+--- **Example:**
+--- ```lua
+--- local header_buf = buffer.concat("HTTP/1.1 200 OK\r\n")
+--- local content_buf = buffer.concat("Hello, World!")
+--- buffer.append(header_buf, content_buf)
+--- -- header_buf contains complete response
+--- ```
+---
+---@param buf buffer_ptr @ Target buffer to append to (modified)
+---@param ... buffer_ptr @ Source buffers to append from (read-only)
+function buffer.append(buf, ...) end
+
+return buffer

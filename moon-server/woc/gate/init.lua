@@ -15,7 +15,28 @@ local rateLimit = require("world.msg_rate_limit")
 local sessions, pids = {}, {}
 -- 按 characterId 的 session 索引 (断线重连复用, 对应 linkdead.ts planJoin)
 local sessionsByChar = {}
+-- 按分片索引的 session 表: shardId → { [fd]=true, ... } (广播只遍历本分片)
+local sessionsByShard = {}
 local nextEntityId = 1000
+
+-- 世界分片路由: pid % shardCount 决定玩家落在哪个 world_N 服务
+local worldShardCount = config.getWorldShards()
+local worldSvcCache = {}
+local function worldSvc(pid)
+    local idx = pid % worldShardCount
+    local svc = worldSvcCache[idx]
+    -- 世界分片可能在 gate 之后才创建完成, 缓存为空时重查
+    if not svc then
+        svc = moon.queryservice("world_" .. idx)
+        if svc then worldSvcCache[idx] = svc end
+    end
+    return svc
+end
+
+-- 会话归属分片
+local function shardOf(pid)
+    return pid % worldShardCount
+end
 
 local WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -50,7 +71,10 @@ end
 ------------------------------------------------------------
 
 local function sendHttpResponse(fd, status, contentType, body)
-    local resp = string.format("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n%s",
+    -- CORS: 客户端用 Content-Type: application/json + Authorization: Bearer,
+    -- 属非简单请求会触发 preflight (OPTIONS)。缺少 Allow-Methods/Allow-Headers
+    -- 时浏览器/Electron 会拒绝 preflight, 登录 POST 根本发不出去。
+    local resp = string.format("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Authorization, Content-Type\r\nAccess-Control-Max-Age: 600\r\nConnection: close\r\n\r\n%s",
         status, contentType, #body, body)
     -- write_then_close: 原子写+关 (socket.write + socket.close 在 CPU 争用下会丢数据)
     socket.write_then_close(fd, resp)
@@ -248,17 +272,22 @@ local function handleAuth(fd, msg)
         -- (对应原 linkdead.ts planJoin resume 分支)
         local existing = sessionsByChar[characterId]
         if existing and existing.linkdead and existing.fd ~= fd then
-            local world = moon.queryservice("world")
+            local world = worldSvc(existing.pid)
             local oldFd = existing.fd
             -- 旧 socket 已死, 从索引中摘除, 但保留实体在 world 中
             sessions[oldFd] = nil
             pids[existing.pid] = nil
+            local oldShard = sessionsByShard[existing.shard]
+            if oldShard then oldShard[oldFd] = nil end
             existing.fd = fd
             existing.linkdead = false
             existing.leaseNonce = existing.leaseNonce
             sessions[fd] = existing
             pids[existing.pid] = fd
             sessionsByChar[characterId] = existing
+            local sh = sessionsByShard[existing.shard]
+            if not sh then sh = {}; sessionsByShard[existing.shard] = sh end
+            sh[fd] = true
             print(string.format("[Gate] Auth RESUME char=%d pid=%d (linkdead recovered)", characterId, existing.pid))
             wsWrite(fd, jh.buildHelloFrame(existing.pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
             if world then
@@ -270,14 +299,18 @@ local function handleAuth(fd, msg)
         local nonce = string.format("%s%d", tostring(require("random").rand_range(100000, 999999)), os.time())
         dbCall("acquireLease", characterId, accountId, nonce)
         local pid = nextEntityId; nextEntityId = nextEntityId + 1
-        sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false }
+        local shard = shardOf(pid)
+        sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false, shard = shard }
         pids[pid] = fd
         sessionsByChar[characterId] = sessions[fd]
+        local sh = sessionsByShard[shard]
+        if not sh then sh = {}; sessionsByShard[shard] = sh end
+        sh[fd] = true
         -- hello seed 必须是 WORLD_SEED: 客户端用其重建整个地形/水体/植被 (online.ts cfg.seed)
         -- 服务器 terrain.lua 也用同一常量, 二者必须一致
         wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
-        print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s", fd, pid, cr.name, cr.class))
-        local world = moon.queryservice("world")
+        print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s shard=%d", fd, pid, cr.name, cr.class, shard))
+        local world = worldSvc(pid)
         if world then
             local sd = cr.state; if type(sd)=="string" then local ok, d = pcall(json.decode, sd); if ok then sd = d end end
             moon.send("lua", world, { t = "joinPlayer", pid = pid, characterId = characterId, accountId = accountId, name = cr.name, cls = cr.class, level = cr.level or 1, state = sd, leaseNonce = nonce })
@@ -302,17 +335,20 @@ local function wsMessage(fd, text)
             end
             return
         end
-        local world = moon.queryservice("world"); if not world then return end
-        if t == "input" then moon.send("lua", world, { t = "playerInput", pid = sess.pid, seq = msg.seq, mi = msg.mi, facing = msg.facing })
+        local world = worldSvc(sess.pid); if not world then return end
+        if t == "input" then
+            moon.send("lua", world, { t = "playerInput", pid = sess.pid, seq = msg.seq, mi = msg.mi, facing = msg.facing })
         else moon.send("lua", world, { t = "playerCommand", pid = sess.pid, msg = msg }) end
     elseif t == "logout" then
         local sess = sessions[fd]; if not sess then socket.close(fd); return end
         print(string.format("[Gate] Logout fd=%d pid=%d", fd, sess.pid))
         rateLimit.cleanup(sess.pid)
         if dbUp() and sess.leaseNonce then moon.async(function() dbCall("releaseLease", sess.characterId, sess.leaseNonce) end) end
-        local world = moon.queryservice("world")
+        local world = worldSvc(sess.pid)
         if world then moon.send("lua", world, { t = "playerLeave", pid = sess.pid, characterId = sess.characterId, leaseNonce = sess.leaseNonce }) end
         pids[sess.pid] = nil; sessions[fd] = nil
+        local sh = sessionsByShard[sess.shard]
+        if sh then sh[fd] = nil end
         if sessionsByChar[sess.characterId] == sess then sessionsByChar[sess.characterId] = nil end
         socket.close(fd)
     end
@@ -338,7 +374,7 @@ local function handleConnection(fd)
                             sess.linkdead = true
                             print(string.format("[Gate] Linkdead fd=%d pid=%d name=%s (grace=%ds)",
                                 fd, sess.pid, sess.name, config.LINKDEAD_GRACE_MS / 1000))
-                            local world = moon.queryservice("world")
+                            local world = worldSvc(sess.pid)
                             if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
                         end
                         socket.close(fd); return
@@ -379,13 +415,36 @@ moon.dispatch("lua", function(sender, session, msg)
     if type(msg) ~= "table" then return end
     if msg.t == "broadcastSnap" and msg.data then
         if type(msg.data) == "table" then
-            for fd, sess in pairs(sessions) do
-                local frame = msg.data[sess.pid]
-                if frame and not sess.linkdead then wsWrite(fd, frame) end
+            -- 快照 (pid→frame): 只发给本分片会话。sender 是 world_N, 从服务名解析分片
+            local shard = msg.shard
+            local sh = (shard ~= nil) and sessionsByShard[shard]
+            if sh then
+                for fd in pairs(sh) do
+                    local sess = sessions[fd]
+                    if sess and not sess.linkdead then
+                        local frame = msg.data[sess.pid]
+                        if frame then wsWrite(fd, frame) end
+                    end
+                end
+            else
+                -- 兼容无 shard 标记: 全量遍历
+                for fd, sess in pairs(sessions) do
+                    local frame = msg.data[sess.pid]
+                    if frame and not sess.linkdead then wsWrite(fd, frame) end
+                end
             end
         else
-            for fd, sess in pairs(sessions) do
-                if not sess.linkdead then wsWrite(fd, msg.data) end
+            -- 世界事件 (无 pid): 只发给同一分片的会话
+            local shard = msg.shard
+            if shard ~= nil and sessionsByShard[shard] then
+                for fd in pairs(sessionsByShard[shard]) do
+                    local sess = sessions[fd]
+                    if sess and not sess.linkdead then wsWrite(fd, msg.data) end
+                end
+            else
+                for fd, sess in pairs(sessions) do
+                    if not sess.linkdead then wsWrite(fd, msg.data) end
+                end
             end
         end
     elseif msg.t == "commandOutcome" then

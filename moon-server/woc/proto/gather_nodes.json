@@ -1,0 +1,1718 @@
+[
+  {
+    "id": "ore_eastbrook_1",
+    "zoneId": "eastbrook_vale",
+    "type": "ore",
+    "pos": {
+      "x": -70,
+      "z": -53
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "ore_eastbrook_2",
+    "zoneId": "eastbrook_vale",
+    "type": "ore",
+    "pos": {
+      "x": -73,
+      "z": -49
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "ore_eastbrook_3",
+    "zoneId": "eastbrook_vale",
+    "type": "ore",
+    "pos": {
+      "x": -67,
+      "z": -57
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "ore_eastbrook_4",
+    "zoneId": "eastbrook_vale",
+    "type": "ore",
+    "pos": {
+      "x": -92,
+      "z": -48
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "ore_eastbrook_5",
+    "zoneId": "eastbrook_vale",
+    "type": "ore",
+    "pos": {
+      "x": -87,
+      "z": -45
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "ore_eastbrook_6",
+    "zoneId": "eastbrook_vale",
+    "type": "ore",
+    "pos": {
+      "x": -65,
+      "z": -69
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "wood_eastbrook_1",
+    "zoneId": "eastbrook_vale",
+    "type": "wood",
+    "pos": {
+      "x": -62,
+      "z": 8
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "wood_eastbrook_2",
+    "zoneId": "eastbrook_vale",
+    "type": "wood",
+    "pos": {
+      "x": -57,
+      "z": -6
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "wood_eastbrook_3",
+    "zoneId": "eastbrook_vale",
+    "type": "wood",
+    "pos": {
+      "x": -68,
+      "z": 18
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "wood_eastbrook_4",
+    "zoneId": "eastbrook_vale",
+    "type": "wood",
+    "pos": {
+      "x": 25,
+      "z": 101
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "wood_eastbrook_5",
+    "zoneId": "eastbrook_vale",
+    "type": "wood",
+    "pos": {
+      "x": 7,
+      "z": 140
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "wood_eastbrook_6",
+    "zoneId": "eastbrook_vale",
+    "type": "wood",
+    "pos": {
+      "x": 85,
+      "z": 140
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "herb_eastbrook_1",
+    "zoneId": "eastbrook_vale",
+    "type": "herb",
+    "pos": {
+      "x": -59,
+      "z": 91
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "herb_eastbrook_2",
+    "zoneId": "eastbrook_vale",
+    "type": "herb",
+    "pos": {
+      "x": -57,
+      "z": 82
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "herb_eastbrook_3",
+    "zoneId": "eastbrook_vale",
+    "type": "herb",
+    "pos": {
+      "x": -58,
+      "z": 99
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "herb_eastbrook_4",
+    "zoneId": "eastbrook_vale",
+    "type": "herb",
+    "pos": {
+      "x": 6,
+      "z": -69
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "herb_eastbrook_5",
+    "zoneId": "eastbrook_vale",
+    "type": "herb",
+    "pos": {
+      "x": 89,
+      "z": -27
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "herb_eastbrook_6",
+    "zoneId": "eastbrook_vale",
+    "type": "herb",
+    "pos": {
+      "x": 99,
+      "z": 57
+    },
+    "level": 4,
+    "tier": 1
+  },
+  {
+    "id": "ore_mirefen_1",
+    "zoneId": "mirefen_marsh",
+    "type": "ore",
+    "pos": {
+      "x": 40,
+      "z": 340
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "ore_mirefen_2",
+    "zoneId": "mirefen_marsh",
+    "type": "ore",
+    "pos": {
+      "x": -30,
+      "z": 360
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "ore_mirefen_3",
+    "zoneId": "mirefen_marsh",
+    "type": "ore",
+    "pos": {
+      "x": 35,
+      "z": 345
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "ore_mirefen_4",
+    "zoneId": "mirefen_marsh",
+    "type": "ore",
+    "pos": {
+      "x": 111,
+      "z": 431
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "wood_mirefen_1",
+    "zoneId": "mirefen_marsh",
+    "type": "wood",
+    "pos": {
+      "x": 20,
+      "z": 375
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "wood_mirefen_2",
+    "zoneId": "mirefen_marsh",
+    "type": "wood",
+    "pos": {
+      "x": -15,
+      "z": 355
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "wood_mirefen_3",
+    "zoneId": "mirefen_marsh",
+    "type": "wood",
+    "pos": {
+      "x": -42,
+      "z": 355
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "wood_mirefen_4",
+    "zoneId": "mirefen_marsh",
+    "type": "wood",
+    "pos": {
+      "x": -15,
+      "z": 237
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "herb_mirefen_1",
+    "zoneId": "mirefen_marsh",
+    "type": "herb",
+    "pos": {
+      "x": 26,
+      "z": 395
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "herb_mirefen_2",
+    "zoneId": "mirefen_marsh",
+    "type": "herb",
+    "pos": {
+      "x": -68,
+      "z": 459
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "herb_mirefen_3",
+    "zoneId": "mirefen_marsh",
+    "type": "herb",
+    "pos": {
+      "x": 30,
+      "z": 355
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "herb_mirefen_4",
+    "zoneId": "mirefen_marsh",
+    "type": "herb",
+    "pos": {
+      "x": -88,
+      "z": 272
+    },
+    "level": 10,
+    "tier": 1
+  },
+  {
+    "id": "ore_thornpeak_1",
+    "zoneId": "thornpeak_heights",
+    "type": "ore",
+    "pos": {
+      "x": 90,
+      "z": 608
+    },
+    "level": 17,
+    "tier": 1
+  },
+  {
+    "id": "ore_thornpeak_2",
+    "zoneId": "thornpeak_heights",
+    "type": "ore",
+    "pos": {
+      "x": 78,
+      "z": 630
+    },
+    "level": 17,
+    "tier": 1
+  },
+  {
+    "id": "wood_thornpeak_1",
+    "zoneId": "thornpeak_heights",
+    "type": "wood",
+    "pos": {
+      "x": -63,
+      "z": 771
+    },
+    "level": 17,
+    "tier": 1
+  },
+  {
+    "id": "wood_thornpeak_2",
+    "zoneId": "thornpeak_heights",
+    "type": "wood",
+    "pos": {
+      "x": -82,
+      "z": 782
+    },
+    "level": 17,
+    "tier": 1
+  },
+  {
+    "id": "herb_thornpeak_1",
+    "zoneId": "thornpeak_heights",
+    "type": "herb",
+    "pos": {
+      "x": 18,
+      "z": 648
+    },
+    "level": 17,
+    "tier": 1
+  },
+  {
+    "id": "herb_thornpeak_2",
+    "zoneId": "thornpeak_heights",
+    "type": "herb",
+    "pos": {
+      "x": -18,
+      "z": 678
+    },
+    "level": 17,
+    "tier": 1
+  },
+  {
+    "id": "ore_mirefen_t2",
+    "zoneId": "mirefen_marsh",
+    "type": "ore",
+    "pos": {
+      "x": 36,
+      "z": 350
+    },
+    "level": 10,
+    "tier": 2
+  },
+  {
+    "id": "ore_mirefen_t2b",
+    "zoneId": "mirefen_marsh",
+    "type": "ore",
+    "pos": {
+      "x": 45,
+      "z": 491
+    },
+    "level": 10,
+    "tier": 2
+  },
+  {
+    "id": "wood_mirefen_t2",
+    "zoneId": "mirefen_marsh",
+    "type": "wood",
+    "pos": {
+      "x": -10,
+      "z": 340
+    },
+    "level": 10,
+    "tier": 2
+  },
+  {
+    "id": "wood_mirefen_t2b",
+    "zoneId": "mirefen_marsh",
+    "type": "wood",
+    "pos": {
+      "x": 102,
+      "z": 292
+    },
+    "level": 10,
+    "tier": 2
+  },
+  {
+    "id": "herb_mirefen_t2",
+    "zoneId": "mirefen_marsh",
+    "type": "herb",
+    "pos": {
+      "x": 23,
+      "z": 416
+    },
+    "level": 10,
+    "tier": 2
+  },
+  {
+    "id": "herb_mirefen_t2b",
+    "zoneId": "mirefen_marsh",
+    "type": "herb",
+    "pos": {
+      "x": -114,
+      "z": 412
+    },
+    "level": 10,
+    "tier": 2
+  },
+  {
+    "id": "ore_thornpeak_t2",
+    "zoneId": "thornpeak_heights",
+    "type": "ore",
+    "pos": {
+      "x": 102,
+      "z": 615
+    },
+    "level": 17,
+    "tier": 2
+  },
+  {
+    "id": "ore_thornpeak_t2b",
+    "zoneId": "thornpeak_heights",
+    "type": "ore",
+    "pos": {
+      "x": -54,
+      "z": 602
+    },
+    "level": 17,
+    "tier": 2
+  },
+  {
+    "id": "ore_thornpeak_t3",
+    "zoneId": "thornpeak_heights",
+    "type": "ore",
+    "pos": {
+      "x": 70,
+      "z": 640
+    },
+    "level": 17,
+    "tier": 3
+  },
+  {
+    "id": "ore_thornpeak_t3b",
+    "zoneId": "thornpeak_heights",
+    "type": "ore",
+    "pos": {
+      "x": 110,
+      "z": 780
+    },
+    "level": 17,
+    "tier": 3
+  },
+  {
+    "id": "wood_thornpeak_t2",
+    "zoneId": "thornpeak_heights",
+    "type": "wood",
+    "pos": {
+      "x": -45,
+      "z": 776
+    },
+    "level": 17,
+    "tier": 2
+  },
+  {
+    "id": "wood_thornpeak_t2b",
+    "zoneId": "thornpeak_heights",
+    "type": "wood",
+    "pos": {
+      "x": -130,
+      "z": 716
+    },
+    "level": 17,
+    "tier": 2
+  },
+  {
+    "id": "wood_thornpeak_t3",
+    "zoneId": "thornpeak_heights",
+    "type": "wood",
+    "pos": {
+      "x": -92,
+      "z": 793
+    },
+    "level": 17,
+    "tier": 3
+  },
+  {
+    "id": "wood_thornpeak_t3b",
+    "zoneId": "thornpeak_heights",
+    "type": "wood",
+    "pos": {
+      "x": -34,
+      "z": 850
+    },
+    "level": 17,
+    "tier": 3
+  },
+  {
+    "id": "herb_thornpeak_t2",
+    "zoneId": "thornpeak_heights",
+    "type": "herb",
+    "pos": {
+      "x": 28,
+      "z": 658
+    },
+    "level": 17,
+    "tier": 2
+  },
+  {
+    "id": "herb_thornpeak_t2b",
+    "zoneId": "thornpeak_heights",
+    "type": "herb",
+    "pos": {
+      "x": -106,
+      "z": 694
+    },
+    "level": 17,
+    "tier": 2
+  },
+  {
+    "id": "herb_thornpeak_t3",
+    "zoneId": "thornpeak_heights",
+    "type": "herb",
+    "pos": {
+      "x": -28,
+      "z": 690
+    },
+    "level": 17,
+    "tier": 3
+  },
+  {
+    "id": "herb_thornpeak_t3b",
+    "zoneId": "thornpeak_heights",
+    "type": "herb",
+    "pos": {
+      "x": 51,
+      "z": 834
+    },
+    "level": 17,
+    "tier": 3
+  },
+  {
+    "id": "ore_veiled_hollow_1",
+    "zoneId": "veiled_hollow",
+    "type": "ore",
+    "pos": {
+      "x": -2,
+      "z": 1004
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "ore_veiled_hollow_2",
+    "zoneId": "veiled_hollow",
+    "type": "ore",
+    "pos": {
+      "x": 6,
+      "z": 1044
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "wood_veiled_hollow_1",
+    "zoneId": "veiled_hollow",
+    "type": "wood",
+    "pos": {
+      "x": -82,
+      "z": 1052
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "wood_veiled_hollow_2",
+    "zoneId": "veiled_hollow",
+    "type": "wood",
+    "pos": {
+      "x": -70,
+      "z": 992
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "herb_veiled_hollow_1",
+    "zoneId": "veiled_hollow",
+    "type": "herb",
+    "pos": {
+      "x": -22,
+      "z": 1074
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "herb_veiled_hollow_2",
+    "zoneId": "veiled_hollow",
+    "type": "herb",
+    "pos": {
+      "x": -54,
+      "z": 1082
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "ore_drakelands_1",
+    "zoneId": "drakelands",
+    "type": "ore",
+    "pos": {
+      "x": 442,
+      "z": 1874
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "ore_drakelands_2",
+    "zoneId": "drakelands",
+    "type": "ore",
+    "pos": {
+      "x": 450,
+      "z": 1914
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "wood_drakelands_1",
+    "zoneId": "drakelands",
+    "type": "wood",
+    "pos": {
+      "x": 362,
+      "z": 1922
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "wood_drakelands_2",
+    "zoneId": "drakelands",
+    "type": "wood",
+    "pos": {
+      "x": 374,
+      "z": 1862
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "herb_drakelands_1",
+    "zoneId": "drakelands",
+    "type": "herb",
+    "pos": {
+      "x": 422,
+      "z": 1944
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "herb_drakelands_2",
+    "zoneId": "drakelands",
+    "type": "herb",
+    "pos": {
+      "x": 390,
+      "z": 1952
+    },
+    "level": 18,
+    "tier": 1
+  },
+  {
+    "id": "ore_frostveil_1",
+    "zoneId": "frostveil",
+    "type": "ore",
+    "pos": {
+      "x": 8,
+      "z": 1534
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "ore_frostveil_2",
+    "zoneId": "frostveil",
+    "type": "ore",
+    "pos": {
+      "x": 22,
+      "z": 1564
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "wood_frostveil_1",
+    "zoneId": "frostveil",
+    "type": "wood",
+    "pos": {
+      "x": -72,
+      "z": 1582
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "wood_frostveil_2",
+    "zoneId": "frostveil",
+    "type": "wood",
+    "pos": {
+      "x": -54,
+      "z": 1518
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "herb_frostveil_1",
+    "zoneId": "frostveil",
+    "type": "herb",
+    "pos": {
+      "x": -12,
+      "z": 1604
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "herb_frostveil_2",
+    "zoneId": "frostveil",
+    "type": "herb",
+    "pos": {
+      "x": -44,
+      "z": 1612
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "ore_amberfall_1",
+    "zoneId": "amberfall",
+    "type": "ore",
+    "pos": {
+      "x": -322,
+      "z": 2046
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "ore_amberfall_2",
+    "zoneId": "amberfall",
+    "type": "ore",
+    "pos": {
+      "x": -314,
+      "z": 2086
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "wood_amberfall_1",
+    "zoneId": "amberfall",
+    "type": "wood",
+    "pos": {
+      "x": -402,
+      "z": 2094
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "wood_amberfall_2",
+    "zoneId": "amberfall",
+    "type": "wood",
+    "pos": {
+      "x": -390,
+      "z": 2034
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "herb_amberfall_1",
+    "zoneId": "amberfall",
+    "type": "herb",
+    "pos": {
+      "x": -339,
+      "z": 2105
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "herb_amberfall_2",
+    "zoneId": "amberfall",
+    "type": "herb",
+    "pos": {
+      "x": -388,
+      "z": 2110
+    },
+    "level": 19,
+    "tier": 1
+  },
+  {
+    "id": "ore_willowfen_1",
+    "zoneId": "willowfen",
+    "type": "ore",
+    "pos": {
+      "x": -304,
+      "z": 324
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_willowfen_2",
+    "zoneId": "willowfen",
+    "type": "ore",
+    "pos": {
+      "x": -314,
+      "z": 376
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_willowfen_1",
+    "zoneId": "willowfen",
+    "type": "wood",
+    "pos": {
+      "x": -402,
+      "z": 384
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_willowfen_2",
+    "zoneId": "willowfen",
+    "type": "wood",
+    "pos": {
+      "x": -398,
+      "z": 319
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_willowfen_1",
+    "zoneId": "willowfen",
+    "type": "herb",
+    "pos": {
+      "x": -342,
+      "z": 406
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_willowfen_2",
+    "zoneId": "willowfen",
+    "type": "herb",
+    "pos": {
+      "x": -374,
+      "z": 414
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_willowfen_3",
+    "zoneId": "willowfen",
+    "type": "ore",
+    "pos": {
+      "x": -470,
+      "z": 330
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_willowfen_4",
+    "zoneId": "willowfen",
+    "type": "ore",
+    "pos": {
+      "x": -251,
+      "z": 268
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_willowfen_5",
+    "zoneId": "willowfen",
+    "type": "ore",
+    "pos": {
+      "x": -384,
+      "z": 512
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_willowfen_6",
+    "zoneId": "willowfen",
+    "type": "ore",
+    "pos": {
+      "x": -358,
+      "z": 604
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_willowfen_3",
+    "zoneId": "willowfen",
+    "type": "wood",
+    "pos": {
+      "x": -458,
+      "z": 264
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_willowfen_4",
+    "zoneId": "willowfen",
+    "type": "wood",
+    "pos": {
+      "x": -232,
+      "z": 420
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_willowfen_5",
+    "zoneId": "willowfen",
+    "type": "wood",
+    "pos": {
+      "x": -251,
+      "z": 504
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_willowfen_6",
+    "zoneId": "willowfen",
+    "type": "wood",
+    "pos": {
+      "x": -411,
+      "z": 582
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_willowfen_3",
+    "zoneId": "willowfen",
+    "type": "herb",
+    "pos": {
+      "x": -296,
+      "z": 332
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_willowfen_4",
+    "zoneId": "willowfen",
+    "type": "herb",
+    "pos": {
+      "x": -452,
+      "z": 438
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_willowfen_5",
+    "zoneId": "willowfen",
+    "type": "herb",
+    "pos": {
+      "x": -322,
+      "z": 588
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_willowfen_6",
+    "zoneId": "willowfen",
+    "type": "herb",
+    "pos": {
+      "x": -330,
+      "z": 240
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_nightbloom_1",
+    "zoneId": "nightbloom",
+    "type": "ore",
+    "pos": {
+      "x": -332,
+      "z": 1394
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_nightbloom_2",
+    "zoneId": "nightbloom",
+    "type": "ore",
+    "pos": {
+      "x": -324,
+      "z": 1434
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_nightbloom_1",
+    "zoneId": "nightbloom",
+    "type": "wood",
+    "pos": {
+      "x": -412,
+      "z": 1442
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_nightbloom_2",
+    "zoneId": "nightbloom",
+    "type": "wood",
+    "pos": {
+      "x": -400,
+      "z": 1382
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_nightbloom_1",
+    "zoneId": "nightbloom",
+    "type": "herb",
+    "pos": {
+      "x": -352,
+      "z": 1464
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_nightbloom_2",
+    "zoneId": "nightbloom",
+    "type": "herb",
+    "pos": {
+      "x": -384,
+      "z": 1472
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_wraithwood_1",
+    "zoneId": "wraithwood",
+    "type": "ore",
+    "pos": {
+      "x": 398,
+      "z": 1404
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_wraithwood_2",
+    "zoneId": "wraithwood",
+    "type": "ore",
+    "pos": {
+      "x": 406,
+      "z": 1444
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_wraithwood_1",
+    "zoneId": "wraithwood",
+    "type": "wood",
+    "pos": {
+      "x": 318,
+      "z": 1452
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_wraithwood_2",
+    "zoneId": "wraithwood",
+    "type": "wood",
+    "pos": {
+      "x": 330,
+      "z": 1392
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_wraithwood_1",
+    "zoneId": "wraithwood",
+    "type": "herb",
+    "pos": {
+      "x": 378,
+      "z": 1474
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_wraithwood_2",
+    "zoneId": "wraithwood",
+    "type": "herb",
+    "pos": {
+      "x": 346,
+      "z": 1482
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_galecrest_1",
+    "zoneId": "galecrest",
+    "type": "ore",
+    "pos": {
+      "x": 458,
+      "z": 334
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_galecrest_2",
+    "zoneId": "galecrest",
+    "type": "ore",
+    "pos": {
+      "x": 430,
+      "z": 379
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_galecrest_1",
+    "zoneId": "galecrest",
+    "type": "wood",
+    "pos": {
+      "x": 378,
+      "z": 382
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_galecrest_2",
+    "zoneId": "galecrest",
+    "type": "wood",
+    "pos": {
+      "x": 390,
+      "z": 322
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_galecrest_1",
+    "zoneId": "galecrest",
+    "type": "herb",
+    "pos": {
+      "x": 436,
+      "z": 394
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_galecrest_2",
+    "zoneId": "galecrest",
+    "type": "herb",
+    "pos": {
+      "x": 405,
+      "z": 407
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_galecrest_3",
+    "zoneId": "galecrest",
+    "type": "ore",
+    "pos": {
+      "x": 474,
+      "z": 298
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_galecrest_4",
+    "zoneId": "galecrest",
+    "type": "ore",
+    "pos": {
+      "x": 420,
+      "z": 470
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_galecrest_5",
+    "zoneId": "galecrest",
+    "type": "ore",
+    "pos": {
+      "x": 330,
+      "z": 600
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_galecrest_6",
+    "zoneId": "galecrest",
+    "type": "ore",
+    "pos": {
+      "x": 232,
+      "z": 300
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_galecrest_3",
+    "zoneId": "galecrest",
+    "type": "wood",
+    "pos": {
+      "x": 250,
+      "z": 432
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_galecrest_4",
+    "zoneId": "galecrest",
+    "type": "wood",
+    "pos": {
+      "x": 350,
+      "z": 480
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_galecrest_5",
+    "zoneId": "galecrest",
+    "type": "wood",
+    "pos": {
+      "x": 250,
+      "z": 648
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_galecrest_6",
+    "zoneId": "galecrest",
+    "type": "wood",
+    "pos": {
+      "x": 452,
+      "z": 600
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_galecrest_3",
+    "zoneId": "galecrest",
+    "type": "herb",
+    "pos": {
+      "x": 326,
+      "z": 566
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_galecrest_4",
+    "zoneId": "galecrest",
+    "type": "herb",
+    "pos": {
+      "x": 240,
+      "z": 352
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_galecrest_5",
+    "zoneId": "galecrest",
+    "type": "herb",
+    "pos": {
+      "x": 420,
+      "z": 650
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_galecrest_6",
+    "zoneId": "galecrest",
+    "type": "herb",
+    "pos": {
+      "x": 484,
+      "z": 330
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_palmreach_1",
+    "zoneId": "palmreach",
+    "type": "ore",
+    "pos": {
+      "x": -263,
+      "z": 795
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_palmreach_2",
+    "zoneId": "palmreach",
+    "type": "ore",
+    "pos": {
+      "x": -254,
+      "z": 834
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_palmreach_1",
+    "zoneId": "palmreach",
+    "type": "wood",
+    "pos": {
+      "x": -342,
+      "z": 842
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_palmreach_2",
+    "zoneId": "palmreach",
+    "type": "wood",
+    "pos": {
+      "x": -330,
+      "z": 782
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_palmreach_1",
+    "zoneId": "palmreach",
+    "type": "herb",
+    "pos": {
+      "x": -282,
+      "z": 864
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_palmreach_2",
+    "zoneId": "palmreach",
+    "type": "herb",
+    "pos": {
+      "x": -314,
+      "z": 872
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_evergarden_1",
+    "zoneId": "evergarden",
+    "type": "ore",
+    "pos": {
+      "x": 354,
+      "z": 780
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_evergarden_2",
+    "zoneId": "evergarden",
+    "type": "ore",
+    "pos": {
+      "x": 366,
+      "z": 824
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_evergarden_1",
+    "zoneId": "evergarden",
+    "type": "wood",
+    "pos": {
+      "x": 278,
+      "z": 832
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "wood_evergarden_2",
+    "zoneId": "evergarden",
+    "type": "wood",
+    "pos": {
+      "x": 290,
+      "z": 780
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_evergarden_1",
+    "zoneId": "evergarden",
+    "type": "herb",
+    "pos": {
+      "x": 338,
+      "z": 854
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "herb_evergarden_2",
+    "zoneId": "evergarden",
+    "type": "herb",
+    "pos": {
+      "x": 302,
+      "z": 866
+    },
+    "level": 20,
+    "tier": 1
+  },
+  {
+    "id": "ore_farshore_isle_1",
+    "zoneId": "farshore_isle",
+    "type": "ore",
+    "pos": {
+      "x": 343,
+      "z": 44
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "ore_farshore_isle_2",
+    "zoneId": "farshore_isle",
+    "type": "ore",
+    "pos": {
+      "x": 351,
+      "z": 84
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "wood_farshore_isle_1",
+    "zoneId": "farshore_isle",
+    "type": "wood",
+    "pos": {
+      "x": 269,
+      "z": 83
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "wood_farshore_isle_2",
+    "zoneId": "farshore_isle",
+    "type": "wood",
+    "pos": {
+      "x": 275,
+      "z": 32
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "herb_farshore_isle_1",
+    "zoneId": "farshore_isle",
+    "type": "herb",
+    "pos": {
+      "x": 323,
+      "z": 114
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "herb_farshore_isle_2",
+    "zoneId": "farshore_isle",
+    "type": "herb",
+    "pos": {
+      "x": 291,
+      "z": 104
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "ore_farshore_isle_3",
+    "zoneId": "farshore_isle",
+    "type": "ore",
+    "pos": {
+      "x": 232,
+      "z": 30
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "ore_farshore_isle_4",
+    "zoneId": "farshore_isle",
+    "type": "ore",
+    "pos": {
+      "x": 352,
+      "z": -48
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "ore_farshore_isle_5",
+    "zoneId": "farshore_isle",
+    "type": "ore",
+    "pos": {
+      "x": 430,
+      "z": -90
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "ore_farshore_isle_6",
+    "zoneId": "farshore_isle",
+    "type": "ore",
+    "pos": {
+      "x": 450,
+      "z": 93
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "wood_farshore_isle_3",
+    "zoneId": "farshore_isle",
+    "type": "wood",
+    "pos": {
+      "x": 279,
+      "z": -44
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "wood_farshore_isle_4",
+    "zoneId": "farshore_isle",
+    "type": "wood",
+    "pos": {
+      "x": 330,
+      "z": -70
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "wood_farshore_isle_5",
+    "zoneId": "farshore_isle",
+    "type": "wood",
+    "pos": {
+      "x": 386,
+      "z": 120
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "wood_farshore_isle_6",
+    "zoneId": "farshore_isle",
+    "type": "wood",
+    "pos": {
+      "x": 207,
+      "z": -18
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "herb_farshore_isle_3",
+    "zoneId": "farshore_isle",
+    "type": "herb",
+    "pos": {
+      "x": 245,
+      "z": 55
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "herb_farshore_isle_4",
+    "zoneId": "farshore_isle",
+    "type": "herb",
+    "pos": {
+      "x": 366,
+      "z": 128
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "herb_farshore_isle_5",
+    "zoneId": "farshore_isle",
+    "type": "herb",
+    "pos": {
+      "x": 295,
+      "z": -55
+    },
+    "level": 5,
+    "tier": 1
+  },
+  {
+    "id": "herb_farshore_isle_6",
+    "zoneId": "farshore_isle",
+    "type": "herb",
+    "pos": {
+      "x": 430,
+      "z": 8
+    },
+    "level": 5,
+    "tier": 1
+  }
+]

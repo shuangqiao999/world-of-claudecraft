@@ -1,0 +1,1411 @@
+[
+  {
+    "id": "eastbrook_vale",
+    "name": "Eastbrook Vale",
+    "zMin": -180,
+    "zMax": 180,
+    "levelRange": [
+      1,
+      7
+    ],
+    "biome": "vale",
+    "hub": {
+      "x": 0,
+      "z": 0,
+      "radius": 26,
+      "name": "Eastbrook"
+    },
+    "graveyard": {
+      "x": -12,
+      "z": -14
+    },
+    "lakes": [
+      {
+        "x": -92,
+        "z": 88,
+        "radius": 30
+      }
+    ],
+    "pois": [
+      {
+        "x": 0,
+        "z": -3,
+        "label": "Eastbrook",
+        "id": "eastbrook"
+      },
+      {
+        "x": -2,
+        "z": 70,
+        "label": "Wolf Run",
+        "id": "wolf_run"
+      },
+      {
+        "x": 65,
+        "z": 0,
+        "label": "Boar Meadow",
+        "id": "boar_meadow"
+      },
+      {
+        "x": -88,
+        "z": 82,
+        "label": "Mirror Lake",
+        "id": "mirror_lake"
+      },
+      {
+        "x": -60,
+        "z": 4,
+        "label": "Sableweb",
+        "id": "sableweb"
+      },
+      {
+        "x": -84,
+        "z": -64,
+        "label": "Copper Dig",
+        "id": "copper_dig"
+      },
+      {
+        "x": 76,
+        "z": -76,
+        "label": "Bandit Camp",
+        "id": "bandit_camp"
+      },
+      {
+        "x": 80,
+        "z": 80,
+        "label": "Fallen Chapel",
+        "id": "fallen_chapel"
+      },
+      {
+        "x": -5,
+        "z": -52,
+        "label": "Reliquary Hill",
+        "id": "reliquary_hill"
+      },
+      {
+        "x": 40,
+        "z": 140,
+        "label": "Brightwood Glade",
+        "id": "brightwood_glade"
+      },
+      {
+        "x": -11,
+        "z": -112,
+        "label": "The Sowfield",
+        "id": "the_sowfield"
+      },
+      {
+        "x": 150,
+        "z": -46,
+        "label": "The Farshore Causeway",
+        "id": "the_farshore_causeway"
+      }
+    ],
+    "welcome": "Find Marshal Redbrook in town - he has work for you.",
+    "welcomeQuestId": "q_wolves"
+  },
+  {
+    "id": "mirefen_marsh",
+    "name": "Mirefen Marsh",
+    "zMin": 180,
+    "zMax": 540,
+    "levelRange": [
+      6,
+      13
+    ],
+    "biome": "marsh",
+    "hub": {
+      "x": 0,
+      "z": 300,
+      "radius": 34,
+      "name": "Fenbridge"
+    },
+    "graveyard": {
+      "x": -18,
+      "z": 286
+    },
+    "lakes": [
+      {
+        "x": -110,
+        "z": 310,
+        "radius": 35
+      },
+      {
+        "x": 60,
+        "z": 380,
+        "radius": 25
+      },
+      {
+        "x": -40,
+        "z": 450,
+        "radius": 20
+      }
+    ],
+    "pois": [
+      {
+        "x": 0,
+        "z": 300,
+        "label": "Fenbridge",
+        "id": "fenbridge"
+      },
+      {
+        "x": -40,
+        "z": 230,
+        "label": "Prowler Reeds",
+        "id": "prowler_reeds"
+      },
+      {
+        "x": -105,
+        "z": 300,
+        "label": "Deepfen Shallows",
+        "id": "deepfen_shallows"
+      },
+      {
+        "x": 80,
+        "z": 315,
+        "label": "Widow Thicket",
+        "id": "widow_thicket"
+      },
+      {
+        "x": 100,
+        "z": 435,
+        "label": "Drowned Chapel",
+        "id": "drowned_chapel"
+      },
+      {
+        "x": -95,
+        "z": 440,
+        "label": "Troll Mounds",
+        "id": "troll_mounds"
+      },
+      {
+        "x": 0,
+        "z": 485,
+        "label": "Gravecaller Encampment",
+        "id": "gravecaller_encampment"
+      },
+      {
+        "x": 45,
+        "z": 515,
+        "label": "The Sunken Bastion",
+        "id": "the_sunken_bastion"
+      }
+    ],
+    "welcome": "Report to Warden Fenwick at the Fenbridge gate."
+  },
+  {
+    "id": "thornpeak_heights",
+    "name": "Thornpeak Heights",
+    "zMin": 540,
+    "zMax": 900,
+    "levelRange": [
+      13,
+      20
+    ],
+    "biome": "peaks",
+    "hub": {
+      "x": 0,
+      "z": 660,
+      "radius": 20,
+      "name": "Highwatch"
+    },
+    "graveyard": {
+      "x": 15,
+      "z": 645
+    },
+    "lakes": [
+      {
+        "x": -70,
+        "z": 760,
+        "radius": 18
+      }
+    ],
+    "pois": [
+      {
+        "x": 0,
+        "z": 660,
+        "label": "Highwatch",
+        "id": "highwatch"
+      },
+      {
+        "x": -50,
+        "z": 590,
+        "label": "Stalker Ridge",
+        "id": "stalker_ridge"
+      },
+      {
+        "x": 85,
+        "z": 615,
+        "label": "Deeprock Burrows",
+        "id": "deeprock_burrows"
+      },
+      {
+        "x": -90,
+        "z": 700,
+        "label": "Ogre Foothills",
+        "id": "ogre_foothills"
+      },
+      {
+        "x": -130,
+        "z": 740,
+        "label": "Drogmar's War-Camp",
+        "id": "drogmars_war_camp"
+      },
+      {
+        "x": 110,
+        "z": 760,
+        "label": "Stormcrag",
+        "id": "stormcrag"
+      },
+      {
+        "x": -70,
+        "z": 770,
+        "label": "The Glimmermere",
+        "id": "the_glimmermere"
+      },
+      {
+        "x": 55,
+        "z": 820,
+        "label": "Wyrmcult Tents",
+        "id": "wyrmcult_tents"
+      },
+      {
+        "x": -40,
+        "z": 830,
+        "label": "Revenant Fields",
+        "id": "revenant_fields"
+      },
+      {
+        "x": 0,
+        "z": 880,
+        "label": "Gravewyrm Sanctum",
+        "id": "gravewyrm_sanctum"
+      }
+    ],
+    "welcome": "Captain Thessaly holds the wall at Highwatch - barely."
+  },
+  {
+    "id": "veiled_hollow",
+    "name": "The Veiled Hollow",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "B": 0.55,
+      "A": 0.35,
+      "S": 0.1
+    },
+    "zMin": 900,
+    "zMax": 1440,
+    "levelRange": [
+      15,
+      20
+    ],
+    "biome": "dusk",
+    "sealedSouthBorder": true,
+    "hub": {
+      "x": -40,
+      "z": 1030,
+      "radius": 30,
+      "name": "Eldergleam"
+    },
+    "graveyard": {
+      "x": -60,
+      "z": 1004
+    },
+    "lakes": [
+      {
+        "x": 110,
+        "z": 985,
+        "radius": 22
+      },
+      {
+        "x": 94,
+        "z": 1000,
+        "radius": 10
+      },
+      {
+        "x": 126,
+        "z": 972,
+        "radius": 9
+      },
+      {
+        "x": 75,
+        "z": 1165,
+        "radius": 18
+      },
+      {
+        "x": 60,
+        "z": 1178,
+        "radius": 9
+      },
+      {
+        "x": 92,
+        "z": 1154,
+        "radius": 8
+      },
+      {
+        "x": -120,
+        "z": 1105,
+        "radius": 12
+      },
+      {
+        "x": -15,
+        "z": 1062,
+        "radius": 7
+      },
+      {
+        "x": 148,
+        "z": 1124,
+        "radius": 13
+      },
+      {
+        "x": 142,
+        "z": 1142,
+        "radius": 8
+      }
+    ],
+    "pois": [
+      {
+        "x": -40,
+        "z": 1030,
+        "label": "Eldergleam",
+        "id": "eldergleam"
+      },
+      {
+        "x": -140,
+        "z": 952,
+        "label": "Duskfall Cave",
+        "id": "duskfall_cave"
+      },
+      {
+        "x": -118,
+        "z": 988,
+        "label": "Duskfall Overlook",
+        "id": "duskfall_overlook"
+      },
+      {
+        "x": 30,
+        "z": 955,
+        "label": "Elder Grove",
+        "id": "elder_grove"
+      },
+      {
+        "x": 110,
+        "z": 985,
+        "label": "Starfall Basin",
+        "id": "starfall_basin"
+      },
+      {
+        "x": 125,
+        "z": 1085,
+        "label": "The Sunken Court",
+        "id": "the_sunken_court"
+      },
+      {
+        "x": 75,
+        "z": 1165,
+        "label": "Crystalline Shallows",
+        "id": "crystalline_shallows"
+      },
+      {
+        "x": -70,
+        "z": 1155,
+        "label": "The Gleaming Deep",
+        "id": "the_gleaming_deep"
+      }
+    ],
+    "welcome": "The air hums with old magic. Seek Keeper Saelwyn beneath the great tree of Eldergleam.",
+    "welcomeQuestId": "q_veil_thinned"
+  },
+  {
+    "id": "drakelands",
+    "name": "The Drakelands",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "B": 0.45,
+      "A": 0.4,
+      "S": 0.15
+    },
+    "zMin": 1820,
+    "zMax": 2420,
+    "xMin": 180,
+    "xMax": 540,
+    "levelRange": [
+      16,
+      20
+    ],
+    "biome": "ember",
+    "southPassX": 404,
+    "westPassZ": 1890,
+    "hub": {
+      "x": 404,
+      "z": 1900,
+      "radius": 24,
+      "name": "Wyrmwatch"
+    },
+    "graveyard": {
+      "x": 422,
+      "z": 1885
+    },
+    "lakes": [
+      {
+        "x": 340,
+        "z": 1925,
+        "radius": 14
+      },
+      {
+        "x": 326,
+        "z": 1936,
+        "radius": 8
+      },
+      {
+        "x": 456,
+        "z": 1988,
+        "radius": 11
+      },
+      {
+        "x": 300,
+        "z": 2110,
+        "radius": 10
+      }
+    ],
+    "pois": [
+      {
+        "x": 404,
+        "z": 1900,
+        "label": "Wyrmwatch",
+        "id": "wyrmwatch"
+      },
+      {
+        "x": 360,
+        "z": 1940,
+        "label": "The Gatewood",
+        "id": "the_gatewood"
+      },
+      {
+        "x": 330,
+        "z": 2100,
+        "label": "Cinder Dunes",
+        "id": "cinder_dunes"
+      },
+      {
+        "x": 460,
+        "z": 2140,
+        "label": "Trollmoot",
+        "id": "trollmoot"
+      },
+      {
+        "x": 406,
+        "z": 2032,
+        "label": "The Last Keep",
+        "id": "the_last_keep"
+      },
+      {
+        "x": 270,
+        "z": 2270,
+        "label": "Bloodglass Fields",
+        "id": "bloodglass_fields"
+      },
+      {
+        "x": 390,
+        "z": 2320,
+        "label": "Drakemaw Caldera",
+        "id": "drakemaw_caldera"
+      }
+    ],
+    "welcome": "Hot wind rolls off the wastes ahead. Dragons wheel over the Drakemaw, and troll fires burn in the dunes.",
+    "welcomeQuestId": "q_dk_ash_on_the_wind"
+  },
+  {
+    "id": "frostveil",
+    "name": "The Frostveil Reach",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "B": 0.45,
+      "A": 0.4,
+      "S": 0.15
+    },
+    "zMin": 1440,
+    "zMax": 1960,
+    "levelRange": [
+      17,
+      20
+    ],
+    "biome": "frost",
+    "southPassX": 44,
+    "hub": {
+      "x": -30,
+      "z": 1560,
+      "radius": 22,
+      "name": "Icemantle"
+    },
+    "graveyard": {
+      "x": -34,
+      "z": 1576
+    },
+    "lakes": [
+      {
+        "x": 60,
+        "z": 1640,
+        "radius": 16
+      },
+      {
+        "x": 48,
+        "z": 1652,
+        "radius": 9
+      },
+      {
+        "x": -90,
+        "z": 1760,
+        "radius": 12
+      }
+    ],
+    "pois": [
+      {
+        "x": -30,
+        "z": 1560,
+        "label": "Icemantle",
+        "id": "icemantle"
+      },
+      {
+        "x": -10,
+        "z": 1495,
+        "label": "The Snowline",
+        "id": "the_snowline"
+      },
+      {
+        "x": 60,
+        "z": 1640,
+        "label": "Glacier Tarn",
+        "id": "glacier_tarn"
+      },
+      {
+        "x": 30,
+        "z": 1740,
+        "label": "The Aurora Steps",
+        "id": "the_aurora_steps"
+      },
+      {
+        "x": -90,
+        "z": 1760,
+        "label": "The Shiverfen",
+        "id": "the_shiverfen"
+      },
+      {
+        "x": 100,
+        "z": 1810,
+        "label": "The Howling Terraces",
+        "id": "the_howling_terraces"
+      }
+    ],
+    "welcome": "Snow swallows every sound. Under the dancing lights, the cold itself feels awake.",
+    "welcomeQuestId": "q_fv_snowline_report"
+  },
+  {
+    "id": "amberfall",
+    "name": "The Amberfall",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "B": 0.15,
+      "A": 0.55,
+      "S": 0.3
+    },
+    "zMin": 1820,
+    "zMax": 2380,
+    "xMin": -540,
+    "xMax": -180,
+    "levelRange": [
+      18,
+      20
+    ],
+    "biome": "amber",
+    "southPassX": -350,
+    "eastPassZ": 1890,
+    "hub": {
+      "x": -360,
+      "z": 2072,
+      "radius": 24,
+      "name": "Lanternmere"
+    },
+    "graveyard": {
+      "x": -336,
+      "z": 2050
+    },
+    "lakes": [
+      {
+        "x": -360,
+        "z": 2132,
+        "radius": 26
+      },
+      {
+        "x": -332,
+        "z": 2146,
+        "radius": 14
+      },
+      {
+        "x": -390,
+        "z": 2144,
+        "radius": 13
+      },
+      {
+        "x": -444,
+        "z": 2002,
+        "radius": 10
+      },
+      {
+        "x": -264,
+        "z": 2246,
+        "radius": 9
+      }
+    ],
+    "pois": [
+      {
+        "x": -360,
+        "z": 2072,
+        "label": "Lanternmere",
+        "id": "lanternmere"
+      },
+      {
+        "x": -350,
+        "z": 1848,
+        "label": "The Goldmelt",
+        "id": "the_goldmelt"
+      },
+      {
+        "x": -432,
+        "z": 1992,
+        "label": "The Gilded Orchard",
+        "id": "the_gilded_orchard"
+      },
+      {
+        "x": -290,
+        "z": 1960,
+        "label": "Harvest Hollow",
+        "id": "harvest_hollow"
+      },
+      {
+        "x": -360,
+        "z": 2132,
+        "label": "The Great Mere",
+        "id": "the_great_mere"
+      },
+      {
+        "x": -430,
+        "z": 2210,
+        "label": "Cindermaple Rise",
+        "id": "cindermaple_rise"
+      },
+      {
+        "x": -276,
+        "z": 2230,
+        "label": "The Leaning Monolith",
+        "id": "the_leaning_monolith"
+      }
+    ],
+    "welcome": "Every leaf here burns gold and red, yet none ever fall. The lanterns of Lanternmere are lit for you.",
+    "welcomeQuestId": "q_af_goldmelt_road"
+  },
+  {
+    "id": "willowfen",
+    "name": "The Willowfen",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "B": 0.1,
+      "A": 0.55,
+      "S": 0.35
+    },
+    "zMin": 180,
+    "zMax": 700,
+    "xMin": -540,
+    "xMax": -180,
+    "levelRange": [
+      19,
+      20
+    ],
+    "biome": "fen",
+    "eastPassZ": 440,
+    "hub": {
+      "x": -360,
+      "z": 362,
+      "radius": 20,
+      "name": "Bridgemere"
+    },
+    "graveyard": {
+      "x": -344,
+      "z": 306
+    },
+    "lakes": [
+      {
+        "x": -384,
+        "z": 336,
+        "radius": 11
+      },
+      {
+        "x": -396,
+        "z": 361,
+        "radius": 11
+      },
+      {
+        "x": -386,
+        "z": 387,
+        "radius": 11
+      },
+      {
+        "x": -360,
+        "z": 398,
+        "radius": 11
+      },
+      {
+        "x": -334,
+        "z": 387,
+        "radius": 11
+      },
+      {
+        "x": -324,
+        "z": 361,
+        "radius": 11
+      },
+      {
+        "x": -336,
+        "z": 336,
+        "radius": 11
+      },
+      {
+        "x": -436,
+        "z": 286,
+        "radius": 13
+      },
+      {
+        "x": -468,
+        "z": 304,
+        "radius": 11
+      },
+      {
+        "x": -442,
+        "z": 330,
+        "radius": 11
+      },
+      {
+        "x": -416,
+        "z": 310,
+        "radius": 9
+      },
+      {
+        "x": -290,
+        "z": 280,
+        "radius": 12
+      },
+      {
+        "x": -268,
+        "z": 298,
+        "radius": 9
+      },
+      {
+        "x": -302,
+        "z": 304,
+        "radius": 8
+      },
+      {
+        "x": -336,
+        "z": 474,
+        "radius": 13
+      },
+      {
+        "x": -302,
+        "z": 500,
+        "radius": 12
+      },
+      {
+        "x": -332,
+        "z": 516,
+        "radius": 11
+      },
+      {
+        "x": -426,
+        "z": 460,
+        "radius": 14
+      },
+      {
+        "x": -444,
+        "z": 478,
+        "radius": 10
+      }
+    ],
+    "pois": [
+      {
+        "x": -360,
+        "z": 362,
+        "label": "Bridgemere",
+        "id": "bridgemere"
+      },
+      {
+        "x": -380,
+        "z": 208,
+        "label": "The Amberfen Steps",
+        "id": "the_amberfen_steps"
+      },
+      {
+        "x": -444,
+        "z": 308,
+        "label": "The Lilymoors",
+        "id": "the_lilymoors"
+      },
+      {
+        "x": -286,
+        "z": 292,
+        "label": "Bogshine Pools",
+        "id": "bogshine_pools"
+      },
+      {
+        "x": -430,
+        "z": 466,
+        "label": "Willowweep",
+        "id": "willowweep"
+      },
+      {
+        "x": -320,
+        "z": 496,
+        "label": "The Drowsy Flats",
+        "id": "the_drowsy_flats"
+      }
+    ],
+    "welcome": "The fen hums with dragonflies and bees. Cross the bridge into Bridgemere and rest your feet awhile.",
+    "welcomeQuestId": "q_wf_across_the_fenway"
+  },
+  {
+    "id": "nightbloom",
+    "name": "The Nightbloom",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "A": 0.4,
+      "S": 0.6
+    },
+    "zMin": 1260,
+    "zMax": 1820,
+    "xMin": -540,
+    "xMax": -180,
+    "levelRange": [
+      20,
+      20
+    ],
+    "biome": "night",
+    "southPassX": -330,
+    "hub": {
+      "x": -370,
+      "z": 1420,
+      "radius": 18,
+      "name": "Moonrest"
+    },
+    "graveyard": {
+      "x": -388,
+      "z": 1402
+    },
+    "lakes": [
+      {
+        "x": -290,
+        "z": 1380,
+        "radius": 14
+      },
+      {
+        "x": -440,
+        "z": 1520,
+        "radius": 10
+      },
+      {
+        "x": -462,
+        "z": 1492,
+        "radius": 8
+      },
+      {
+        "x": -336,
+        "z": 1682,
+        "radius": 12
+      }
+    ],
+    "pois": [
+      {
+        "x": -370,
+        "z": 1420,
+        "label": "Moonrest",
+        "id": "moonrest"
+      },
+      {
+        "x": -390,
+        "z": 1292,
+        "label": "The Nightgate",
+        "id": "the_nightgate"
+      },
+      {
+        "x": -290,
+        "z": 1380,
+        "label": "The Moonwell",
+        "id": "the_moonwell"
+      },
+      {
+        "x": -444,
+        "z": 1496,
+        "label": "Gloamfield",
+        "id": "gloamfield"
+      },
+      {
+        "x": -272,
+        "z": 1538,
+        "label": "The Standing Vigil",
+        "id": "the_standing_vigil"
+      },
+      {
+        "x": -360,
+        "z": 1650,
+        "label": "The Sleepless Barrow",
+        "id": "the_sleepless_barrow"
+      }
+    ],
+    "welcome": "Past the Nightgate the air itself dreams. Follow the flower-light to Moonrest, and mind the sleeping world that hangs in the sky.",
+    "welcomeQuestId": "q_nb_road_of_lanterns"
+  },
+  {
+    "id": "wraithwood",
+    "name": "The Wraithwood",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "A": 0.35,
+      "S": 0.65
+    },
+    "zMin": 1260,
+    "zMax": 1820,
+    "xMin": 180,
+    "xMax": 540,
+    "levelRange": [
+      20,
+      20
+    ],
+    "biome": "haunt",
+    "southPassX": 390,
+    "hub": {
+      "x": 360,
+      "z": 1430,
+      "radius": 17,
+      "name": "Gallowmere"
+    },
+    "graveyard": {
+      "x": 378,
+      "z": 1412
+    },
+    "lakes": [
+      {
+        "x": 290,
+        "z": 1500,
+        "radius": 10
+      },
+      {
+        "x": 312,
+        "z": 1640,
+        "radius": 9
+      },
+      {
+        "x": 452,
+        "z": 1444,
+        "radius": 11
+      }
+    ],
+    "pois": [
+      {
+        "x": 360,
+        "z": 1430,
+        "label": "Gallowmere",
+        "id": "gallowmere"
+      },
+      {
+        "x": 390,
+        "z": 1292,
+        "label": "The Crowgate",
+        "id": "the_crowgate"
+      },
+      {
+        "x": 280,
+        "z": 1484,
+        "label": "Widow's Thicket",
+        "id": "widows_thicket"
+      },
+      {
+        "x": 440,
+        "z": 1530,
+        "label": "The Hanging Glade",
+        "id": "the_hanging_glade"
+      },
+      {
+        "x": 300,
+        "z": 1620,
+        "label": "The Mournstone Chapel",
+        "id": "the_mournstone_chapel"
+      },
+      {
+        "x": 380,
+        "z": 1680,
+        "label": "The Huntsman's Clearing",
+        "id": "the_huntsmans_clearing"
+      }
+    ],
+    "welcome": "The canopy closes over the road like a lid. Keep to the lanterns of Gallowmere, and do not answer if the wood calls your name.",
+    "welcomeQuestId": "q_ww_bells_of_gallowmere"
+  },
+  {
+    "id": "palmreach",
+    "name": "The Palmreach",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "A": 0.4,
+      "S": 0.6
+    },
+    "zMin": 700,
+    "zMax": 1260,
+    "xMin": -540,
+    "xMax": -180,
+    "levelRange": [
+      20,
+      20
+    ],
+    "biome": "jungle",
+    "southPassX": -400,
+    "eastPassZ": 820,
+    "hub": {
+      "x": -300,
+      "z": 820,
+      "radius": 16,
+      "name": "Drifthaven"
+    },
+    "graveyard": {
+      "x": -318,
+      "z": 802
+    },
+    "lakes": [
+      {
+        "x": -270,
+        "z": 950,
+        "radius": 15
+      },
+      {
+        "x": -380,
+        "z": 1000,
+        "radius": 10
+      },
+      {
+        "x": -336,
+        "z": 1158,
+        "radius": 11
+      }
+    ],
+    "pois": [
+      {
+        "x": -300,
+        "z": 820,
+        "label": "Drifthaven",
+        "id": "drifthaven"
+      },
+      {
+        "x": -420,
+        "z": 732,
+        "label": "The Tanglemouth",
+        "id": "the_tanglemouth"
+      },
+      {
+        "x": -460,
+        "z": 890,
+        "label": "The Palmstrand",
+        "id": "the_palmstrand"
+      },
+      {
+        "x": -360,
+        "z": 980,
+        "label": "The Emerald Tangle",
+        "id": "the_emerald_tangle"
+      },
+      {
+        "x": -400,
+        "z": 1080,
+        "label": "The Vinefall",
+        "id": "the_vinefall"
+      },
+      {
+        "x": -270,
+        "z": 950,
+        "label": "The Sapphire Lagoon",
+        "id": "the_sapphire_lagoon"
+      },
+      {
+        "x": -256,
+        "z": 1090,
+        "label": "The Sunken Idol",
+        "id": "the_sunken_idol"
+      }
+    ],
+    "welcome": "Warm sand, loud birds, and a jungle that eats the horizon. Drifthaven keeps a fire lit on the beach for you.",
+    "welcomeQuestId": "q_pr_down_to_drifthaven"
+  },
+  {
+    "id": "evergarden",
+    "name": "The Evergarden",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "A": 0.35,
+      "S": 0.65
+    },
+    "zMin": 700,
+    "zMax": 1260,
+    "xMin": 180,
+    "xMax": 540,
+    "levelRange": [
+      20,
+      20
+    ],
+    "biome": "garden",
+    "southPassX": 400,
+    "westPassZ": 800,
+    "hub": {
+      "x": 320,
+      "z": 810,
+      "radius": 16,
+      "name": "Hedgewick"
+    },
+    "graveyard": {
+      "x": 309,
+      "z": 793
+    },
+    "lakes": [
+      {
+        "x": 440,
+        "z": 850,
+        "radius": 11
+      },
+      {
+        "x": 340,
+        "z": 1170,
+        "radius": 10
+      }
+    ],
+    "pois": [
+      {
+        "x": 320,
+        "z": 810,
+        "label": "Hedgewick",
+        "id": "hedgewick"
+      },
+      {
+        "x": 410,
+        "z": 732,
+        "label": "The Garden Gate",
+        "id": "the_garden_gate"
+      },
+      {
+        "x": 360,
+        "z": 875,
+        "label": "The Parterre Walk",
+        "id": "the_statuary_walk"
+      },
+      {
+        "x": 263,
+        "z": 889,
+        "label": "Dawnhold Castle",
+        "id": "the_rose_wilds"
+      },
+      {
+        "x": 440,
+        "z": 850,
+        "label": "The Petal Pond",
+        "id": "the_petal_pond"
+      },
+      {
+        "x": 360,
+        "z": 946,
+        "label": "The Great Maze",
+        "id": "the_great_maze"
+      },
+      {
+        "x": 360,
+        "z": 1016,
+        "label": "The Fountain Court",
+        "id": "the_fountain_court"
+      },
+      {
+        "x": 504,
+        "z": 754,
+        "label": "The Old Mill",
+        "id": "the_old_mill"
+      },
+      {
+        "x": 412,
+        "z": 1112,
+        "label": "The North Watch",
+        "id": "the_north_watch"
+      },
+      {
+        "x": 340,
+        "z": 1170,
+        "label": "The Lily Basin",
+        "id": "the_lily_basin"
+      }
+    ],
+    "welcome": "Someone is still trimming the hedges, though no gardener has been seen for a hundred years. Mind the maze: it minds you back.",
+    "welcomeQuestId": "q_eg_gate_report"
+  },
+  {
+    "id": "galecrest",
+    "name": "The Galecrest",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "A": 0.4,
+      "S": 0.6
+    },
+    "zMin": 180,
+    "zMax": 700,
+    "xMin": 180,
+    "xMax": 540,
+    "levelRange": [
+      20,
+      20
+    ],
+    "biome": "gale",
+    "westPassZ": 440,
+    "hub": {
+      "x": 420,
+      "z": 360,
+      "radius": 16,
+      "name": "Wickharbor"
+    },
+    "graveyard": {
+      "x": 404,
+      "z": 344
+    },
+    "lakes": [
+      {
+        "x": 300,
+        "z": 560,
+        "radius": 10
+      }
+    ],
+    "pois": [
+      {
+        "x": 420,
+        "z": 360,
+        "label": "Wickharbor",
+        "id": "wickharbor"
+      },
+      {
+        "x": 200,
+        "z": 440,
+        "label": "The Windway",
+        "id": "the_windway"
+      },
+      {
+        "x": 280,
+        "z": 320,
+        "label": "The Howling Downs",
+        "id": "the_howling_downs"
+      },
+      {
+        "x": 498,
+        "z": 308,
+        "label": "The Old Beacon",
+        "id": "the_old_beacon"
+      },
+      {
+        "x": 455,
+        "z": 535,
+        "label": "The Shear",
+        "id": "the_shear"
+      },
+      {
+        "x": 340,
+        "z": 645,
+        "label": "The Wreckfields",
+        "id": "the_wreckfields"
+      },
+      {
+        "x": 300,
+        "z": 560,
+        "label": "The Mirror Tarn",
+        "id": "the_mirror_tarn"
+      },
+      {
+        "x": 378,
+        "z": 598,
+        "label": "The Galecrest Stables",
+        "id": "the_galecrest_stables"
+      }
+    ],
+    "welcome": "The wind has never once stopped here, and the Old Beacon has never once gone out. Wickharbor asks only that you close the inn door behind you.",
+    "welcomeQuestId": "q_gc_down_the_windway"
+  },
+  {
+    "id": "farshore_isle",
+    "name": "The Farshore",
+    "riftPortalEligible": true,
+    "riftTierWeights": {
+      "C": 0.7,
+      "B": 0.3
+    },
+    "zMin": -180,
+    "zMax": 180,
+    "xMin": 180,
+    "xMax": 540,
+    "levelRange": [
+      3,
+      7
+    ],
+    "biome": "vale",
+    "hub": {
+      "x": 305,
+      "z": 70,
+      "radius": 15,
+      "name": "Gullhaven"
+    },
+    "graveyard": {
+      "x": 290,
+      "z": 86
+    },
+    "lakes": [
+      {
+        "x": 388,
+        "z": 26,
+        "radius": 8
+      },
+      {
+        "x": 350,
+        "z": 118,
+        "radius": 10
+      }
+    ],
+    "pois": [
+      {
+        "x": 305,
+        "z": 70,
+        "label": "Gullhaven",
+        "id": "gullhaven"
+      },
+      {
+        "x": 250,
+        "z": 14,
+        "label": "The Landing",
+        "id": "the_landing"
+      },
+      {
+        "x": 375,
+        "z": -5,
+        "label": "The Watch Meadow",
+        "id": "the_watch_meadow"
+      },
+      {
+        "x": 402,
+        "z": -72,
+        "label": "The Sundered Cliffs",
+        "id": "the_sundered_cliffs"
+      },
+      {
+        "x": 434,
+        "z": 58,
+        "label": "The Riftfields",
+        "id": "the_riftfields"
+      }
+    ],
+    "welcome": "Cross the sandbar and Gullhaven's bell will find you before the town does. The breaks tear open without warning, and the redoubt holds its shore against whatever pours through. They have been waiting a long while for someone like you.",
+    "welcomeQuestId": "q_fs_bell_at_the_landing"
+  }
+]

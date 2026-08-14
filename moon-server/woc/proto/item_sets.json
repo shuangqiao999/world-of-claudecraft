@@ -1,0 +1,512 @@
+{
+  "deathlord": {
+    "id": "deathlord",
+    "name": "Barrowlord Battlegear",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "ap": 40
+        },
+        "text": "Increases attack power by 40."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "str": 15,
+          "sta": 15
+        },
+        "text": "Increases Strength by 15 and Stamina by 15."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "proc": {
+            "id": "set_gravemight",
+            "name": "Gravemight",
+            "trigger": "weaponCrit",
+            "chance": 0.5,
+            "aura": "buff_ap",
+            "value": 60,
+            "duration": 10,
+            "icd": 15
+          }
+        },
+        "text": "Your weapon critical strikes have a 50% chance to grant Gravemight, increasing attack power by 60 for 10 sec."
+      }
+    ]
+  },
+  "wyrmshadow": {
+    "id": "wyrmshadow",
+    "name": "Nightfang Vestments",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "ap": 40
+        },
+        "text": "Increases attack power by 40."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "agi": 15,
+          "critRating": 20
+        },
+        "text": "Increases Agility by 15 and critical strike chance by 1%."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "proc": {
+            "id": "set_fangrush",
+            "name": "Fangrush",
+            "trigger": "weaponCrit",
+            "chance": 0.5,
+            "aura": "buff_haste",
+            "value": 1.25,
+            "duration": 8,
+            "icd": 15
+          }
+        },
+        "text": "Your weapon critical strikes have a 50% chance to grant Fangrush, increasing attack speed by 25% for 8 sec."
+      }
+    ]
+  },
+  "necromancers": {
+    "id": "necromancers",
+    "name": "Mournweave Raiment",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "castPushbackReduction": 1,
+          "sp": 20
+        },
+        "text": "Increases spell power by 20. Damage taken no longer delays your spellcasting (100% pushback resistance)."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "int": 10,
+          "sta": 10
+        },
+        "text": "Increases Intellect by 10 and Stamina by 10."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "proc": {
+            "id": "set_clearcasting",
+            "name": "Clearcasting",
+            "trigger": "spellCast",
+            "chance": 0.1,
+            "aura": "next_cast_free",
+            "duration": 12,
+            "icd": 4
+          }
+        },
+        "text": "Your spells have a 10% chance to grant Clearcasting, making your next spell free."
+      }
+    ]
+  },
+  "crownforged": {
+    "id": "crownforged",
+    "name": "Bonewrought Regalia",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "ap": 40
+        },
+        "text": "Increases attack power by 40."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "str": 15,
+          "sta": 15,
+          "hasteRating": 150
+        },
+        "text": "Increases Strength by 15, Stamina by 15, and attack and casting speed by 7.5%."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "hitRating": 60,
+          "proc": {
+            "id": "set_bonesplinter",
+            "name": "Bonesplinter",
+            "trigger": "weaponCrit",
+            "chance": 1,
+            "applyTo": "target",
+            "aura": "dot",
+            "value": 8,
+            "tickInterval": 2,
+            "duration": 12,
+            "maxStacks": 3,
+            "school": "physical"
+          }
+        },
+        "text": "Increases Hit by 6%. Your weapon critical strikes splinter the target with Bonesplinter, bleeding it for 8 damage every 2 sec for 12 sec. Stacks up to 3 times."
+      }
+    ]
+  },
+  "nighttalon": {
+    "id": "nighttalon",
+    "name": "Direfang Pelt",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "ap": 40
+        },
+        "text": "Increases attack power by 40."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "agi": 15,
+          "critRating": 20,
+          "hasteRating": 150
+        },
+        "text": "Increases Agility by 15, critical strike chance by 1%, and attack and casting speed by 7.5%."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "hitRating": 60,
+          "proc": {
+            "id": "set_ragged_gash",
+            "name": "Ragged Gash",
+            "trigger": "weaponCrit",
+            "chance": 1,
+            "applyTo": "target",
+            "aura": "dot",
+            "value": 6,
+            "tickInterval": 2,
+            "duration": 12,
+            "maxStacks": 3,
+            "school": "physical"
+          }
+        },
+        "text": "Increases Hit by 6%. Your weapon critical strikes tear a Ragged Gash, bleeding the target for 6 damage every 2 sec for 12 sec. Stacks up to 3 times."
+      }
+    ]
+  },
+  "soulflame": {
+    "id": "soulflame",
+    "name": "Wraithfire Regalia",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "castPushbackReduction": 1,
+          "sp": 20
+        },
+        "text": "Increases spell power by 20. Damage taken no longer delays your spellcasting (100% pushback resistance)."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "int": 15,
+          "spi": 15,
+          "hasteRating": 150
+        },
+        "text": "Increases Intellect by 15, Spirit by 15, and attack and casting speed by 7.5%."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "proc": {
+            "id": "set_soulblaze",
+            "name": "Soulblaze",
+            "trigger": "spellCast",
+            "chance": 0.1,
+            "aura": "buff_spellpower",
+            "value": 40,
+            "duration": 10,
+            "icd": 20
+          }
+        },
+        "text": "Your spells have a 10% chance to grant Soulblaze, increasing spell power by 40 for 10 sec."
+      }
+    ]
+  },
+  "stormcallers": {
+    "id": "stormcallers",
+    "name": "Galecall Vestments",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "castPushbackReduction": 1,
+          "sp": 20
+        },
+        "text": "Increases spell power by 20. Damage taken no longer delays your spellcasting (100% pushback resistance)."
+      },
+      {
+        "pieces": 3,
+        "effect": {
+          "int": 15,
+          "spi": 15,
+          "hasteRating": 150
+        },
+        "text": "Increases Intellect by 15, Spirit by 15, and attack and casting speed by 7.5%."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "proc": {
+            "id": "set_soulblaze",
+            "name": "Soulblaze",
+            "trigger": "spellCast",
+            "chance": 0.1,
+            "aura": "buff_spellpower",
+            "value": 40,
+            "duration": 10,
+            "icd": 20
+          }
+        },
+        "text": "Your spells have a 10% chance to grant Soulblaze, increasing spell power by 40 for 10 sec."
+      }
+    ]
+  },
+  "vale_arcanist": {
+    "id": "vale_arcanist",
+    "name": "Vale Arcanist's Regalia",
+    "bonuses": [
+      {
+        "pieces": 3,
+        "effect": {
+          "hasteRating": 150
+        },
+        "text": "Increases attack and casting speed by 7.5%."
+      }
+    ]
+  },
+  "boundstone_vanguard": {
+    "id": "boundstone_vanguard",
+    "name": "Boundstone Vanguard",
+    "bonuses": [
+      {
+        "pieces": 3,
+        "effect": {
+          "hasteRating": 150
+        },
+        "text": "Increases attack and casting speed by 7.5%."
+      }
+    ]
+  },
+  "greyjaw_stalker": {
+    "id": "greyjaw_stalker",
+    "name": "Greyjaw Stalker's Kit",
+    "bonuses": [
+      {
+        "pieces": 3,
+        "effect": {
+          "hasteRating": 150
+        },
+        "text": "Increases attack and casting speed by 7.5%."
+      }
+    ]
+  },
+  "warfare_furyforged": {
+    "id": "warfare_furyforged",
+    "name": "Furyforged Battlegear",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "pvpDefenseRating": 40
+        },
+        "text": "Increases WARFARE Defense Rating by 40."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "pvpOffenseRating": 40,
+          "ccDurationReduction": 0.15
+        },
+        "text": "Increases WARFARE Offense Rating by 40, and crowd control cast on you by hostile players lasts 15% less."
+      },
+      {
+        "pieces": 7,
+        "effect": {
+          "pvpOffenseRating": 80,
+          "pvpDefenseRating": 80,
+          "proc": {
+            "id": "set_warfare_unbroken_oath",
+            "name": "Unbroken Oath",
+            "trigger": "kill",
+            "chance": 1,
+            "aura": "absorb",
+            "value": 200,
+            "duration": 10,
+            "pvpOnly": true
+          }
+        },
+        "text": "Increases WARFARE Offense and Defense Rating by 80. Killing a hostile player grants Unbroken Oath, absorbing 200 damage for 10 sec."
+      }
+    ]
+  },
+  "warfare_stormbound": {
+    "id": "warfare_stormbound",
+    "name": "Stormbound Vestments",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "pvpDefenseRating": 40
+        },
+        "text": "Increases WARFARE Defense Rating by 40."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "pvpOffenseRating": 40,
+          "ccDurationReduction": 0.15
+        },
+        "text": "Increases WARFARE Offense Rating by 40, and crowd control cast on you by hostile players lasts 15% less."
+      },
+      {
+        "pieces": 7,
+        "effect": {
+          "pvpOffenseRating": 80,
+          "pvpDefenseRating": 80,
+          "proc": {
+            "id": "set_warfare_emberward",
+            "name": "Emberward",
+            "trigger": "spellCast",
+            "chance": 0.15,
+            "aura": "absorb",
+            "value": 120,
+            "duration": 8,
+            "icd": 20,
+            "pvpOnly": true
+          }
+        },
+        "text": "Increases WARFARE Offense and Defense Rating by 80. Your spells have a 15% chance to grant Emberward, absorbing 120 damage for 8 sec."
+      }
+    ]
+  },
+  "warfare_ashstalker": {
+    "id": "warfare_ashstalker",
+    "name": "Ashstalker Kit",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "pvpDefenseRating": 40
+        },
+        "text": "Increases WARFARE Defense Rating by 40."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "pvpOffenseRating": 40,
+          "ccDurationReduction": 0.15
+        },
+        "text": "Increases WARFARE Offense Rating by 40, and crowd control cast on you by hostile players lasts 15% less."
+      },
+      {
+        "pieces": 7,
+        "effect": {
+          "pvpOffenseRating": 80,
+          "pvpDefenseRating": 80,
+          "proc": {
+            "id": "set_warfare_ashen_step",
+            "name": "Ashen Step",
+            "trigger": "kill",
+            "chance": 1,
+            "aura": "buff_speed",
+            "value": 1.4,
+            "duration": 6,
+            "pvpOnly": true
+          }
+        },
+        "text": "Increases WARFARE Offense and Defense Rating by 80. Killing a hostile player grants Ashen Step, increasing movement speed by 40% for 6 sec."
+      }
+    ]
+  },
+  "warfare_cinderweave": {
+    "id": "warfare_cinderweave",
+    "name": "Cinderweave Regalia",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "pvpDefenseRating": 40
+        },
+        "text": "Increases WARFARE Defense Rating by 40."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "pvpOffenseRating": 40,
+          "ccDurationReduction": 0.15
+        },
+        "text": "Increases WARFARE Offense Rating by 40, and crowd control cast on you by hostile players lasts 15% less."
+      },
+      {
+        "pieces": 7,
+        "effect": {
+          "pvpOffenseRating": 80,
+          "pvpDefenseRating": 80,
+          "proc": {
+            "id": "set_warfare_emberward",
+            "name": "Emberward",
+            "trigger": "spellCast",
+            "chance": 0.15,
+            "aura": "absorb",
+            "value": 120,
+            "duration": 8,
+            "icd": 20,
+            "pvpOnly": true
+          }
+        },
+        "text": "Increases WARFARE Offense and Defense Rating by 80. Your spells have a 15% chance to grant Emberward, absorbing 120 damage for 8 sec."
+      }
+    ]
+  },
+  "warfare_thornhide": {
+    "id": "warfare_thornhide",
+    "name": "Thornhide Garb",
+    "bonuses": [
+      {
+        "pieces": 2,
+        "effect": {
+          "pvpDefenseRating": 40
+        },
+        "text": "Increases WARFARE Defense Rating by 40."
+      },
+      {
+        "pieces": 4,
+        "effect": {
+          "pvpOffenseRating": 40,
+          "ccDurationReduction": 0.15
+        },
+        "text": "Increases WARFARE Offense Rating by 40, and crowd control cast on you by hostile players lasts 15% less."
+      },
+      {
+        "pieces": 7,
+        "effect": {
+          "pvpOffenseRating": 80,
+          "pvpDefenseRating": 80,
+          "proc": {
+            "id": "set_warfare_thornguard",
+            "name": "Thornguard",
+            "trigger": "spellCast",
+            "chance": 0.15,
+            "aura": "buff_dodge",
+            "value": 0.15,
+            "duration": 6,
+            "icd": 20,
+            "pvpOnly": true
+          }
+        },
+        "text": "Increases WARFARE Offense and Defense Rating by 80. Your spells have a 15% chance to grant Thornguard, increasing dodge by 15% for 6 sec."
+      }
+    ]
+  }
+}

@@ -1,0 +1,1892 @@
+[
+  {
+    "mobId": "forest_wolf",
+    "center": {
+      "x": -27,
+      "z": 71
+    },
+    "radius": 28.5,
+    "count": 6
+  },
+  {
+    "mobId": "forest_wolf",
+    "center": {
+      "x": 24,
+      "z": 70
+    },
+    "radius": 26,
+    "count": 5
+  },
+  {
+    "mobId": "old_greyjaw",
+    "center": {
+      "x": 0,
+      "z": 100
+    },
+    "radius": 8,
+    "count": 1
+  },
+  {
+    "mobId": "wild_boar",
+    "center": {
+      "x": 63,
+      "z": 16
+    },
+    "radius": 26,
+    "count": 5
+  },
+  {
+    "mobId": "wild_boar",
+    "center": {
+      "x": 84,
+      "z": -27
+    },
+    "radius": 23.5,
+    "count": 4
+  },
+  {
+    "mobId": "mogger",
+    "center": {
+      "x": 118,
+      "z": -26
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "webwood_spider",
+    "center": {
+      "x": -68,
+      "z": 2
+    },
+    "radius": 28.5,
+    "count": 6
+  },
+  {
+    "mobId": "mudfin_murloc",
+    "center": {
+      "x": -75,
+      "z": 57
+    },
+    "radius": 15,
+    "count": 5
+  },
+  {
+    "mobId": "tunnel_rat",
+    "center": {
+      "x": -82,
+      "z": -62
+    },
+    "radius": 33,
+    "count": 8
+  },
+  {
+    "mobId": "vale_bandit",
+    "center": {
+      "x": 50,
+      "z": -72
+    },
+    "radius": 28.5,
+    "count": 6
+  },
+  {
+    "mobId": "vale_bandit",
+    "center": {
+      "x": 90,
+      "z": -90
+    },
+    "radius": 16,
+    "count": 5
+  },
+  {
+    "mobId": "gorrak",
+    "center": {
+      "x": 92,
+      "z": -92
+    },
+    "radius": 2,
+    "count": 1
+  },
+  {
+    "mobId": "restless_bones",
+    "center": {
+      "x": 82,
+      "z": 78
+    },
+    "radius": 28.5,
+    "count": 6
+  },
+  {
+    "mobId": "captain_verlan",
+    "center": {
+      "x": 92,
+      "z": 90
+    },
+    "radius": 4,
+    "count": 1
+  },
+  {
+    "mobId": "mire_prowler",
+    "center": {
+      "x": -40,
+      "z": 230
+    },
+    "radius": 22,
+    "count": 7
+  },
+  {
+    "mobId": "mire_prowler",
+    "center": {
+      "x": 35,
+      "z": 225
+    },
+    "radius": 20,
+    "count": 6
+  },
+  {
+    "mobId": "deepfen_murloc",
+    "center": {
+      "x": -82,
+      "z": 273
+    },
+    "radius": 15,
+    "count": 8
+  },
+  {
+    "mobId": "deepfen_murloc",
+    "center": {
+      "x": -120,
+      "z": 350
+    },
+    "radius": 13,
+    "count": 6
+  },
+  {
+    "mobId": "mirejaw_the_ravenous",
+    "center": {
+      "x": -132,
+      "z": 333
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "mire_widow",
+    "center": {
+      "x": 70,
+      "z": 300
+    },
+    "radius": 20,
+    "count": 7
+  },
+  {
+    "mobId": "mire_widow",
+    "center": {
+      "x": 95,
+      "z": 340
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "mirefen_broodmother",
+    "center": {
+      "x": 98,
+      "z": 348
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "spider_egg",
+    "center": {
+      "x": 70,
+      "z": 300
+    },
+    "radius": 20,
+    "count": 7
+  },
+  {
+    "mobId": "spider_egg",
+    "center": {
+      "x": 95,
+      "z": 340
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "drowned_dead",
+    "center": {
+      "x": 90,
+      "z": 420
+    },
+    "radius": 20,
+    "count": 8
+  },
+  {
+    "mobId": "drowned_dead",
+    "center": {
+      "x": 115,
+      "z": 450
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "sloomtooth_the_drowned",
+    "center": {
+      "x": 118,
+      "z": 455
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "drowned_warlord",
+    "center": {
+      "x": 98,
+      "z": 432
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "fen_troll",
+    "center": {
+      "x": -80,
+      "z": 420
+    },
+    "radius": 22,
+    "count": 7
+  },
+  {
+    "mobId": "fen_troll",
+    "center": {
+      "x": -105,
+      "z": 455
+    },
+    "radius": 18,
+    "count": 6
+  },
+  {
+    "mobId": "grubjaw",
+    "center": {
+      "x": -120,
+      "z": 480
+    },
+    "radius": 8,
+    "count": 1
+  },
+  {
+    "mobId": "gravecaller_cultist",
+    "center": {
+      "x": 15,
+      "z": 470
+    },
+    "radius": 20,
+    "count": 7
+  },
+  {
+    "mobId": "gravecaller_cultist",
+    "center": {
+      "x": -25,
+      "z": 490
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "gravecaller_summoner",
+    "center": {
+      "x": -5,
+      "z": 500
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "gravecaller_mender",
+    "center": {
+      "x": 18,
+      "z": 472
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "sister_nhalia",
+    "center": {
+      "x": 24,
+      "z": 492
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "deacon_voss",
+    "center": {
+      "x": 0,
+      "z": 510
+    },
+    "radius": 2,
+    "count": 1
+  },
+  {
+    "mobId": "bog_bloat",
+    "center": {
+      "x": 72,
+      "z": 428
+    },
+    "radius": 11,
+    "count": 5
+  },
+  {
+    "mobId": "bog_bloat",
+    "center": {
+      "x": 110,
+      "z": 440
+    },
+    "radius": 11,
+    "count": 4
+  },
+  {
+    "mobId": "training_dummy",
+    "center": {
+      "x": -40,
+      "z": 648
+    },
+    "radius": 0,
+    "count": 1
+  },
+  {
+    "mobId": "ridge_stalker",
+    "center": {
+      "x": -50,
+      "z": 590
+    },
+    "radius": 22,
+    "count": 7
+  },
+  {
+    "mobId": "ridge_stalker",
+    "center": {
+      "x": 45,
+      "z": 600
+    },
+    "radius": 20,
+    "count": 6
+  },
+  {
+    "mobId": "old_cragmaw",
+    "center": {
+      "x": -82,
+      "z": 575
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "deeprock_kobold",
+    "center": {
+      "x": 75,
+      "z": 625
+    },
+    "radius": 18,
+    "count": 8
+  },
+  {
+    "mobId": "deeprock_kobold",
+    "center": {
+      "x": 105,
+      "z": 600
+    },
+    "radius": 14,
+    "count": 6
+  },
+  {
+    "mobId": "ironvein_foreman",
+    "center": {
+      "x": 100,
+      "z": 617
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "thornpeak_ogre",
+    "center": {
+      "x": -90,
+      "z": 700
+    },
+    "radius": 22,
+    "count": 7
+  },
+  {
+    "mobId": "thornpeak_ogre",
+    "center": {
+      "x": -60,
+      "z": 730
+    },
+    "radius": 18,
+    "count": 6
+  },
+  {
+    "mobId": "brakka_wallbreaker",
+    "center": {
+      "x": -78,
+      "z": 716
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "ogre_crusher",
+    "center": {
+      "x": -125,
+      "z": 740
+    },
+    "radius": 18,
+    "count": 8
+  },
+  {
+    "mobId": "warlord_drogmar",
+    "center": {
+      "x": -132,
+      "z": 748
+    },
+    "radius": 2,
+    "count": 1
+  },
+  {
+    "mobId": "brutok_skullsmasher",
+    "center": {
+      "x": -45,
+      "z": 768
+    },
+    "radius": 4,
+    "count": 1
+  },
+  {
+    "mobId": "stormcrag_elemental",
+    "center": {
+      "x": 110,
+      "z": 760
+    },
+    "radius": 20,
+    "count": 8
+  },
+  {
+    "mobId": "stormcrag_elemental",
+    "center": {
+      "x": 135,
+      "z": 795
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "shardlord_kazzix",
+    "center": {
+      "x": 145,
+      "z": 815
+    },
+    "radius": 8,
+    "count": 1
+  },
+  {
+    "mobId": "wyrmcult_zealot",
+    "center": {
+      "x": 55,
+      "z": 820
+    },
+    "radius": 20,
+    "count": 8
+  },
+  {
+    "mobId": "wyrmcult_zealot",
+    "center": {
+      "x": 34,
+      "z": 845
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "wyrmcult_necromancer",
+    "center": {
+      "x": 40,
+      "z": 855
+    },
+    "radius": 14,
+    "count": 5
+  },
+  {
+    "mobId": "threnos_first_voice",
+    "center": {
+      "x": 44,
+      "z": 848
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "boneclad_revenant",
+    "center": {
+      "x": -40,
+      "z": 830
+    },
+    "radius": 20,
+    "count": 8
+  },
+  {
+    "mobId": "boneclad_revenant",
+    "center": {
+      "x": -40,
+      "z": 838
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "marrowlord_varkas",
+    "center": {
+      "x": -34,
+      "z": 842
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "voskar_emberwing",
+    "center": {
+      "x": 80,
+      "z": 845
+    },
+    "radius": 4,
+    "count": 1
+  },
+  {
+    "mobId": "wyrmcult_zealot",
+    "center": {
+      "x": 80,
+      "z": 845
+    },
+    "radius": 7,
+    "count": 2
+  },
+  {
+    "mobId": "stable_horse",
+    "center": {
+      "x": 390,
+      "z": 594
+    },
+    "radius": 0,
+    "count": 1
+  },
+  {
+    "mobId": "stable_horse",
+    "center": {
+      "x": 404,
+      "z": 598
+    },
+    "radius": 0,
+    "count": 1
+  },
+  {
+    "mobId": "stable_horse",
+    "center": {
+      "x": 418,
+      "z": 602
+    },
+    "radius": 0,
+    "count": 1
+  },
+  {
+    "mobId": "glimmermere_wader",
+    "center": {
+      "x": -78,
+      "z": 778
+    },
+    "radius": 16,
+    "count": 7
+  },
+  {
+    "mobId": "glimmermere_wader",
+    "center": {
+      "x": -56,
+      "z": 800
+    },
+    "radius": 14,
+    "count": 5
+  },
+  {
+    "mobId": "drowned_votary",
+    "center": {
+      "x": -90,
+      "z": 802
+    },
+    "radius": 16,
+    "count": 7
+  },
+  {
+    "mobId": "drowned_votary",
+    "center": {
+      "x": -64,
+      "z": 814
+    },
+    "radius": 12,
+    "count": 5
+  },
+  {
+    "mobId": "sethrael_palecoil",
+    "center": {
+      "x": -96,
+      "z": 814
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "restless_bones",
+    "center": {
+      "x": 88,
+      "z": 90
+    },
+    "radius": 6,
+    "count": 2
+  },
+  {
+    "mobId": "wraithbinder_maldrec",
+    "center": {
+      "x": 88,
+      "z": 92
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "grix_the_tunnelking",
+    "center": {
+      "x": -95,
+      "z": -78
+    },
+    "radius": 4,
+    "count": 1
+  },
+  {
+    "mobId": "glimmerwisp",
+    "center": {
+      "x": 76,
+      "z": 1014
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "glimmerwisp",
+    "center": {
+      "x": 60,
+      "z": 1150
+    },
+    "radius": 14,
+    "count": 4
+  },
+  {
+    "mobId": "duskwisp",
+    "center": {
+      "x": 126,
+      "z": 1120
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "duskwisp",
+    "center": {
+      "x": -30,
+      "z": 1200
+    },
+    "radius": 14,
+    "count": 4
+  },
+  {
+    "mobId": "veiled_stag",
+    "center": {
+      "x": 12,
+      "z": 1118
+    },
+    "radius": 16,
+    "count": 6
+  },
+  {
+    "mobId": "veiled_doe",
+    "center": {
+      "x": 8,
+      "z": 1124
+    },
+    "radius": 12,
+    "count": 3
+  },
+  {
+    "mobId": "veiled_doe",
+    "center": {
+      "x": 18,
+      "z": 1112
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "sporeling_gatherer",
+    "center": {
+      "x": -95,
+      "z": 1180
+    },
+    "radius": 14,
+    "count": 5
+  },
+  {
+    "mobId": "corrupted_sporeling",
+    "center": {
+      "x": -25,
+      "z": 1218
+    },
+    "radius": 14,
+    "count": 6
+  },
+  {
+    "mobId": "corrupted_sporeling",
+    "center": {
+      "x": -60,
+      "z": 1226
+    },
+    "radius": 12,
+    "count": 5
+  },
+  {
+    "mobId": "treant_elder",
+    "center": {
+      "x": 25,
+      "z": 948
+    },
+    "radius": 14,
+    "count": 3
+  },
+  {
+    "mobId": "ancient_guardian",
+    "center": {
+      "x": 125,
+      "z": 1085
+    },
+    "radius": 16,
+    "count": 5
+  },
+  {
+    "mobId": "ancient_guardian",
+    "center": {
+      "x": 138,
+      "z": 1070
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "waking_warden",
+    "center": {
+      "x": 125,
+      "z": 1085
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "gleamstag",
+    "center": {
+      "x": -145,
+      "z": 1100
+    },
+    "radius": 4,
+    "count": 1
+  },
+  {
+    "mobId": "old_marrowshell",
+    "center": {
+      "x": 103,
+      "z": 1144
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "aurelhorn",
+    "center": {
+      "x": 22,
+      "z": 1110
+    },
+    "radius": 6,
+    "count": 1
+  },
+  {
+    "mobId": "mushroom_pixie",
+    "center": {
+      "x": -95,
+      "z": 1186
+    },
+    "radius": 16,
+    "count": 5
+  },
+  {
+    "mobId": "dune_troll",
+    "center": {
+      "x": 460,
+      "z": 2140
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "dune_troll",
+    "center": {
+      "x": 476,
+      "z": 2124
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "ashbone_raider",
+    "center": {
+      "x": 356,
+      "z": 2086
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "ashbone_raider",
+    "center": {
+      "x": 296,
+      "z": 2184
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "ashbone_warcaller",
+    "center": {
+      "x": 448,
+      "z": 2106
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "drakemaw_broodlord",
+    "center": {
+      "x": 419,
+      "z": 2266
+    },
+    "radius": 8,
+    "count": 1
+  },
+  {
+    "mobId": "drakemaw_broodlord",
+    "center": {
+      "x": 288,
+      "z": 2278
+    },
+    "radius": 8,
+    "count": 1
+  },
+  {
+    "mobId": "snowdrift_wolf",
+    "center": {
+      "x": 20,
+      "z": 1610
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "snowdrift_wolf",
+    "center": {
+      "x": -60,
+      "z": 1690
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "ice_wisp",
+    "center": {
+      "x": 30,
+      "z": 1745
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "rime_elemental",
+    "center": {
+      "x": 66,
+      "z": 1622
+    },
+    "radius": 9,
+    "count": 2
+  },
+  {
+    "mobId": "rime_elemental",
+    "center": {
+      "x": 10,
+      "z": 1800
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "fen_sprite",
+    "center": {
+      "x": -84,
+      "z": 1738
+    },
+    "radius": 11,
+    "count": 3
+  },
+  {
+    "mobId": "frostmane_yeti",
+    "center": {
+      "x": 96,
+      "z": 1816
+    },
+    "radius": 6,
+    "count": 1
+  },
+  {
+    "mobId": "gilded_stag",
+    "center": {
+      "x": -300,
+      "z": 1976
+    },
+    "radius": 12,
+    "count": 3
+  },
+  {
+    "mobId": "gilded_stag",
+    "center": {
+      "x": -420,
+      "z": 2020
+    },
+    "radius": 11,
+    "count": 2
+  },
+  {
+    "mobId": "gloam_fox",
+    "center": {
+      "x": -330,
+      "z": 2030
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "harvest_sprite",
+    "center": {
+      "x": -436,
+      "z": 1984
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "orchard_treant",
+    "center": {
+      "x": -426,
+      "z": 2202
+    },
+    "radius": 9,
+    "count": 2
+  },
+  {
+    "mobId": "mere_lurker",
+    "center": {
+      "x": -312,
+      "z": 2158
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "mere_lurker",
+    "center": {
+      "x": -282,
+      "z": 2226
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "bogtoad",
+    "center": {
+      "x": -430,
+      "z": 270
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "bogtoad",
+    "center": {
+      "x": -284,
+      "z": 316
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "lily_wisp",
+    "center": {
+      "x": -426,
+      "z": 440
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "willow_sprite",
+    "center": {
+      "x": -396,
+      "z": 376
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "willow_sprite",
+    "center": {
+      "x": -316,
+      "z": 380
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "drowsy_croaker",
+    "center": {
+      "x": -322,
+      "z": 496
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "moonfleece_grazer",
+    "center": {
+      "x": -436,
+      "z": 1466
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "moonfleece_grazer",
+    "center": {
+      "x": -320,
+      "z": 1446
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "gloam_strider",
+    "center": {
+      "x": -410,
+      "z": 1522
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "gloam_strider",
+    "center": {
+      "x": -240,
+      "z": 1402
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "nightkin_stargazer",
+    "center": {
+      "x": -272,
+      "z": 1538
+    },
+    "radius": 8,
+    "count": 3
+  },
+  {
+    "mobId": "barrow_king",
+    "center": {
+      "x": -360,
+      "z": 1650
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "widowsilk_spinner",
+    "center": {
+      "x": 282,
+      "z": 1478
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "widowsilk_spinner",
+    "center": {
+      "x": 468,
+      "z": 1464
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "wood_wraith",
+    "center": {
+      "x": 306,
+      "z": 1616
+    },
+    "radius": 9,
+    "count": 3
+  },
+  {
+    "mobId": "wood_wraith",
+    "center": {
+      "x": 418,
+      "z": 1568
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "gravenbark_shambler",
+    "center": {
+      "x": 444,
+      "z": 1526
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "pale_huntsman",
+    "center": {
+      "x": 380,
+      "z": 1680
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "tide_scuttler",
+    "center": {
+      "x": -456,
+      "z": 878
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "tide_scuttler",
+    "center": {
+      "x": -252,
+      "z": 840
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "thicket_boar",
+    "center": {
+      "x": -368,
+      "z": 940
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "thicket_boar",
+    "center": {
+      "x": -410,
+      "z": 960
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "canopy_weaver",
+    "center": {
+      "x": -326,
+      "z": 1060
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "canopy_weaver",
+    "center": {
+      "x": -426,
+      "z": 1120
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "idol_guardian",
+    "center": {
+      "x": -256,
+      "z": 1090
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "topiary_stag",
+    "center": {
+      "x": 364,
+      "z": 898
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "topiary_stag",
+    "center": {
+      "x": 326,
+      "z": 1146
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "topiary_wolf",
+    "center": {
+      "x": 294,
+      "z": 906
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "topiary_wolf",
+    "center": {
+      "x": 418,
+      "z": 1124
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "hedge_gnome",
+    "center": {
+      "x": 268,
+      "z": 1002
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "hedge_gnome",
+    "center": {
+      "x": 456,
+      "z": 942
+    },
+    "radius": 10,
+    "count": 2
+  },
+  {
+    "mobId": "the_topiary_bull",
+    "center": {
+      "x": 360,
+      "z": 1016
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "moor_ram",
+    "center": {
+      "x": 292,
+      "z": 312
+    },
+    "radius": 11,
+    "count": 3
+  },
+  {
+    "mobId": "moor_ram",
+    "center": {
+      "x": 262,
+      "z": 360
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "topiary_wolf",
+    "center": {
+      "x": 302,
+      "z": 522
+    },
+    "radius": 11,
+    "count": 3
+  },
+  {
+    "mobId": "topiary_wolf",
+    "center": {
+      "x": 250,
+      "z": 505
+    },
+    "radius": 8,
+    "count": 3
+  },
+  {
+    "mobId": "wreck_thief",
+    "center": {
+      "x": 444,
+      "z": 438
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "moor_ram",
+    "center": {
+      "x": 386,
+      "z": 622
+    },
+    "radius": 9,
+    "count": 2
+  },
+  {
+    "mobId": "the_wreck_warden",
+    "center": {
+      "x": 330,
+      "z": 638
+    },
+    "radius": 5,
+    "count": 1
+  },
+  {
+    "mobId": "downs_bandit",
+    "center": {
+      "x": 252,
+      "z": 250
+    },
+    "radius": 4,
+    "count": 2
+  },
+  {
+    "mobId": "downs_bandit",
+    "center": {
+      "x": 210,
+      "z": 410
+    },
+    "radius": 4,
+    "count": 2
+  },
+  {
+    "mobId": "wreck_thief",
+    "center": {
+      "x": 354,
+      "z": 664
+    },
+    "radius": 4,
+    "count": 2
+  },
+  {
+    "mobId": "breach_wretch",
+    "center": {
+      "x": 430,
+      "z": 44
+    },
+    "radius": 12,
+    "count": 4
+  },
+  {
+    "mobId": "breach_wretch",
+    "center": {
+      "x": 400,
+      "z": 96
+    },
+    "radius": 11,
+    "count": 3
+  },
+  {
+    "mobId": "riftspawn",
+    "center": {
+      "x": 452,
+      "z": 66
+    },
+    "radius": 11,
+    "count": 3
+  },
+  {
+    "mobId": "riftspawn",
+    "center": {
+      "x": 388,
+      "z": -44
+    },
+    "radius": 11,
+    "count": 3
+  },
+  {
+    "mobId": "void_stalker",
+    "center": {
+      "x": 418,
+      "z": -30
+    },
+    "radius": 12,
+    "count": 2
+  },
+  {
+    "mobId": "void_stalker",
+    "center": {
+      "x": 462,
+      "z": 20
+    },
+    "radius": 11,
+    "count": 2
+  },
+  {
+    "mobId": "sundered_horror",
+    "center": {
+      "x": 402,
+      "z": -78
+    },
+    "radius": 6,
+    "count": 1
+  },
+  {
+    "mobId": "ashbone_warcaller",
+    "center": {
+      "x": 302,
+      "z": 2180
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "drakemaw_broodlord",
+    "center": {
+      "x": 352,
+      "z": 2352
+    },
+    "radius": 8,
+    "count": 1
+  },
+  {
+    "mobId": "cindraleth_maw_matriarch",
+    "center": {
+      "x": 436,
+      "z": 2348
+    },
+    "radius": 6,
+    "count": 1
+  },
+  {
+    "mobId": "terrace_howler",
+    "center": {
+      "x": 112,
+      "z": 1800
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "terrace_howler",
+    "center": {
+      "x": 84,
+      "z": 1830
+    },
+    "radius": 9,
+    "count": 3
+  },
+  {
+    "mobId": "the_meredark",
+    "center": {
+      "x": -358,
+      "z": 2186
+    },
+    "radius": 6,
+    "count": 1
+  },
+  {
+    "mobId": "bogtoad",
+    "center": {
+      "x": -334,
+      "z": 436
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "bogtoad",
+    "center": {
+      "x": -406,
+      "z": 288
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "barrow_wight",
+    "center": {
+      "x": -326,
+      "z": 1660
+    },
+    "radius": 9,
+    "count": 3
+  },
+  {
+    "mobId": "barrow_wight",
+    "center": {
+      "x": -382,
+      "z": 1636
+    },
+    "radius": 9,
+    "count": 3
+  },
+  {
+    "mobId": "drowned_deckhand",
+    "center": {
+      "x": 352,
+      "z": 662
+    },
+    "radius": 10,
+    "count": 3
+  },
+  {
+    "mobId": "drowned_deckhand",
+    "center": {
+      "x": 306,
+      "z": 618
+    },
+    "radius": 9,
+    "count": 3
+  },
+  {
+    "mobId": "shoal_scuttler",
+    "center": {
+      "x": 410,
+      "z": 400
+    },
+    "radius": 9,
+    "count": 5,
+    "offStream": true
+  },
+  {
+    "mobId": "shoal_scuttler",
+    "center": {
+      "x": 440,
+      "z": 460
+    },
+    "radius": 8,
+    "count": 5,
+    "offStream": true
+  },
+  {
+    "mobId": "gale_wisp",
+    "center": {
+      "x": 330,
+      "z": 565
+    },
+    "radius": 9,
+    "count": 4,
+    "offStream": true
+  },
+  {
+    "mobId": "gale_wisp",
+    "center": {
+      "x": 355,
+      "z": 585
+    },
+    "radius": 8,
+    "count": 4,
+    "offStream": true
+  },
+  {
+    "mobId": "hedge_knight",
+    "center": {
+      "x": 276,
+      "z": 886
+    },
+    "radius": 8,
+    "count": 3
+  },
+  {
+    "mobId": "hedge_knight",
+    "center": {
+      "x": 410,
+      "z": 1118
+    },
+    "radius": 8,
+    "count": 2
+  },
+  {
+    "mobId": "hedge_knight",
+    "center": {
+      "x": 414,
+      "z": 1079.5
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "hedge_knight",
+    "center": {
+      "x": 324,
+      "z": 1007.5
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "hedge_knight",
+    "center": {
+      "x": 396,
+      "z": 971.5
+    },
+    "radius": 3,
+    "count": 1
+  },
+  {
+    "mobId": "drakemaw_broodlord",
+    "center": {
+      "x": 458,
+      "z": 2302
+    },
+    "radius": 8,
+    "count": 1,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 419,
+      "z": 2266
+    },
+    "radius": 9,
+    "count": 7,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 288,
+      "z": 2278
+    },
+    "radius": 9,
+    "count": 7,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 352,
+      "z": 2352
+    },
+    "radius": 9,
+    "count": 7,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 458,
+      "z": 2302
+    },
+    "radius": 9,
+    "count": 7,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 436,
+      "z": 2348
+    },
+    "radius": 10,
+    "count": 8,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 404,
+      "z": 2318
+    },
+    "radius": 10,
+    "count": 5,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 330,
+      "z": 2300
+    },
+    "radius": 12,
+    "count": 5,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 430,
+      "z": 2380
+    },
+    "radius": 12,
+    "count": 5,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 378,
+      "z": 2242
+    },
+    "radius": 9,
+    "count": 3,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 392,
+      "z": 2296
+    },
+    "radius": 9,
+    "count": 3,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 352,
+      "z": 2282
+    },
+    "radius": 8,
+    "count": 2,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 418,
+      "z": 2338
+    },
+    "radius": 8,
+    "count": 2,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 302,
+      "z": 2302
+    },
+    "radius": 9,
+    "count": 3,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 268,
+      "z": 2252
+    },
+    "radius": 8,
+    "count": 2,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_broodguard",
+    "center": {
+      "x": 438,
+      "z": 2384
+    },
+    "radius": 8,
+    "count": 2,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 372,
+      "z": 2242
+    },
+    "radius": 7,
+    "count": 4,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 401,
+      "z": 2303
+    },
+    "radius": 7,
+    "count": 4,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 344,
+      "z": 2286
+    },
+    "radius": 6,
+    "count": 3,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 421,
+      "z": 2334
+    },
+    "radius": 7,
+    "count": 3,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 306,
+      "z": 2308
+    },
+    "radius": 7,
+    "count": 4,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 264,
+      "z": 2258
+    },
+    "radius": 7,
+    "count": 3,
+    "offStream": true
+  },
+  {
+    "mobId": "dragonkin_egg",
+    "center": {
+      "x": 441,
+      "z": 2380
+    },
+    "radius": 7,
+    "count": 3,
+    "offStream": true
+  }
+]

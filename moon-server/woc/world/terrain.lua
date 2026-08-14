@@ -9,11 +9,16 @@ local m3d = require("world.math3d")
 -- 世界种子 (固定, 确定性) — 与客户端 src/sim/world_seed.ts WORLD_SEED=20061 一致
 local WORLD_SEED = require("config").WORLD_SEED
 
--- 预计算高度表 (Lua→客户端 terrain 对齐): proto/heightmap.json, 5yd 间距, ±50yd 范围
-local HMAP_X = {}
-local HMAP_Z = {}
-local HMAP_POINTS = {}
-local HMAP_GRID = 5
+-- 预计算高度表 (Lua→客户端 terrain 对齐): proto/heightmap.json
+-- 全图覆盖 (x[-540,540] x z[-180,2420]), 1yd 间距, 整数厘米扁平数组
+local HMAP_HEIGHTS = {}
+local HMAP_XMIN = 0
+local HMAP_ZMIN = 0
+local HMAP_XMAX = 0
+local HMAP_ZMAX = 0
+local HMAP_XCOUNT = 0
+local HMAP_ZCOUNT = 0
+local HMAP_GRID = 1
 local HMAP_LOADED = false
 do
     local ok, err = pcall(function()
@@ -23,12 +28,18 @@ do
             local raw = f:read("*a"); f:close()
             local jh = require("shared.json_helpers")
             local data = jh.safeDecode(raw)
-            if data and data.points and data.zTicks then
-                HMAP_Z = data.zTicks
-                HMAP_POINTS = data.points
+            if data and data.heights and data.xCount and data.zCount then
+                HMAP_HEIGHTS = data.heights
+                HMAP_XMIN = data.xMin or 0
+                HMAP_XMAX = data.xMax or 0
+                HMAP_ZMIN = data.zMin or 0
+                HMAP_ZMAX = data.zMax or 0
+                HMAP_XCOUNT = data.xCount
+                HMAP_ZCOUNT = data.zCount
+                HMAP_GRID = data.grid or 1
                 HMAP_LOADED = true
-                print(string.format("[Terrain] Heightmap loaded: %s rows x %d cols, grid=%d", 
-                    tostring(HMAP_Z[1] == -50 and "21" or "?"), #HMAP_Z, HMAP_GRID))
+                print(string.format("[Terrain] Heightmap loaded: %dx%d (x %.0f..%.0f, z %.0f..%.0f yd), grid=%d",
+                    HMAP_XCOUNT, HMAP_ZCOUNT, HMAP_XMIN, HMAP_XMAX, HMAP_ZMIN, HMAP_ZMAX, HMAP_GRID))
             end
         end
     end)
@@ -110,37 +121,67 @@ function M.terrainHeight(x, z)
     return height
 end
 
---- 高度表查询 (双线性插值, 5yd 间隔, 回退 FBM 永不返回 nil)
---- 消除最近邻的阶梯跳变, 让移动物理看到的地形高度与客户端 FBM 地形平滑对齐
+--- 高度表查询 (Catmull-Rom 三次插值, 1yd 间隔, 回退 FBM 永不返回 nil)
+--- 双线性在网格线处斜率不连续 (C0), 移动物理的 terrainSteepness/terrainDownhill
+--- 中心差分把这些斜率跳变放大成可见抖动。Catmull-Rom 是 C1 连续, 高度和梯度都
+--- 平滑, 消除局部抖动。整数厘米扁平数组 → 三次插值 → /100 回码。
 local function heightmapLookup(x, z)
     if not HMAP_LOADED then return M.terrainHeight(x, z) end
     local g = HMAP_GRID
-    local x0 = HMAP_Z[1]  -- 第一个 zTick (=-50), 与 x 共用同一组刻度
-    local gx = (x - x0) / g
-    local gz = (z - x0) / g
+    local gx = (x - HMAP_XMIN) / g
+    local gz = (z - HMAP_ZMIN) / g
     local ix0 = math.floor(gx)
     local iz0 = math.floor(gz)
     local fx = gx - ix0
     local fz = gz - iz0
 
-    local function cell(ix, iz)
-        if ix < 0 or ix > #HMAP_Z - 1 or iz < 0 or iz > #HMAP_Z - 1 then return nil end
-        local row = HMAP_POINTS[tostring(x0 + ix * g)]
-        if not row then return nil end
-        return row[iz + 1]
+    -- 越界采样 (整数索引) → nil
+    local function hget(ix, iz)
+        if ix < 0 or ix > HMAP_XCOUNT - 1 or iz < 0 or iz > HMAP_ZCOUNT - 1 then return nil end
+        return HMAP_HEIGHTS[ix * HMAP_ZCOUNT + iz + 1]
     end
 
-    local h00 = cell(ix0, iz0)
-    local h10 = cell(ix0 + 1, iz0)
-    local h01 = cell(ix0, iz0 + 1)
-    local h11 = cell(ix0 + 1, iz0 + 1)
-    if h00 == nil or h10 == nil or h01 == nil or h11 == nil then
-        return M.terrainHeight(x, z)
+    -- Catmull-Rom 权重: t ∈ [0,1], 采样点 [-1,0,1,2]
+    local function crw(t)
+        local t2 = t * t
+        return -0.5 * t + t2 - 0.5 * t2 * t,
+            1 - 2.5 * t2 + 1.5 * t2 * t,
+            0.5 * t + 2 * t2 - 1.5 * t2 * t,
+            -0.5 * t2 + 0.5 * t2 * t
     end
 
-    local top = h00 * (1 - fx) + h10 * fx
-    local bot = h01 * (1 - fx) + h11 * fx
-    return top * (1 - fz) + bot * fz
+    -- 可分核: 先沿 x 对每条 z 行做三次插值 (用 fx 权重), 再沿 z 做三次插值 (用 fz 权重)
+    local wx0, wx1, wx2, wx3 = crw(fx)
+    local wz0, wz1, wz2, wz3 = crw(fz)
+
+    local function rowInterp(iz)
+        local a = hget(ix0 - 1, iz)
+        local b = hget(ix0, iz)
+        local c = hget(ix0 + 1, iz)
+        local d = hget(ix0 + 2, iz)
+        if a == nil or b == nil or c == nil or d == nil then return nil end
+        return a * wx0 + b * wx1 + c * wx2 + d * wx3
+    end
+
+    local p0 = rowInterp(iz0 - 1)
+    local p1 = rowInterp(iz0)
+    local p2 = rowInterp(iz0 + 1)
+    local p3 = rowInterp(iz0 + 2)
+    if p0 == nil or p1 == nil or p2 == nil or p3 == nil then
+        -- 触边 (离边界 <2 格) 回退双线性, 保证边界处仍连续
+        local h00 = hget(ix0, iz0)
+        local h10 = hget(ix0 + 1, iz0)
+        local h01 = hget(ix0, iz0 + 1)
+        local h11 = hget(ix0 + 1, iz0 + 1)
+        if h00 == nil or h10 == nil or h01 == nil or h11 == nil then
+            return M.terrainHeight(x, z)
+        end
+        local top = h00 * (1 - fx) + h10 * fx
+        local bot = h01 * (1 - fx) + h11 * fx
+        return (top * (1 - fz) + bot * fz) / 100.0
+    end
+
+    return (p0 * wz0 + p1 * wz1 + p2 * wz2 + p3 * wz3) / 100.0
 end
 
 --- 获取地面高度 (优先高度表, 回退 FBM, 永不返回 nil)
@@ -263,7 +304,9 @@ function M.terrainSteepnessAt(x, z)
     if next(steepMemo) and #steepMemo >= STEEP_CAP then
         steepMemo = {}
     end
-    local s = M.terrainSteepness(x, z)
+    -- 关键: 在取整后的格中心采样 (TS terrainSteepness(cx, cz)), 而非原始 (x,z)。
+    -- 之前按原始坐标缓存, 同格内先到先得导致斜率场在格内不一致 → 抖动。
+    local s = M.terrainSteepness(ix, iz)
     steepMemo[key] = s
     return s
 end
