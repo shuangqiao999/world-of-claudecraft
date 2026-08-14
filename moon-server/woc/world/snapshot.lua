@@ -268,17 +268,16 @@ local function buildSelfJson(e, meta, session)
     return jh.safeEncode(self)
 end
 
---- 构建 Entity LITE 记录表 (动态字段, 返回 table 供字段级 delta 比较)
-local function buildEntityLiteTable(e)
-    local dyn = {
-        id = e.id,
-        x = jh.round2(e.pos.x),
-        y = jh.round2(e.pos.y),
-        z = jh.round2(e.pos.z),
-        f = jh.round2(e.facing or 0),
-        hp = math.floor(e.hp or 0),
-        mhp = e.maxHp or 100,
-    }
+--- 填充 Entity LITE 记录表 (玩家/宠物; 写入传入的 dyn 表, 供双缓冲复用避免每 tick 分配)
+local function fillEntityDyn(dyn, e)
+    for k in pairs(dyn) do dyn[k] = nil end
+    dyn.id = e.id
+    dyn.x = jh.round2(e.pos.x)
+    dyn.y = jh.round2(e.pos.y)
+    dyn.z = jh.round2(e.pos.z)
+    dyn.f = jh.round2(e.facing or 0)
+    dyn.hp = math.floor(e.hp or 0)
+    dyn.mhp = e.maxHp or 100
 
     if e.dead then dyn.dead = true end
     if e.ghost then dyn.gh = true end
@@ -320,8 +319,49 @@ local function buildEntityLiteTable(e)
         local aur = wireAuras(e)
         if #aur > 0 then dyn.auras = aur end
     end
+end
 
-    return dyn
+--- 填充 Mob/NPC LITE 记录表 (跳过玩家/宠物专属字段, 减少 mob 每 tick 建表开销)
+local function fillMobDyn(dyn, e)
+    for k in pairs(dyn) do dyn[k] = nil end
+    dyn.id = e.id
+    dyn.x = jh.round2(e.pos.x)
+    dyn.y = jh.round2(e.pos.y)
+    dyn.z = jh.round2(e.pos.z)
+    dyn.f = jh.round2(e.facing or 0)
+    dyn.hp = math.floor(e.hp or 0)
+    dyn.mhp = e.maxHp or 100
+
+    if e.dead then dyn.dead = true end
+    if e.lootable then dyn.loot = true end
+    if e.hostile then dyn.h = true end
+    if e.resourceType then dyn.rtype = e.resourceType end
+    if e.resource and e.resource > 0 then dyn.res = jh.round2(e.resource) end
+    if e.maxResource then dyn.mres = e.maxResource end
+    if e.castingAbility then
+        dyn.cast = e.castingAbility.id or e.castingAbility
+        dyn.castRem = jh.round2(e.castRemaining or 0)
+        dyn.castTot = jh.round2(e.castTotal or 0)
+    end
+    if e.channeling then dyn.chan = true end
+    if e.targetId then dyn.tgt = e.targetId end
+    if e.aggroTargetId then dyn.aggro = e.aggroTargetId end
+    if e.forcedTargetId then
+        dyn.ft = e.forcedTargetId
+        dyn.ftm = jh.round2(e.forcedTargetTimer or 0)
+    end
+    if e.tappedById then dyn.tap = e.tappedById end
+    if e.ownerId then dyn.own = e.ownerId end
+    if e.overheadEmoteId then
+        dyn.emo = e.overheadEmoteId
+        dyn.emoSeq = e.overheadEmoteSeq or 0
+    end
+
+    -- buffs/debuffs (仅在存在光环时才分配/编码)
+    if e.auras and next(e.auras) then
+        local aur = wireAuras(e)
+        if #aur > 0 then dyn.auras = aur end
+    end
 end
 
 --- 深度比较两个 LITE dyn 表 (字段级, 避免每 tick 对未变化实体做 JSON 编码)
@@ -402,6 +442,8 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
 
     if not session.lastStamp then session.lastStamp = {} end
     if not session.lastRefresh then session.lastRefresh = {} end
+    if not session.lastSentTick then session.lastSentTick = {} end
+    if not session.scratchDyn then session.scratchDyn = {} end
 
     local anchorPos = e.pos
     -- 复用 session 内的 scratch 表 (避免每 tick 分配/GC)
@@ -443,7 +485,22 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                     session.lastDyn[other.id] = nil
                     session.lastStamp[other.id] = nil
                     session.lastRefresh[other.id] = tick
+                    session.lastSentTick[other.id] = tick
                 else
+                    -- 距离分级更新频率: 全速(55yd 内/目标/攻击者), 半速(80yd), 更远 1/4 速
+                    local isFullRate = distSq <= config.FULL_RATE_RADIUS_SQ
+                        or (e.targetId == other.id)
+                        or (other.aggroTargetId == e.id)
+                    if not isFullRate then
+                        local divisor = (distSq <= config.HALF_RATE_RADIUS_SQ)
+                            and config.HALF_RATE_DIVISOR or config.QUARTER_RATE_DIVISOR
+                        local lastSent = session.lastSentTick[other.id] or -divisor
+                        if tick - lastSent < divisor then
+                            table.insert(keepArr, other.id)
+                            goto continue_entity
+                        end
+                    end
+
                     -- Lite record: _wireVer 脏标记 + 周期刷新(冷字段), 仅变化时才 JSON 编码
                     local ver = other._wireVer or 0
                     local lastVer = session.lastStamp[other.id]
@@ -451,18 +508,28 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
                     if ver == lastVer and tick - lastRefresh < LITE_REFRESH_TICKS then
                         table.insert(keepArr, other.id)
                     else
-                        local dyn = buildEntityLiteTable(other)
+                        -- 双缓冲: 复用 scratch 表填充, 变化时与 lastDyn 交换, 避免每 tick 分配
+                        local dyn = session.scratchDyn[other.id]
+                        if not dyn then dyn = {}; session.scratchDyn[other.id] = dyn end
+                        if other.kind == "mob" or other.kind == "npc" then
+                            fillMobDyn(dyn, other)
+                        else
+                            fillEntityDyn(dyn, other)
+                        end
                         session.lastStamp[other.id] = ver
                         session.lastRefresh[other.id] = tick
                         local lastDyn = session.lastDyn[other.id]
                         if not liteEqual(dyn, lastDyn) then
                             session.lastDyn[other.id] = dyn
+                            session.scratchDyn[other.id] = lastDyn
+                            session.lastSentTick[other.id] = tick
                             table.insert(entsArr, jh.safeEncode(dyn))
                         else
                             table.insert(keepArr, other.id)
                         end
                     end
                 end
+                ::continue_entity::
 
                 shown = shown + 1
                 if shown >= maxVisible then break end

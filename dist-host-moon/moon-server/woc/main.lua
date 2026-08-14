@@ -28,15 +28,44 @@ local function envOr(key, default)
     return os.getenv(key) or default
 end
 
+--- 检测 CPU 逻辑核数 (纯 Lua, __init__ 临时 VM 无 package.path 不能 require config)
+local function cpuCount()
+    local n = tonumber(os.getenv("NUMBER_OF_PROCESSORS"))
+    if n and n > 0 then return n end
+    local f = io.open("/proc/cpuinfo", "r")
+    if f then
+        local count = 0
+        for line in f:lines() do
+            if line:match("^processor%s") then count = count + 1 end
+        end
+        f:close()
+        if count > 0 then return count end
+    end
+    return 4
+end
+
+--- 世界分片数 (与 config.getWorldShards 同规则, 至多 32)
+local function worldShards()
+    local n = tonumber(os.getenv("WOC_WORLD_SHARDS"))
+    if n and n >= 1 then return n end
+    local s = math.floor(cpuCount() / 2)
+    if s < 1 then s = 1 end
+    if s > 32 then s = 32 end
+    return s
+end
+
 ----------------------------------------
 -- Moon 运行时配置
 -- Moon 在启动时创建一个临时 VM，设置 __init__ = true
 -- 然后执行此文件，return 的 table 即服务端配置
 ----------------------------------------
 if _G["__init__"] then
+    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + worldShards())
+    -- 保证至少 5 + shards 个线程 (世界分片需要独立线程), 用户 WOC_THREADS 过低时兜底
+    if threads < 5 + worldShards() then threads = 5 + worldShards() end
     return {
-        -- 工作线程数
-        thread = tonumber(envOr("WOC_THREADS", "4")),
+        -- 工作线程数 (自适应: 固定服务 5 + 世界分片)
+        thread = threads,
 
         -- 日志级别: 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG
         loglevel = isProduction() and "INFO" or "DEBUG",
@@ -104,40 +133,50 @@ moon.async(function()
     })
     print(string.format("[Main] Gate service created: 0x%X", gateService))
 
-    -- 3. World Service (核心游戏逻辑)
-    local worldService = moon.new_service({
-        name = "world",
-        file = "world/init.lua",
-        unique = true,
-        threadid = 3,
-    })
-    print(string.format("[Main] World service created: 0x%X", worldService))
+    -- 3. World Services (核心游戏逻辑, 按分片数跨线程并行)
+    --    线程布局: 1=db, 2=gate, 3=social, 4=market, 5=mail, 6..5+N=world shards
+    local worldShardCount = require("config").getWorldShards()
+    local worldServices = {}
+    for i = 0, worldShardCount - 1 do
+        local name = "world_" .. i
+        local sid = moon.new_service({
+            name = name,
+            file = "world/init.lua",
+            unique = true,
+            threadid = 6 + i,
+            shardId = i,
+            shardCount = worldShardCount,
+        })
+        worldServices[i] = sid
+        print(string.format("[Main] World shard %s created: 0x%X (thread %d)", name, sid, 6 + i))
+    end
+    -- 世界分片数查询统一走 config.getWorldShards() (各服务 VM 独立, moon.exports 不跨服务)
+    print(string.format("[Main] World shards: %d (adaptive, cpu=%d)", worldShardCount, require("config").getCpuCount()))
 
     -- 5. Social Service
     local socialService = moon.new_service({
         name = "social",
         file = "social/init.lua",
         unique = true,
-        threadid = 4,
+        threadid = 3,
     })
     print(string.format("[Main] Social service created: 0x%X", socialService))
 
-    -- 6. Market Service (负载增长时独立线程; WOC_THREADS>=5 才有线程5)
-    local marketThread = tonumber(os.getenv("WOC_THREADS") or "4") >= 5 and 5 or 4
+    -- 6. Market Service
     local marketService = moon.new_service({
         name = "market",
         file = "market/init.lua",
         unique = true,
-        threadid = marketThread,
+        threadid = 4,
     })
-    print(string.format("[Main] Market service created: 0x%X (thread %d)", marketService, marketThread))
+    print(string.format("[Main] Market service created: 0x%X", marketService))
 
     -- 7. Mail Service
     local mailService = moon.new_service({
         name = "mail",
         file = "mail/init.lua",
         unique = true,
-        threadid = 4,
+        threadid = 5,
     })
     print(string.format("[Main] Mail service created: 0x%X", mailService))
 
@@ -151,7 +190,11 @@ end)
 ----------------------------------------
 moon.shutdown(function()
     print("[Main] Shutting down...")
-    local services = { "mail", "market", "social", "world", "gate", "db" }
+    local services = { "mail", "market", "social", "gate", "db" }
+    -- 世界分片
+    for i = 0, (require("config").getWorldShards() - 1) do
+        table.insert(services, "world_" .. i)
+    end
     for _, name in ipairs(services) do
         local sid = moon.queryservice(name)
         if sid then
