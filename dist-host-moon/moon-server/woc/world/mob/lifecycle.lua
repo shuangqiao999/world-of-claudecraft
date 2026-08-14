@@ -4,6 +4,7 @@
 
 local simrng = require("world.simrng")
 local terrain = require("world.terrain")
+local config = require("config")
 local M = {}
 
 local spawnData = {}
@@ -26,7 +27,8 @@ function M.registerSpawn(zone, templateId, maxCount, respawnSeconds, positions)
 end
 
 --- 从 proto/camps.json 加载刷新营地 (TS Camps: {mobId, center, radius, count})
-function M.loadCampsFromProto()
+-- 空间分片: 只加载本分片 region 内的营地 (region 按营地 center 判定)
+function M.loadCampsFromProto(shardId)
     if campsLoaded then return end
     local ok, proto = pcall(function() return require("proto.load") end)
     if not ok then return end
@@ -36,6 +38,10 @@ function M.loadCampsFromProto()
     local count = 0
     for _, camp in ipairs(camps) do
         if camp.mobId and camp.center then
+            local rx, rz = config.regionOf(camp.center.x or 0, camp.center.z or 0)
+            if config.regionToShard(rx, rz) ~= shardId then
+                goto continue_camp
+            end
             local key = "camp:" .. (count + 1)
             spawnData[key] = {
                 templateId = camp.mobId,
@@ -52,9 +58,10 @@ function M.loadCampsFromProto()
             }
             count = count + 1
         end
+        ::continue_camp::
     end
     campsLoaded = true
-    print(string.format("[Mob] Loaded %d spawn camps from proto", count))
+    print(string.format("[Mob] Shard %d: loaded %d spawn camps (region-filtered)", shardId or 0, count))
 end
 
 --- 世界启动时一次性填充全部营地 mob (忽略 respawnTime, 确保世界立即有 mob)

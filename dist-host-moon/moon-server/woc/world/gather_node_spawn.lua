@@ -4,6 +4,8 @@
 
 local M = {}
 
+local config = require("config")
+
 local spawned = false
 
 -- 程序化植被类型 (按权重分布)
@@ -49,7 +51,7 @@ end
 --- @param gridModule table
 --- @param entityNewFn function
 --- @param allocIdFn function
-function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
+function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn, shardId)
     if spawned then return end
     local ok, proto = pcall(function() return require("proto.load") end)
     if not ok then return end
@@ -59,6 +61,10 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
     local count = 0
     for _, node in ipairs(nodes) do
         if node.pos then
+            local rx, rz = config.regionOf(node.pos.x or 0, node.pos.z or 0)
+            if config.regionToShard(rx, rz) ~= shardId then
+                goto continue_node
+            end
             local eid = allocIdFn()
             local e = entityNewFn(eid, "node", node.type or "herb", node.type or "Gathering Node", node.level or 1, {
                 x = node.pos.x or 0, y = 0, z = node.pos.z or 0,
@@ -71,10 +77,14 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
             if gridModule then gridModule.insert(e) end
             count = count + 1
         end
+        ::continue_node::
     end
 
-    -- 程序化植被 (更茂密)
-    local vegCount = spawnVegetation(entities, gridModule, entityNewFn, allocIdFn, 150)
+    -- 程序化植被 (更茂密; 只由出生点所在 region 的分片生成)
+    local vegCount = 0
+    if config.regionToShard(config.regionOf(0, 0)) == shardId then
+        vegCount = spawnVegetation(entities, gridModule, entityNewFn, allocIdFn, 150)
+    end
 
     spawned = true
     print(string.format("[GatherNode] Spawned %d proto nodes + %d vegetation", count, vegCount))

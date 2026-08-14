@@ -4,6 +4,7 @@
 local M = {}
 local terrain = require("world.terrain")
 local rideHeight = require("world.ride_height")
+local config = require("config")
 
 local spawned = false
 
@@ -41,7 +42,7 @@ end
 --- @param gridModule table
 --- @param entityNewFn function (id, kind, templateId, name, level, pos) → Entity
 --- @param allocIdFn function () → number
-function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
+function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn, shardId)
     if spawned then return end
     local ok, proto = pcall(function() return require("proto.load") end)
     if not ok then return end
@@ -52,6 +53,10 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
     local count = 0
     for id, def in pairs(npcs) do
         if def.pos then
+            local rx, rz = config.regionOf(def.pos.x or 0, def.pos.z or 0)
+            if config.regionToShard(rx, rz) ~= shardId then
+                goto continue_npc
+            end
             local safeX, safeZ = findSafePos(def.pos.x or 0, def.pos.z or 0)
             local eid = allocIdFn()
             local e = entityNewFn(eid, "npc", id, def.name or id, 1, {
@@ -73,6 +78,7 @@ function M.spawnAll(entities, gridModule, entityNewFn, allocIdFn)
             if gridModule then gridModule.insert(e) end
             count = count + 1
         end
+        ::continue_npc::
     end
     spawned = true
     print(string.format("[Npc] Spawned %d NPCs", count))

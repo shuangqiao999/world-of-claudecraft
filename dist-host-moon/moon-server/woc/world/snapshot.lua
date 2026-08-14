@@ -435,7 +435,7 @@ end
 --- @param players table 全局玩家元数据
 --- @param pid number 玩家实体 ID
 --- @param session table Gate 会话 (含 seenEntities, lastDyn, lastSent)
-function M.buildForPlayer(entities, players, pid, session, tick, simTime)
+function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, simTime)
     local e = entities[pid]
     local meta = players[pid]
     if not e or not meta then return nil end
@@ -547,6 +547,31 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
         end
     end
 
+    -- 跨分片 ghost 实体 (边界可见性): 线性扫描 ghost 表 (数量少), 变化时插入完整记录, 否则 keep
+    if ghostEntities and next(ghostEntities) then
+        local ghostSeen = session.ghostSeen
+        if not ghostSeen then ghostSeen = {}; session.ghostSeen = ghostSeen end
+        local ghostThisTick = {}
+        local RSQ = config.INTEREST_QUERY_RADIUS * config.INTEREST_QUERY_RADIUS
+        for gid, g in pairs(ghostEntities) do
+            local dx = g.x - anchorPos.x
+            local dz = g.z - anchorPos.z
+            if dx * dx + dz * dz <= RSQ then
+                ghostThisTick[gid] = true
+                if ghostSeen[gid] ~= g.json then
+                    ghostSeen[gid] = g.json
+                    table.insert(entsArr, g.json)
+                else
+                    table.insert(keepArr, gid)
+                end
+            end
+        end
+        -- 清理离场 ghost
+        for gid in pairs(ghostSeen) do
+            if not ghostThisTick[gid] then ghostSeen[gid] = nil end
+        end
+    end
+
     local selfJson = buildSelfJson(e, meta, session)
     local frame = jh.buildSnapFrame(
         tick or 0, simTime or 0,
@@ -557,6 +582,11 @@ function M.buildForPlayer(entities, players, pid, session, tick, simTime)
     return frame
 end
 
+--- 跨分片 ghost: 构建完整 wire 记录 (供相邻分片渲染, 只读)
+function M.buildGhostWire(e)
+    return buildEntityFull(e)
+end
+
 --- 构建广播快照 (返回 {pid → frame} 映射) — 旧接口保留给兼容
 function M.buildBroadcast(entities, players, tick, simTime)
     local frames = {}
@@ -564,7 +594,7 @@ function M.buildBroadcast(entities, players, tick, simTime)
         local meta = players[pid]
         if meta then
             local session = { seenEntities = {}, lastDyn = {}, lastSent = {} }
-            local frame = M.buildForPlayer(entities, players, pid, session, tick, simTime)
+            local frame = M.buildForPlayer(entities, players, nil, pid, session, tick, simTime)
             if frame then frames[pid] = frame end
         end
     end

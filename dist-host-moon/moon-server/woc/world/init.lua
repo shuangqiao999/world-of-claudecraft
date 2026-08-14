@@ -13,6 +13,7 @@ local move = require("world.movement")
 local grid = require("world.grid")
 local chat = require("world.chat")
 local snapshot = require("world.snapshot")
+local ghost = require("world.ghost")
 local jh = require("shared.json_helpers")
 local playerStats = require("world.player_stats")
 
@@ -114,6 +115,11 @@ local entities = {}     -- id → Entity
 local players = {}      -- pid → PlayerMeta
 local snapSessions = {} -- pid → { seenEntities, lastDyn, lastSent } 快照 delta 追踪
 
+-- 跨分片 ghost 实体 (id → {x, z, json}); ghostByShard 按源分片分组, 便于全量替换
+local ghostEntities = {}
+local ghostByShard = {}
+local ghostTick = 0
+
 -- 内存泄漏诊断: mob 生成/移除计数 (生成源按 templateId 归组)
 local mobSpawnCount = 0
 local mobRemoveCount = 0
@@ -139,7 +145,8 @@ local tick = 0
 local running = false
 local nextId = 10000
 
-local function allocId() nextId = nextId + 1; return nextId end
+-- 实体 id 全局唯一: 前缀分片 id, 避免跨分片 ghost 实体 id 冲突 (shardId * 1000000 + 本地计数)
+local function allocId() nextId = nextId + 1; return shardId * 1000000 + nextId end
 
 -- 服务查找
 local function dbSvc() return moon.queryservice("db") end
@@ -928,6 +935,50 @@ local function processInputs()
     end
 end
 
+--- 跨分片 ghost 同步: 每 K tick 把本分片边界实体发送给相邻分片
+-- 只发给实体实际靠近的那条边 (1-2 个邻居), 避免 8 邻居全发导致 ghost 表膨胀
+local function ghostSync()
+    ghostTick = ghostTick + 1
+    if ghostTick < config.GHOST_SYNC_INTERVAL_TICKS then return end
+    ghostTick = 0
+
+    local R = config.INTEREST_QUERY_RADIUS
+    local groups = {}
+    for _, e in pairs(entities) do
+        if not e.dead then
+            local rx, rz = config.regionOf(e.pos.x, e.pos.z)
+            local minX, minZ = rx * config.REGION_SIZE, rz * config.REGION_SIZE
+            local maxX, maxZ = (rx + 1) * config.REGION_SIZE, (rz + 1) * config.REGION_SIZE
+            local nearL = e.pos.x - minX < R
+            local nearR = maxX - e.pos.x < R
+            local nearB = e.pos.z - minZ < R
+            local nearT = maxZ - e.pos.z < R
+            if not (nearL or nearR or nearB or nearT) then goto continue_gsync end
+
+            local ser = nil
+            local function add(dx, dz)
+                local ns = config.regionToShard(rx + dx, rz + dz)
+                if ns ~= shardId then
+                    ser = ser or ghost.serialize(e)
+                    groups[ns] = groups[ns] or {}
+                    table.insert(groups[ns], ser)
+                end
+            end
+            if nearL then add(-1, 0) end
+            if nearR then add(1, 0) end
+            if nearB then add(0, -1) end
+            if nearT then add(0, 1) end
+            ::continue_gsync::
+        end
+    end
+    for ns, list in pairs(groups) do
+        local svc = moon.queryservice("world_" .. ns)
+        if svc then
+            moon.send("lua", svc, { t = "ghostSync", shardId = shardId, ghosts = list })
+        end
+    end
+end
+
 local function broadcastSnapshot()
     if not gateSvc() then return end
     local frames = {}
@@ -938,7 +989,7 @@ local function broadcastSnapshot()
             session = { seenEntities = {}, lastDyn = {}, lastSent = {} }
             snapSessions[pid] = session
         end
-        local ok, frame = pcall(snapshot.buildForPlayer, entities, players, pid, session, tick, simTime)
+        local ok, frame = pcall(snapshot.buildForPlayer, entities, players, ghostEntities, pid, session, tick, simTime)
         if not ok then
             print(string.format("[World] SNAPSHOT ERROR pid=%d: %s", pid, tostring(frame)))
         elseif frame then frames[pid] = frame end
@@ -1175,6 +1226,7 @@ local function doGameTick()
     phaseEnd("misc", t0); t0 = moonCore.clock()
 
     -- Phase: 广播 — 每 tick 发快照+事件 (内部遍历 players 表, 空表时零开销)
+    pcall(ghostSync)
     pcall(broadcastSnapshot)
     pcall(function() sendCombatEvents(combatEvents) end)
 
@@ -1336,6 +1388,18 @@ moon.dispatch("lua", function(sender, session, msg)
     elseif t == "getPlayerCount" then
         local n = 0; for _ in pairs(players) do n = n + 1 end
         moon.response("lua", sender, session, { ok = true, data = n })
+    elseif t == "ghostSync" then
+        -- 接收相邻分片的 ghost 实体 (全量替换该源分片的旧 ghost)
+        local src = msg.shardId
+        if ghostByShard[src] then
+            for _, g in ipairs(ghostByShard[src]) do
+                ghostEntities[g.id] = nil
+            end
+        end
+        ghostByShard[src] = msg.ghosts or {}
+        for _, g in ipairs(ghostByShard[src]) do
+            ghostEntities[g.id] = g
+        end
     end
 end)
 
@@ -1527,7 +1591,7 @@ end)
 local npcOk, npcErr = pcall(function()
     require("world.npc_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
         return Entity.new(id, kind, templateId, name, level, pos)
-    end, allocId)
+    end, allocId, shardId)
 end)
 if not npcOk then
     print(string.format("[World] WARNING: Failed to spawn NPCs: %s", tostring(npcErr)))
@@ -1550,7 +1614,7 @@ end
 pcall(function()
     require("world.gather_node_spawn").spawnAll(entities, grid, function(id, kind, templateId, name, level, pos)
         return Entity.new(id, kind, templateId, name, level, pos)
-    end, allocId)
+    end, allocId, shardId)
 end)
 
 -- 注册世界静态碰撞体 (PROPS + 装饰 + 街灯, 确定性)
@@ -1566,7 +1630,7 @@ print(string.format("[World] SimRNG initialized seed=%d", simrng.getSeed()))
 pcall(function()
     pedestrian.spawn(entities, grid, function(id, kind, templateId, name, level, pos)
         return Entity.new(id, kind, templateId, name, level, pos)
-    end, allocId)
+    end, allocId, shardId)
 end)
 
 -- 绑定移动内核依赖 (TS PlayerMotionDeps)
@@ -1590,7 +1654,7 @@ print("[World] All modules loaded — starting tick loop")
 
 -- 从 proto/camps.json 加载世界营地 (全图 mob 刷新)
 local campsOk, campsErr = pcall(function()
-    mobLifecycle.loadCampsFromProto()
+    mobLifecycle.loadCampsFromProto(shardId)
 end)
 if not campsOk then
     print(string.format("[World] WARNING: Failed to load camps from proto: %s", tostring(campsErr)))

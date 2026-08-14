@@ -58,6 +58,38 @@ M.HALF_RATE_DIVISOR = 2
 M.QUARTER_RATE_DIVISOR = 4
 
 ----------------------------------------
+-- 空间分片 (Spatial Sharding)
+----------------------------------------
+-- 固定网格 region 尺寸 (yd): 270 = 2x AOI 半径 135, 边界 ghost 条带正好 135yd
+M.REGION_SIZE = 270
+-- ghost 边界同步间隔 (tick): 每 K tick 同步一次边界实体到相邻分片, 客户端插值平滑
+M.GHOST_SYNC_INTERVAL_TICKS = 5
+
+-- 实体迁移状态 (Phase 3 预留; 一期不上迁移, 但预留枚举避免后期改结构)
+M.MIGRATE_NONE = 0
+M.MIGRATE_INBOUND = 1
+M.MIGRATE_OUTBOUND = 2
+
+--- region 坐标 (整数格, floor; 负坐标正确)
+function M.regionOf(x, z)
+    return math.floor(x / M.REGION_SIZE), math.floor(z / M.REGION_SIZE)
+end
+
+--- region -> 分片 (确定性整数散列; 打散相邻 region 均衡负载, 避免热点)
+function M.regionToShard(rx, rz)
+    local n = M.getWorldShards()
+    local h = (rx * 2654435761 + rz * 40503) % n
+    if h < 0 then h = h + n end
+    return h
+end
+
+-- 8 邻居偏移 (ghost 同步用)
+M.REGION_NEIGHBORS = {
+    { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
+    { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 },
+}
+
+----------------------------------------
 -- 玩家限制
 ----------------------------------------
 M.MAX_PLAYERS_PER_REALM = 5000

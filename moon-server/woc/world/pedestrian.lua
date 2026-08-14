@@ -8,6 +8,7 @@ local simrng = require("world.simrng")
 local mobAI = require("world.mob.ai")
 local terrain = require("world.terrain")
 local grid = require("world.grid")
+local config = require("config")
 
 -- 路人名字池
 local NAMES = {
@@ -21,7 +22,11 @@ local function randomName()
 end
 
 --- 生成路人 NPC (城镇 + 野外), 接入 mob AI 行为树
-function M.spawn(entities, grid, entityNewFn, allocIdFn)
+-- 空间分片: 路人聚集在出生点 (0,0) 周边, 只由出生点所在 region 的分片生成
+function M.spawn(entities, grid, entityNewFn, allocIdFn, shardId)
+    if config.regionToShard(config.regionOf(0, 0)) ~= shardId then
+        return 0
+    end
     local count = 0
     local function makePedestrian(x, z)
         local eid = allocIdFn()
