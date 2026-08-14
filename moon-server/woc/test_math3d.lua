@@ -1,4 +1,4 @@
--- math3d wrapper test — verifies C acceleration is active and correct
+-- math3d 标量函数测试 — 验证纯 Lua 标量数学正确性
 -- Run: bin/moon.exe woc/test_math3d.lua
 local m3d = require("world.math3d")
 local ok = 0
@@ -7,9 +7,6 @@ local function check(name, cond)
     if cond then ok = ok + 1; print("PASS " .. name)
     else fail = fail + 1; print("FAIL " .. name) end
 end
-
-print("=== math3d Backend: " .. m3d.backend .. " ===")
-check("backend-set", m3d.backend == "c" or m3d.backend == "lua")
 
 -- Dist
 check("dist-simple", math.abs(m3d.dist(3, 4) - 5) < 0.001)
@@ -69,21 +66,6 @@ do
     check("lerp3-x", math.abs(x - 5) < 0.001)
     check("lerp3-y", math.abs(y - 10) < 0.001)
     check("lerp3-z", math.abs(z - 15) < 0.001)
-end
-
--- C library presence
-check("lib-loaded",    m3d.backend == "c" and m3d.lib ~= nil or m3d.backend == "lua")
-if m3d.lib then
-    local v = m3d.vec3(1, 2, 3)
-    check("vec3-non-nil", v ~= nil)
-    if v then
-        check("vec3-len",      math.abs(m3d.lib.length(v) - math.sqrt(14)) < 0.01)
-        check("vec3-dot",      math.abs(m3d.lib.dot(v, v) - 14) < 0.01)
-        check("vec3-normalize", math.abs(m3d.lib.length(m3d.lib.normalize(v)) - 1) < 0.01)
-    end
-else
-    -- skip vec tests in pure Lua mode
-    ok = ok + 3
 end
 
 -- Performance benchmark (100K iterations)

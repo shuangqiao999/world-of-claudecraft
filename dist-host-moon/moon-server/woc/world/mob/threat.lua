@@ -145,4 +145,15 @@ function M._spreadHealerThreat(mobId, healerId, amount)
     end
 end
 
+--- 统计仇恨表 (内存诊断): 返回 mob 数, 总仇恨条目数
+function M.stats()
+    local mobs = 0
+    local entries = 0
+    for _, t in pairs(threats) do
+        mobs = mobs + 1
+        for _ in pairs(t) do entries = entries + 1 end
+    end
+    return mobs, entries
+end
+
 return M

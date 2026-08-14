@@ -386,6 +386,9 @@ function M.recalcPlayerStats(e, cls, equipment, mods, items)
     -- 13. 缩放
     if e.kind == "player" then e.scale = scaleMul end
 
+    -- 身份冷字段 (mainhand/offhand/scale) 可能已变 → 触发快照 full 重发
+    e._idVer = (e._idVer or 0) + 1
+
     -- 14. 资源 (Mana/Rage/Energy)
     local formResource = nil
     if bearForm then formResource = "rage"

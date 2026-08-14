@@ -90,6 +90,15 @@ function M.cancelTrade(tradeId)
     return true
 end
 
+--- 清理玩家参与的所有交易 (下线时调用)
+function M.cleanupPlayer(pid)
+    for tid, t in pairs(activeTrades) do
+        if t.pid1 == pid or t.pid2 == pid then
+            activeTrades[tid] = nil
+        end
+    end
+end
+
 --- 执行交易 (真实移动物品/铜币)
 function M._executeTrade(tradeId)
     local t = activeTrades[tradeId]

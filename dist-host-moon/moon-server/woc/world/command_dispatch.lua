@@ -656,22 +656,22 @@ end
 -- ============ 外观 ============
 function H.change_skin(ctx, pid, cmd)
     local e = ctx.entities[pid]
-    if e then e.skin = n(cmd.skin); if cmd.catalog then e.skinCatalog = s(cmd.catalog) end end
+    if e then e.skin = n(cmd.skin); if cmd.catalog then e.skinCatalog = s(cmd.catalog) end; e._idVer = (e._idVer or 0) + 1 end
     return true
 end
 function H.claim_event_skin(ctx, pid, cmd)
     local e = ctx.entities[pid]
-    if e then e.skin = n(cmd.skin) end
+    if e then e.skin = n(cmd.skin); e._idVer = (e._idVer or 0) + 1 end
     return true
 end
 function H.change_weapon_skin(ctx, pid, cmd)
     local e = ctx.entities[pid]
-    if e then e.weaponSkinId = s(cmd.skin) or n(cmd.skin) end
+    if e then e.weaponSkinId = s(cmd.skin) or n(cmd.skin); e._idVer = (e._idVer or 0) + 1 end
     return true
 end
 function H.unequip_mech_chroma(ctx, pid, cmd)
     local e = ctx.entities[pid]
-    if e then e.skin = nil end
+    if e then e.skin = nil; e._idVer = (e._idVer or 0) + 1 end
     return true
 end
 function H.stow_weapon(ctx, pid, cmd)

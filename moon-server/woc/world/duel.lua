@@ -89,4 +89,13 @@ function M.onDuelDeath(loser, entities)
     end
 end
 
+--- 清理玩家参与的所有决斗 (下线时调用)
+function M.cleanupPlayer(pid)
+    for id, d in pairs(activeDuels) do
+        if d.pid1 == pid or d.pid2 == pid then
+            activeDuels[id] = nil
+        end
+    end
+end
+
 return M

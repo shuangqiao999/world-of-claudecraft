@@ -9,6 +9,10 @@ local M = {}
 local spawnData = {}
 local campsLoaded = false
 
+-- 内存泄漏诊断计数
+local respawnedCount = 0
+local deathCount = 0
+
 function M.registerSpawn(zone, templateId, maxCount, respawnSeconds, positions)
     local key = zone .. ":" .. templateId
     spawnData[key] = {
@@ -101,6 +105,7 @@ function M.checkRespawn(entities, worldInitFn, gridModule, currentTime)
             if mob then
                 sd.count = sd.count + 1
                 sd.lastRespawn = currentTime
+                respawnedCount = respawnedCount + 1
                 table.insert(spawned, mob)
                 spawnsThisTick = spawnsThisTick + 1
             end
@@ -114,6 +119,7 @@ end
 function M.onMobDeath(mobId, entities)
     local mob = entities and entities[mobId]
     if not mob then return end
+    deathCount = deathCount + 1
     local tid = mob.templateId
     if not tid then return end
     for key, sd in pairs(spawnData) do
@@ -174,6 +180,11 @@ end
 --- 社交仇恨: 反击式世界下禁用 — 被动怪不再因附近同类被杀而主动围攻玩家
 function M.socialAggro(deadMobId, killerId, entities, aiModule)
     return
+end
+
+--- 统计生成/死亡计数 (内存诊断)
+function M.stats()
+    return respawnedCount, deathCount
 end
 
 return M

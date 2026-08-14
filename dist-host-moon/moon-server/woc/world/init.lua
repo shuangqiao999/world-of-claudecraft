@@ -114,6 +114,24 @@ local entities = {}     -- id → Entity
 local players = {}      -- pid → PlayerMeta
 local snapSessions = {} -- pid → { seenEntities, lastDyn, lastSent } 快照 delta 追踪
 
+-- 内存泄漏诊断: mob 生成/移除计数 (生成源按 templateId 归组)
+local mobSpawnCount = 0
+local mobRemoveCount = 0
+local mobSpawnByTemplate = {}
+
+-- 分片标识: 从服务名 "world_N" 解析 (main.lua 以 world_0..world_N-1 创建)
+local shardId = 0
+local shardCount = 1
+do
+    local name = moon.name or ""
+    local idx = name:match("^world_(%d+)$")
+    if idx then shardId = tonumber(idx) end
+    shardCount = config.getWorldShards()
+end
+local function shardTag(s)
+    return string.format("[W%d/%d] ", shardId, shardCount) .. s
+end
+
 -- forward 声明 (pushSocialFrame 定义在 joinPlayer 之后, 需先声明)
 local pushSocialFrame
 local simTime = 0
@@ -144,7 +162,7 @@ local function noteEvents(evs)
         end
     end
     if #world > 0 then
-        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = jh.buildEventsFrame(world) })
+        moon.send("lua", gateSvc(), { t = "broadcastSnap", shard = shardId, data = jh.buildEventsFrame(world) })
     end
     for targetPid, evs2 in pairs(perPid) do
         moon.send("lua", gateSvc(), { t = "sendToPlayer", pid = targetPid, frame = jh.buildEventsFrame(evs2) })
@@ -167,6 +185,11 @@ local phaseLastReport = 0
 local function phaseEnd(name, t0)
     phaseAcc[name] = (phaseAcc[name] or 0) + (moonCore.clock() - t0)
 end
+local function countTbl(t)
+    local n = 0
+    for _ in pairs(t) do n = n + 1 end
+    return n
+end
 local function phaseReport()
     local parts = {}
     for _, name in ipairs(phaseOrder) do
@@ -174,10 +197,23 @@ local function phaseReport()
     end
     local memBefore = collectgarbage("count")
     local gcT0 = moonCore.clock()
-    local memAfter = collectgarbage("collect")
+    collectgarbage("collect")
+    local memAfter = collectgarbage("count")
     local gcMs = (moonCore.clock() - gcT0) * 1000
-    print(string.format("[PhaseDiag] tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB %s",
-        tick, gcMs, memAfter, memBefore - memAfter, table.concat(parts, " ")))
+    local thrMobs, thrEntries = threatMod.stats()
+    local gs = grid.stats()
+    local rsp, deaths = mobLifecycle.stats()
+    local top = {}
+    for tid, n in pairs(mobSpawnByTemplate) do top[#top + 1] = { tid, n } end
+    table.sort(top, function(a, b) return a[2] > b[2] end)
+    local topStr = {}
+    for i = 1, math.min(3, #top) do topStr[#topStr + 1] = top[i][1] .. ":" .. top[i][2] end
+    print(string.format("[PhaseDiag] tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB ent=%d ply=%d snap=%d threat=%d/%d ai=%d grid=%d/%d mobSpawn=%d mobRemove=%d respawn=%d death=%d top=%s %s",
+        tick, gcMs, memAfter, memBefore - memAfter,
+        countTbl(entities), countTbl(players), countTbl(snapSessions),
+        thrMobs, thrEntries, mobAI.stats(), gs.cells, gs.entities,
+        mobSpawnCount, mobRemoveCount, rsp, deaths, table.concat(topStr, ","),
+        table.concat(parts, " ")))
     phaseAcc = {}
 end
 
@@ -358,6 +394,9 @@ local function createPlayerEntity(pid, cls, name, level, stateData)
 end
 
 local function createMobEntity(templateId, name, level, pos, opts)
+    mobSpawnCount = mobSpawnCount + 1
+    local tid = templateId or "?"
+    mobSpawnByTemplate[tid] = (mobSpawnByTemplate[tid] or 0) + 1
     local id = allocId()
     local e = Entity.new(id, "mob", templateId, name, level, pos)
     e.hostile = true
@@ -449,10 +488,10 @@ local function leavePlayer(pid)
     grid.remove(e)
     aura.cleanupDRTracker(pid)
     deeds.cleanupPlayer(pid)
-    -- 清理所有 mob 对此玩家的威胁/仇恨
+    -- 清理所有 mob 对此玩家的威胁/仇恨 (全局 threat 表, 非死字段 m.threat)
     for _, m in pairs(entities) do
-        if m.kind == "mob" and m.threat then
-            m.threat[pid] = nil
+        if m.kind == "mob" then
+            threatMod.removeThreat(m.id, pid)
             if m.aggroTargetId == pid then m.aggroTargetId = nil end
             if m.forcedTargetId == pid then m.forcedTargetId = nil; m.forcedTargetTimer = 0 end
             if m.targetId == pid then m.targetId = nil end
@@ -462,6 +501,14 @@ local function leavePlayer(pid)
     for _, other in pairs(entities) do
         if other.targetId == pid then other.targetId = nil end
     end
+    -- 清理玩家参与的社交/队列状态 (组队/交易/决斗/队列)
+    partyMod.leave(pid)
+    tradeMod.cleanupPlayer(pid)
+    duelMod.cleanupPlayer(pid)
+    dungeonFinder.leaveQueue(pid)
+    valeCup.leaveQueue(pid)
+    battleground.leaveQueue(pid)
+    cardDuel.leaveCardQueue(pid)
     if dbSvc() and meta.leaseNonce then
         local st = serializeCharacter(pid)
         local dbs = dbSvc()
@@ -742,6 +789,7 @@ local function combatTick(dt)
                 e.corpsePos = { x = e.pos.x, y = e.pos.y, z = e.pos.z }
                 -- 强制下马 + 清除战斗状态 (TS 1175-1200)
                 e.mountKey = nil
+                e._idVer = (e._idVer or 0) + 1
                 e.mountCastRemaining = nil
                 e.mountCastKey = nil
                 e.autoAttack = false
@@ -757,8 +805,8 @@ local function combatTick(dt)
                 print(string.format("[World] Player died: pid=%d name=%s hp=0", e.id, e.name or "?"))
                 -- 从所有 mob 仇恨表移除死亡玩家 (TS 1164-1172)
                 for _, m in pairs(entities) do
-                    if m.kind == "mob" and m.threat then
-                        m.threat[e.id] = nil
+                    if m.kind == "mob" then
+                        threatMod.removeThreat(m.id, e.id)
                         if m.forcedTargetId == e.id then
                             m.forcedTargetId = nil
                             m.forcedTargetTimer = 0
@@ -898,7 +946,7 @@ local function broadcastSnapshot()
     phaseEnd("bcastBuild", tb)
     local ts = moonCore.clock()
     if next(frames) then
-        moon.send("lua", gateSvc(), { t = "broadcastSnap", data = frames })
+        moon.send("lua", gateSvc(), { t = "broadcastSnap", shard = shardId, data = frames })
     end
     phaseEnd("bcastSend", ts)
 end
@@ -979,8 +1027,11 @@ local function doGameTick()
     if despawnToRemove then
         for id, _ in pairs(despawnToRemove) do
             if entities[id] then
+                local isMob = entities[id].kind == "mob"
+                mobAI.cleanup(id)
                 grid.remove(entities[id])
                 entities[id] = nil
+                if isMob then mobRemoveCount = mobRemoveCount + 1 end
             end
         end
     end
@@ -1208,7 +1259,7 @@ local function doGameTick()
     if tick % (config.TICK_RATE * 10) == 0 then
         local n = 0; for _ in pairs(players) do n = n + 1 end
         local m = 0; for _, e in pairs(entities) do if e.kind == "mob" and not e.dead then m = m + 1 end end
-        print(string.format("[World] t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
+        print(string.format(shardTag("[World]") .. " t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
     end
 
     -- 分相计时: 每 10 秒墙上时间打印一次 (tick 慢时不受 200-tick 间隔影响)
@@ -1232,7 +1283,7 @@ local function gameTick()
     local elapsed = moonCore.clock() - start
     local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
     if tick % 200 == 0 then
-        print(string.format("[TickDiag] tick=%d elapsed=%.2fms delay=%dms", tick, elapsed * 1000, delay))
+        print(string.format(shardTag("[TickDiag]") .. " tick=%d elapsed=%.2fms delay=%dms", tick, elapsed * 1000, delay))
     end
     moon.timeout(delay, gameTick)
 end
@@ -1543,6 +1594,16 @@ local campsOk, campsErr = pcall(function()
 end)
 if not campsOk then
     print(string.format("[World] WARNING: Failed to load camps from proto: %s", tostring(campsErr)))
+else
+    -- 世界启动时一次性填充全部营地 mob。
+    -- 否则 mob 只能在玩家上线后由 checkRespawn (被 hasPlayers 门控) 逐个补出,
+    -- 导致首个玩家连接时 700 mob 突然集中生成 + AI 全激活 → 死亡螺旋/内存堆积。
+    local spawned = mobLifecycle.fillInitialMobs(entities, createMobEntity, grid)
+    for _, mob in ipairs(spawned) do
+        entities[mob.id] = mob
+        grid.insert(mob)
+    end
+    print(string.format("[World] Filled %d initial camp mobs", #spawned))
 end
 
 moon.async(function()
@@ -1552,4 +1613,4 @@ moon.async(function()
     if gs then print(string.format("[World] Gate=0x%X", gs)) end
 end)
 moon.timeout(1000, gameTick)
-print("[World] Service ready")
+print(shardTag("[World] Service ready"))

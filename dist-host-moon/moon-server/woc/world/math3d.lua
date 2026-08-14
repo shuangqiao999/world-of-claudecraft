@@ -1,6 +1,9 @@
--- math3d wrapper: C acceleration via clib/math3d.dll, with pure-Lua fallback.
--- Scalar-argument APIs create a temporary vector per call (C alloc + length/dot/cross/lerp).
--- For high-frequency loops prefer re-using pre-allocated vec objects via M.vec3() + M.lib.
+-- math3d — 纯 Lua 标量数学库
+--
+-- 原 clib/math3d.dll C SIMD 后端已移除: 服务器仿真是 2.5D (x/z 平面 + y 高度),
+-- 热点数学是 2D 标量距离/法线, 单次调用下 C 向量对象分配 (lib.vector) + 跨 Lua/C
+-- 边界 + GC 的开销高于 Lua 5.4 原生 math.sqrt (math.* 本身是 C 实现), 故标量函数
+-- 统一走原生 math.*。
 --
 -- API:
 --   dist(dx,dz)      — 2D distance
@@ -15,155 +18,58 @@
 --   cross3(ax,ay,az,bx,by,bz) → cx,cy,cz
 
 local M = {}
-local lib = nil
-M.backend = "lua"
 
--- 优先加载 math3d C 后端 (clib/math3d.dll), 失败则回退纯 Lua。
--- 注: 之前的"内存泄漏"实为世界首次加载 + 首次玩家加入的正常峰值, 非 math3d 泄漏。
-pcall(function()
-    lib = require("math3d")
-    M.backend = "c"
-end)
+function M.dist(dx, dz)
+    return math.sqrt(dx * dx + dz * dz)
+end
 
--- ===================================================================
--- C-accelerated path
--- ===================================================================
-if lib then
+function M.distSq(dx, dz)
+    return dx * dx + dz * dz
+end
 
-    function M.dist(dx, dz)
-        local v = lib.vector(dx, 0, dz, 0)
-        return lib.length(v)
-    end
+function M.dist3(dx, dy, dz)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
 
-    function M.distSq(dx, dz)
-        return dx * dx + dz * dz
-    end
+function M.norm(dx, dz)
+    local len = math.sqrt(dx * dx + dz * dz)
+    if len < 0.0001 then return 0, 0 end
+    return dx / len, dz / len
+end
 
-    function M.dist3(dx, dy, dz)
-        local v = lib.vector(dx, dy, dz, 0)
-        return lib.length(v)
-    end
+function M.norm3(dx, dy, dz)
+    local len = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if len < 0.0001 then return 0, 0, 0 end
+    return dx / len, dy / len, dz / len
+end
 
-    function M.norm(dx, dz)
-        local v = lib.vector(dx, 0, dz, 0)
-        local len = lib.length(v)
-        if len < 0.0001 then return 0, 0 end
-        return dx / len, dz / len
-    end
+function M.dirTo(px, pz, tx, tz)
+    return M.norm(tx - px, tz - pz)
+end
 
-    function M.norm3(dx, dy, dz)
-        local v = lib.vector(dx, dy, dz, 0)
-        local len = lib.length(v)
-        if len < 0.0001 then return 0, 0, 0 end
-        return dx / len, dy / len, dz / len
-    end
+function M.facingTo(px, pz, tx, tz)
+    return math.atan(tx - px, tz - pz)
+end
 
-    function M.dirTo(px, pz, tx, tz)
-        return M.norm(tx - px, tz - pz)
-    end
+function M.moveToward(px, pz, tx, tz, speed, dt)
+    local dx = tx - px
+    local dz = tz - pz
+    local dist = math.sqrt(dx * dx + dz * dz)
+    if dist < speed * dt then return tx, tz end
+    local step = speed * dt
+    return px + (dx / dist) * step, pz + (dz / dist) * step
+end
 
-    function M.facingTo(px, pz, tx, tz)
-        return math.atan(tx - px, tz - pz)
-    end
+function M.dot3(ax, ay, az, bx, by, bz)
+    return ax * bx + ay * by + az * bz
+end
 
-    function M.moveToward(px, pz, tx, tz, speed, dt)
-        local dx = tx - px
-        local dz = tz - pz
-        local v = lib.vector(dx, 0, dz, 0)
-        local dist = lib.length(v)
-        if dist < speed * dt then return tx, tz end
-        local step = speed * dt
-        return px + (dx / dist) * step, pz + (dz / dist) * step
-    end
+function M.cross3(ax, ay, az, bx, by, bz)
+    return ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
+end
 
-    function M.dot3(ax, ay, az, bx, by, bz)
-        local a = lib.vector(ax, ay, az, 0)
-        local b = lib.vector(bx, by, bz, 0)
-        return lib.dot(a, b)
-    end
-
-    function M.cross3(ax, ay, az, bx, by, bz)
-        local a = lib.vector(ax, ay, az, 0)
-        local b = lib.vector(bx, by, bz, 0)
-        local c = lib.cross(a, b)
-        local x, y, z = lib.index(c, 1, 2, 3)
-        return x, y, z
-    end
-
-    function M.lerp3(ax, ay, az, bx, by, bz, t)
-        local a = lib.vector(ax, ay, az, 0)
-        local b = lib.vector(bx, by, bz, 0)
-        local c = lib.lerp(a, b, t)
-        local x, y, z = lib.index(c, 1, 2, 3)
-        return x, y, z
-    end
-
-    -- expose raw math3d for advanced use
-    M.lib = lib
-    M.vec3 = function(x, y, z) return lib.vector(x, y, z, 0) end
-    M.vec4 = function(x, y, z, w) return lib.vector(x, y, z, w or 0) end
-
-else
--- ===================================================================
--- Pure Lua fallback (identical behavior, no C dependency)
--- ===================================================================
-
-    function M.dist(dx, dz)
-        return math.sqrt(dx * dx + dz * dz)
-    end
-
-    function M.distSq(dx, dz)
-        return dx * dx + dz * dz
-    end
-
-    function M.dist3(dx, dy, dz)
-        return math.sqrt(dx * dx + dy * dy + dz * dz)
-    end
-
-    function M.norm(dx, dz)
-        local len = math.sqrt(dx * dx + dz * dz)
-        if len < 0.0001 then return 0, 0 end
-        return dx / len, dz / len
-    end
-
-    function M.norm3(dx, dy, dz)
-        local len = math.sqrt(dx * dx + dy * dy + dz * dz)
-        if len < 0.0001 then return 0, 0, 0 end
-        return dx / len, dy / len, dz / len
-    end
-
-    function M.dirTo(px, pz, tx, tz)
-        return M.norm(tx - px, tz - pz)
-    end
-
-    function M.facingTo(px, pz, tx, tz)
-        return math.atan(tx - px, tz - pz)
-    end
-
-    function M.moveToward(px, pz, tx, tz, speed, dt)
-        local dx = tx - px
-        local dz = tz - pz
-        local dist = math.sqrt(dx * dx + dz * dz)
-        if dist < speed * dt then return tx, tz end
-        local step = speed * dt
-        return px + (dx / dist) * step, pz + (dz / dist) * step
-    end
-
-    function M.dot3(ax, ay, az, bx, by, bz)
-        return ax * bx + ay * by + az * bz
-    end
-
-    function M.cross3(ax, ay, az, bx, by, bz)
-        return ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
-    end
-
-    function M.lerp3(ax, ay, az, bx, by, bz, t)
-        return ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t
-    end
-
-    M.lib = nil
-    M.vec3 = nil
-    M.vec4 = nil
+function M.lerp3(ax, ay, az, bx, by, bz, t)
+    return ax + (bx - ax) * t, ay + (by - ay) * t, az + (bz - az) * t
 end
 
 return M

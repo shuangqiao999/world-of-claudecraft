@@ -4,6 +4,13 @@
 //
 //   node scripts/stress_test.mjs
 //   BOTS=100 DURATION_MS=30000 node scripts/stress_test.mjs
+//
+// By default every bot spawns at (0,0), so the whole population collapses into
+// a single AOI cell — an artificial worst case that inflates snapshot building
+// to N×MAX_VISIBLE records/tick. Set SPREAD=1 to scatter bots across the zone
+// (golden-angle disc, radius SPREAD_RADIUS) for a realistic-density profile.
+// SPREAD uses the dev_teleport command, so the server must run with
+// ALLOW_DEV_COMMANDS=1.
 
 import WebSocket from 'ws';
 
@@ -12,6 +19,8 @@ const WS_BASE = BASE.replace(/^http/, 'ws');
 const BOTS = Number(process.env.BOTS ?? 50);
 const DURATION_MS = Number(process.env.DURATION_MS ?? 30000);
 const RAMP_MS = Number(process.env.RAMP_MS ?? 60);
+const SPREAD = process.env.SPREAD === '1';
+const SPREAD_RADIUS = Number(process.env.SPREAD_RADIUS ?? 400);
 
 const L = 'abcdefghijklmnopqrstuvwxyz';
 const lettersOf = (n) => { let s = ''; let x = n; while (x >= 0) { s = L[x % 26] + s; x = Math.floor(x / 26) - 1; } return s; };
@@ -110,6 +119,21 @@ async function run() {
   console.log(`[stress] ${joined}/${accounts.length} connected (${Date.now() - start}ms)`);
 
   if (joined === 0) { console.error('[stress] no connections — abort'); process.exit(1); }
+
+  // 3b. Optional: scatter bots across the zone so they don't all pile into the
+  //     spawn cell. Golden-angle disc → even coverage, nearest-first ordering.
+  if (SPREAD) {
+    console.log(`[stress] scattering ${joined} bots within ${SPREAD_RADIUS}yd (needs ALLOW_DEV_COMMANDS=1)`);
+    sockets.forEach((s, i) => {
+      if (s.ws.readyState !== WebSocket.OPEN) return;
+      const ang = (i * 137.508) % 360;
+      const r = Math.sqrt((i + 0.5) / sockets.length) * SPREAD_RADIUS;
+      const x = Math.round(Math.cos((ang * Math.PI) / 180) * r);
+      const z = Math.round(Math.sin((ang * Math.PI) / 180) * r);
+      try { s.ws.send(JSON.stringify({ cmd: 'dev_teleport', x, z })); } catch {}
+    });
+    await sleep(2000);
+  }
 
   // 4. Send periodic move commands
   const directions = [

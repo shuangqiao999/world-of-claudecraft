@@ -15,18 +15,56 @@ local inventory = require("world.inventory")
 
 local M = {}
 
---- 计算身份哈希 (检测实体身份变化); 缓存到实体, 仅 level 变化时重算
-local function identityHash(e)
-    local h = e._idHash
-    if not h or e._idHashLevel ~= e.level then
-        h = (e.kind or "?") .. "|" .. (e.templateId or "") .. "|" .. (e.name or "") .. "|" .. tostring(e.level or 1)
-        e._idHash = h
-        e._idHashLevel = e.level
+--- 构建身份哈希 (身份 + 外观冷字段); 冷字段变化时哈希变化, 触发 full 记录重发
+local function buildIdentityHash(e)
+    local parts = {
+        e.kind or "?",
+        e.templateId or "",
+        e.name or "",
+        tostring(e.level or 1),
+        tostring(e.skin or ""),
+        tostring(e.skinCatalog or ""),
+        tostring(e.mountKey or ""),
+        tostring(e.mainhandItemId or ""),
+        tostring(e.offhandItemId or ""),
+        tostring(e.weaponSkinId or ""),
+        tostring(e.holderTier or ""),
+        tostring(e.holderBalance or ""),
+        tostring(e.discordTier or ""),
+        tostring(e.discordName or ""),
+        tostring(e.discordAvatar or ""),
+        tostring(e.discordJoined or ""),
+        tostring(e.discordRole or ""),
+        tostring(e.devTier or ""),
+        tostring(e.devMergedPrs or ""),
+        tostring(e.githubLogin or ""),
+        tostring(e.guild or ""),
+        tostring(e.title or ""),
+        tostring(e.dungeonId or ""),
+        tostring(e.riftTier or ""),
+        tostring(e.objectItemId or ""),
+        tostring(e.scale or 1),
+        tostring(e.color or 0xffffff),
+    }
+    if e.streamerLinks and #e.streamerLinks > 0 then
+        parts[#parts + 1] = table.concat(e.streamerLinks, ",")
     end
-    return h
+    return table.concat(parts, "|")
 end
 
--- LITE 周期刷新间隔 (tick): 冷字段(外观/公会/头衔/血量等)最多延迟这么久才下发
+--- 计算身份哈希 (检测实体身份/外观变化); 缓存到实体, level 或 _idVer 变化时重算
+--- _idVer 由各冷字段写入点 (装备/皮肤/坐骑/副本等) 递增
+local function identityHash(e)
+    local ver = e._idVer or 0
+    if not e._idHash or e._idHashLevel ~= e.level or e._idHashVer ~= ver then
+        e._idHash = buildIdentityHash(e)
+        e._idHashLevel = e.level
+        e._idHashVer = ver
+    end
+    return e._idHash
+end
+
+-- LITE 周期刷新间隔 (tick): 动态字段最多延迟这么久才强制重发 (兜底)
 local LITE_REFRESH_TICKS = 20
 
 --- 序列化玩家 buff/debuff 列表 (客户端 ClientWireAura 形状)
@@ -264,38 +302,14 @@ local function buildEntityLiteTable(e)
     end
     if e.tappedById then dyn.tap = e.tappedById end
     if e.ownerId then dyn.own = e.ownerId end
-    if e.mountKey then dyn.mnt = e.mountKey end
     if e.mountCastKey then dyn.mck = e.mountCastKey; dyn.mcr = jh.round2(e.mountCastRemaining or 0) end
     if e.weaponStowed then dyn.ws = true end
     if e.helmHidden then dyn.hh = true end
     if e.riftSliding then dyn.sld = true end
-    if e.riftTier then dyn.rt = e.riftTier end
-    if e.skin then dyn.sk = e.skin end
-    if e.scale ~= 1 then dyn.sc = e.scale end
-    if e.skinCatalog then dyn.cat = e.skinCatalog end
-    if e.guild then dyn.gd = e.guild end
-    if e.title then dyn.title = e.title end
-    if e.dungeonId then dyn.dgn = e.dungeonId end
-    if e.objectItemId then dyn.obj = e.objectItemId end
     if e.overheadEmoteId then
         dyn.emo = e.overheadEmoteId
         dyn.emoSeq = e.overheadEmoteSeq or 0
     end
-    if e.mainhandItemId then dyn.mh = e.mainhandItemId end
-    if e.offhandItemId then dyn.oh = e.offhandItemId end
-    if e.weaponSkinId then dyn.wsk = e.weaponSkinId end
-    if e.holderTier then dyn.ht = e.holderTier end
-    if e.holderBalance then dyn.hb = e.holderBalance end
-    if e.discordTier then dyn.dt = e.discordTier end
-    if e.discordName then dyn.dnm = e.discordName end
-    if e.discordAvatar then dyn.dav = e.discordAvatar end
-    if e.discordJoined then dyn.dj = true end
-    if e.discordRole then dyn.dr = e.discordRole end
-    if e.devTier then dyn.dvt = e.devTier end
-    if e.devMergedPrs then dyn.dvc = e.devMergedPrs end
-    if e.githubLogin then dyn.dgl = e.githubLogin end
-    if e.streamerLinks and #e.streamerLinks > 0 then dyn.slk = e.streamerLinks end
-    if e.color then dyn.c = e.color end
     if e.petMode then dyn.pm = e.petMode end
     if e.petTauntTimer and e.petTauntTimer > 0 then dyn.pt = true end
     if e.petAutoTaunt then dyn.pa = true end
@@ -329,9 +343,9 @@ local function liteEqual(a, b)
     return an == bn
 end
 
---- 构建 Entity FULL 记录 (LITE + 身份字段)
+--- 构建 Entity FULL 记录 (基础 + 身份/外观冷字段; 冷字段客户端仅 full 记录读取)
 local function buildEntityFull(e)
-    return jh.safeEncode({
+    local dyn = {
         id = e.id,
         k = e.kind or "mob",
         tid = e.templateId or "",
@@ -348,7 +362,32 @@ local function buildEntityFull(e)
         loot = e.lootable or false,
         h = e.hostile or false,
         tgt = e.targetId,
-    })
+    }
+    if e.skinCatalog then dyn.cat = e.skinCatalog end
+    if e.skin then dyn.sk = e.skin end
+    if e.mountKey then dyn.mnt = e.mountKey end
+    if e.mainhandItemId then dyn.mh = e.mainhandItemId end
+    if e.offhandItemId then dyn.oh = e.offhandItemId end
+    if e.weaponSkinId then dyn.wsk = e.weaponSkinId end
+    if e.holderTier then dyn.ht = e.holderTier end
+    if e.holderBalance then dyn.hb = e.holderBalance end
+    if e.discordTier then dyn.dt = e.discordTier end
+    if e.discordName then dyn.dnm = e.discordName end
+    if e.discordAvatar then dyn.dav = e.discordAvatar end
+    if e.discordJoined then dyn.dj = true end
+    if e.discordRole then dyn.dr = e.discordRole end
+    if e.devTier then dyn.dvt = e.devTier end
+    if e.devMergedPrs then dyn.dvc = e.devMergedPrs end
+    if e.githubLogin then dyn.dgl = e.githubLogin end
+    if e.streamerLinks and #e.streamerLinks > 0 then dyn.slk = e.streamerLinks end
+    if e.guild then dyn.gd = e.guild end
+    if e.title then dyn.title = e.title end
+    if e.dungeonId then dyn.dgn = e.dungeonId end
+    if e.riftTier then dyn.rt = e.riftTier end
+    if e.objectItemId then dyn.obj = e.objectItemId end
+    if e.scale ~= 1 then dyn.sc = e.scale end
+    if e.color then dyn.c = e.color end
+    return jh.safeEncode(dyn)
 end
 
 --- 为某个玩家构建快照

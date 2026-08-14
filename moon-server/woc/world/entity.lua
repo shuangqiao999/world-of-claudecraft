@@ -23,6 +23,8 @@ function Entity.new(id, kind, templateId, name, level, pos)
 
         -- wire 脏标记: 每次 wire 可见字段变化 +1, 供快照增量跳过未变化实体
         _wireVer = 0,
+        -- 身份脏标记: 每次身份/外观冷字段变化 +1, 触发快照 full 记录重发
+        _idVer = 0,
 
         -- 位置和朝向
         pos = pos or M.defaultPos(),

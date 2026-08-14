@@ -45,8 +45,7 @@ function M.initMob(mob, templateId, spawnPos, opts)
     local template = proto.getMob(templateId)
 
     -- 战斗技能 profile (abilities 配置表)
-    local profile = combatProfile.getProfile(templateId or "default")
-    profile = combatProfile.scaleProfile(profile, mob.level or 1)
+    local profile = combatProfile.getScaledProfile(templateId or "default", mob.level or 1)
 
     if template then
         -- 英雄难度缩放 (TS heroic: hp×1.5, dmg×1.3, level+2)
@@ -750,6 +749,13 @@ function M._tickBossMechanics(mob, entities, data, dt)
     end
 
     return events
+end
+
+--- 统计 AI 数据表 (内存诊断): 返回 mob 数
+function M.stats()
+    local n = 0
+    for _ in pairs(aiData) do n = n + 1 end
+    return n
 end
 
 return M
