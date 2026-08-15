@@ -5,6 +5,7 @@
 local simrng = require("world.simrng")
 local terrain = require("world.terrain")
 local config = require("config")
+local grid = require("world.grid")
 local M = {}
 
 local spawnData = {}
@@ -193,9 +194,24 @@ function M.getLoot(mob)
     return loot
 end
 
---- 社交仇恨: 反击式世界下禁用 — 被动怪不再因附近同类被杀而主动围攻玩家
+-- 社交仇恨半径 (GTA: 打一只, 周边同阵营敌对怪围殴, 类似被警察围堵)
+local SOCIAL_AGGRO_RADIUS = 40
+
+--- 社交仇恨 (GTA): 怪物死亡时, 周边同阵营敌对怪仇恨扩散, 围殴击杀者
 function M.socialAggro(deadMobId, killerId, entities, aiModule)
-    return
+    local deadMob = entities[deadMobId]
+    if not deadMob or not deadMob.pos then return end
+    local killer = entities[killerId]
+    if not killer or killer.dead then return end
+
+    local cand = grid.queryRadius(deadMob.pos.x, deadMob.pos.z, SOCIAL_AGGRO_RADIUS, entities)
+    for _, other in ipairs(cand) do
+        if other.kind == "mob" and not other.dead and other.id ~= deadMobId
+           and other.templateId == deadMob.templateId and other.hostile then
+            aiModule.setSocialAggro(other.id, killerId)
+        end
+    end
+    grid.releaseRadiusResult(cand)
 end
 
 --- 统计生成/死亡计数 (内存诊断)

@@ -33,6 +33,14 @@ local FLEE_HELP_RADIUS = 40         -- 逃跑召集盟友半径 (TS FLEE_HELP_RA
 local FLEE_RECOVERY_SECONDS = 5.0   -- 逃跑后恢复 (TS: 5s)
 local FLEEING_FAMILIES = { humanoid = true, burrower = true, mudfin = true, troll = true }
 
+--- 随机追击上限平方 (GTA: 单场追击在 [RANDOM_MIN, 1.0] × MAX 区间随机, 逃不逃得掉看运气)
+--- 进入追击时掷一次并存入 data.chaseLimitSq, 保证同一场追击阈值稳定
+local function rollChaseLimitSq()
+    local scale = simrng.randfloat(config.MONSTER_CHASE_RANDOM_MIN, 1.0)
+    local dist = config.MONSTER_MAX_CHASE_DIST * scale
+    return dist * dist
+end
+
 -- mob AI 数据: mobId → { state, target, spawnPos, profile, combatTimer, patrolDir, ... }
 local aiData = {}
 
@@ -209,6 +217,7 @@ function M.updateMob(mob, entities, players, dt)
         if target then
             data.targetId = target.id
             data.state = AI_STATE.CHASING
+            data.chaseLimitSq = rollChaseLimitSq()
             events = M._startCombat(mob, data, target, entities)
         else
             -- 巡逻
@@ -250,14 +259,15 @@ function M.updateMob(mob, entities, players, dt)
                 return {}  -- 立即进入脱离
             end
 
-            -- 超出追击范围
-            local leaseSq = targeting.getLeashRangeSq(mob)
+            -- 超出追击范围 (GTA 随机上限: 距 spawn 超过 chaseLimitSq 即放弃追杀回巡逻)
+            local leaseSq = data.chaseLimitSq or targeting.getLeashRangeSq(mob)
             local homeDx = mob.pos.x - data.spawnPos.x
             local homeDz = mob.pos.z - data.spawnPos.z
             if homeDx * homeDx + homeDz * homeDz > leaseSq then
                 data.state = AI_STATE.RETURNING
                 data.targetId = nil
                 mob.chaseStall = 0
+                data.chaseLimitSq = nil
                 threatMod.clearThreat(mob.id)
             elseif distSq <= targeting.getCombatRangeSq() then
                 data.state = AI_STATE.COMBAT
@@ -298,11 +308,13 @@ function M.updateMob(mob, entities, players, dt)
                 return {}
             end
 
-            -- 超出追击范围
-            if homeDx * homeDx + homeDz * homeDz > targeting.getLeashRangeSq(mob) then
+            -- 超出追击范围 (GTA 随机上限, 放弃追杀并清仇恨)
+            if homeDx * homeDx + homeDz * homeDz > (data.chaseLimitSq or targeting.getLeashRangeSq(mob)) then
                 data.state = AI_STATE.RETURNING
                 data.targetId = nil
                 mob.chaseStall = 0
+                data.chaseLimitSq = nil
+                threatMod.clearThreat(mob.id)
             elseif distSq > targeting.getCombatRangeSq() * 1.5 then
                 data.state = AI_STATE.CHASING
             else
@@ -461,6 +473,7 @@ function M.serialize(mobId)
         cooldowns = d.cooldowns,
         patrolDir = d.patrolDir,
         patrolTimer = d.patrolTimer,
+        chaseLimitSq = d.chaseLimitSq,
     }
 end
 
@@ -475,6 +488,7 @@ function M.restore(mobId, data)
     d.cooldowns = data.cooldowns or {}
     d.patrolDir = data.patrolDir or d.patrolDir
     d.patrolTimer = data.patrolTimer or 0
+    d.chaseLimitSq = data.chaseLimitSq
 end
 
 --- 获取 mob 状态
@@ -483,12 +497,13 @@ function M.getState(mobId)
     return d and d.state or "unknown"
 end
 
---- 设置社交仇恨目标
+--- 设置社交仇恨目标 (仇恨扩散: 周边同阵营怪围殴)
 function M.setSocialAggro(mobId, targetId)
     local d = aiData[mobId]
     if d and d.state == AI_STATE.IDLE then
         d.targetId = targetId
         d.state = AI_STATE.CHASING
+        d.chaseLimitSq = rollChaseLimitSq()
         threatMod.addThreat(mobId, targetId, 50)
     end
 end
