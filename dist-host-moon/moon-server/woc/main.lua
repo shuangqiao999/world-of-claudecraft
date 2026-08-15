@@ -34,11 +34,10 @@ end
 -- 然后执行此文件，return 的 table 即服务端配置
 ----------------------------------------
 if _G["__init__"] then
-    -- 线程数: 固定服务 5 + 世界分片上限 32 = 37 (各分片需独立线程)。
-    -- 临时 VM 里无法用 moon.cpu(), 直接用上限给足, 避免 NUMBER_OF_PROCESSORS 受 CPU 亲和/
-    -- 处理器组影响而少于实际分片数 (实际分片数由 config.getWorldShards 用 moon.cpu() 决定)。
-    -- WOC_THREADS 可覆盖。
-    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + 32)
+    -- 线程数: 至少 5 + 32 = 37 (足够容纳最多 32 个世界分片各自独立线程)。
+    -- 启动器可能按错误的组内核数传 WOC_THREADS=21, 这里兜底到 37; WOC_THREADS 显式更高值仍可覆盖。
+    local threads = tonumber(envOr("WOC_THREADS", "")) or 37
+    if threads < 37 then threads = 37 end
     return {
         -- 工作线程数 (足够容纳最多 32 个世界分片)
         thread = threads,

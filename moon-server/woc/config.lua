@@ -173,7 +173,9 @@ M.getDbPoolSize = function()
     return p
 end
 
---- 检测 CPU 逻辑核数 (缓存; 优先 moon.cpu() 硬件并发数, 不受 NUMBER_OF_PROCESSORS 亲和/处理器组波动影响)
+--- 检测 CPU 逻辑核数 (缓存; 优先 NUMBER_OF_PROCESSORS 全机总数, moon.cpu() 降为兜底)
+-- 注意: moon.cpu() 走 GetSystemInfo().dwNumberOfProcessors, Windows 上返回当前处理器组内的核数;
+-- 96 逻辑核 (>64) 会被切成 2 个处理器组, 组内只报 ~32, 导致分片数偏小。NUMBER_OF_PROCESSORS 才是全机总数。
 local cachedCpuCount = nil
 function M.getCpuCount()
     if cachedCpuCount then return cachedCpuCount end
@@ -181,12 +183,11 @@ function M.getCpuCount()
     -- WOC_CPU_COUNT 显式覆盖 (部署时兜底)
     n = tonumber(os.getenv("WOC_CPU_COUNT"))
     if not n or n < 1 then
-        -- moon.cpu() 为 C++ 运行时 hardware_concurrency, 跨服务 VM 稳定; 纯 Lua 无 moon 时降级
-        local ok, mcpu = pcall(function() return require("moon").cpu() end)
-        if ok and type(mcpu) == "number" and mcpu > 0 then n = mcpu end
+        n = tonumber(os.getenv("NUMBER_OF_PROCESSORS"))
     end
     if not n or n < 1 then
-        n = tonumber(os.getenv("NUMBER_OF_PROCESSORS"))
+        local ok, mcpu = pcall(function() return require("moon").cpu() end)
+        if ok and type(mcpu) == "number" and mcpu > 0 then n = mcpu end
     end
     if not n or n < 1 then
         local f = io.open("/proc/cpuinfo", "r")
@@ -209,7 +210,8 @@ end
 local cachedShards = nil
 function M.getWorldShards()
     if cachedShards then return cachedShards end
-    local n = tonumber(os.getenv("WOC_WORLD_SHARDS"))
+    -- 显式覆盖用 WOC_SHARDS (区别于启动器写入的 WOC_WORLD_SHARDS: 后者按处理器组内核数算, 在 >64 核机上偏小)
+    local n = tonumber(os.getenv("WOC_SHARDS"))
     if n and n >= 1 then
         cachedShards = n
         return n
