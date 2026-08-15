@@ -218,14 +218,17 @@ function M._applyEffect(caster, target, effect, entities, simTime)
 end
 
 --- 根据效果范围解析目标
+-- proto 格式效果 (directDamage/dot/heal/... ) 不含 target 字段, 按 type 推断:
+--   selfBuff -> 自身;  aoe* -> 范围;  其余单目标 -> primary
 function M._resolveTargets(caster, primary, effect, entities)
     local targets = {}
 
-    if effect.target == "self" or (effect.type == "selfBuff") then
+    local isSelf = effect.target == "self" or effect.type == "selfBuff"
+    local isAoe = effect.target == "aoe" or (effect.type and effect.type:sub(1, 3) == "aoe")
+
+    if isSelf then
         table.insert(targets, caster)
-    elseif effect.target == "enemy" or effect.target == "single" or effect.target == "friendly" then
-        if primary then table.insert(targets, primary) end
-    elseif effect.target == "aoe" then
+    elseif isAoe then
         local center = (effect.center == "self") and caster or (primary or caster)
         local radius = effect.radius or 8
         local radiusSq = radius * radius
@@ -250,6 +253,9 @@ function M._resolveTargets(caster, primary, effect, entities)
                 table.remove(targets)
             end
         end
+    else
+        -- 单目标 (enemy/single/friendly 或 proto 无 target 的 directDamage/dot/heal/buff/applyDebuff 等)
+        if primary then table.insert(targets, primary) end
     end
 
     return targets

@@ -139,7 +139,7 @@ M.COMMAND_NAMES = {
     "save_hotbar_layout",
 
     -- 开发命令 (gated by ALLOW_DEV_COMMANDS)
-    "dev_level", "dev_teleport", "dev_give",
+    "dev_level", "dev_teleport", "dev_give", "dev_target", "dev_ranged",
     "dev_complete_quest", "dev_complete_all_quests",
     "dev_bg_start", "dev_profiler_invulnerable",
 }

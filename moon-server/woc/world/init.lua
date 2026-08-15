@@ -349,6 +349,97 @@ local function findNearestEnemy(e)
     return best
 end
 
+-- 跨分片目标选择: 在本地实体基础上追加相邻分片 ghost (供 attack/tab/显式 target 用)
+local function findNearestTarget(e)
+    local best = findNearestEnemy(e)
+    local bestDistSq = math.huge
+    if best then
+        local bdx = best.pos.x - e.pos.x
+        local bdz = best.pos.z - e.pos.z
+        bestDistSq = bdx * bdx + bdz * bdz
+    end
+    for id, g in pairs(ghostEntities) do
+        if (g.kind == "mob" or g.kind == "player" or (g.kind == "npc" and g.pedestrian)) and id ~= e.id and not g.dead then
+            local gdx = g.x - e.pos.x
+            local gdz = g.z - e.pos.z
+            local gsq = gdx * gdx + gdz * gdz
+            if gsq < bestDistSq then
+                bestDistSq = gsq
+                best = g
+            end
+        end
+    end
+    return best
+end
+
+-- 跨分片战斗快照: 序列化攻击者战斗属性 (近战/远程/法术通用)
+local function buildCombatSnapshot(attacker)
+    return {
+        id = attacker.id,
+        kind = attacker.kind or "player",
+        templateId = attacker.templateId,
+        level = attacker.level or 1,
+        hp = attacker.hp or 0,
+        maxHp = attacker.maxHp or 100,
+        dead = attacker.dead or false,
+        attackPower = attacker.attackPower or 0,
+        rangedPower = attacker.rangedPower or 0,
+        spellPower = attacker.spellPower or 0,
+        meleeHaste = attacker.meleeHaste or 0,
+        spellHaste = attacker.spellHaste or 0,
+        critChance = attacker.critChance,
+        critDmgPhysBonus = attacker.critDmgPhysBonus or 0,
+        critDmgSpellBonus = attacker.critDmgSpellBonus or 0,
+        hitBonus = attacker.hitBonus or 0,
+        weapon = attacker.weapon,
+        dualWielding = attacker.dualWielding,
+        titansGrip = attacker.titansGrip,
+        overpowerUntil = attacker.overpowerUntil,
+        auras = attacker.auras,
+        resourceType = attacker.resourceType,
+        maxResource = attacker.maxResource,
+        resource = attacker.resource,
+        stats = attacker.stats,
+    }
+end
+
+-- 跨分片击杀: 归属分片内联标记死亡 + 清理 (死亡完整处理随 Phase 3/5 迁移补齐)
+local function applyForwardedKill(target)
+    target.dead = true
+    target.aiState = "dead"
+    target.corpseTimer = 60
+    if target.kind == "mob" then
+        mobAI.cleanup(target.id)
+        mobLifecycle.onMobDeath(target.id, entities)
+    end
+end
+
+-- 解析施法目标: 优先本地实体, 其次跨分片 ghost, 回退最近本地敌人
+local function resolveCastTarget(e)
+    local target = entities[e.targetId]
+    if target then return target, false end
+    local g = ghostEntities[e.targetId]
+    if g then return g, true end
+    return findNearestEnemy(e), false
+end
+
+-- 跨分片施法转发: 目标为 ghost 时, 把攻击者快照+技能转发给归属分片结算。
+-- delayMs > 0 用于投射物飞行延迟 (归属分片延时结算)。
+local function forwardCast(attacker, targetId, ability, delayMs)
+    local g = ghostEntities[targetId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, {
+        t = "castForward",
+        attacker = buildCombatSnapshot(attacker),
+        targetId = targetId,
+        abilityId = ability.id,
+        delayMs = delayMs or 0,
+    })
+    return true
+end
+
 ----------------------------------------------
 -- 实体管理
 ----------------------------------------------
@@ -489,6 +580,8 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
         pid, name, cls, level, e.stats.str, e.attackPower, e.maxHp))
 end
 
+local serializeCharacter
+
 local function leavePlayer(pid)
     local meta = players[pid]; local e = entities[pid]
     if not meta then return end
@@ -529,7 +622,7 @@ local function leavePlayer(pid)
     print(string.format("[World] Player left: pid=%d name=%s", pid, meta.name))
 end
 
-local function serializeCharacter(pid)
+serializeCharacter = function(pid)
     local e = entities[pid]; local meta = players[pid]
     if not e or not meta then return nil end
     return {
@@ -620,13 +713,17 @@ local function combatTick(dt)
             -- 排队施法: updateCast 返回排队技能表 (TS fireQueuedCast 重跑 gate)
             if type(castResult) == "table" then
                 local queuedAbility = castResult
-                local qtarget = entities[e.targetId] or findNearestEnemy(e)
-                local qok, qct = castSys.startCast(e, queuedAbility, qtarget)
-                if qok then
-                    -- 瞬发直接执行
-                    if qct == 0 then
-                        local qevs = fxDispatch.execute(e, qtarget, queuedAbility, entities, simTime)
-                        for _, ev in ipairs(qevs) do table.insert(combatEvents, ev) end
+                local qtarget, qghost = resolveCastTarget(e)
+                if qghost then
+                    forwardCast(e, e.targetId, queuedAbility, 0)
+                else
+                    local qok, qct = castSys.startCast(e, queuedAbility, qtarget)
+                    if qok then
+                        -- 瞬发直接执行
+                        if qct == 0 then
+                            local qevs = fxDispatch.execute(e, qtarget, queuedAbility, entities, simTime)
+                            for _, ev in ipairs(qevs) do table.insert(combatEvents, ev) end
+                        end
                     end
                 end
                 goto continue_player_cast
@@ -634,26 +731,39 @@ local function combatTick(dt)
 
             -- 通道 tick: 执行一次通道效果
             if castResult == "channel_tick" and castingAbility then
-                local ctTarget = entities[e.targetId] or findNearestEnemy(e)
-                local ctEvs = fxDispatch.execute(e, ctTarget, castingAbility, entities, simTime)
-                for _, ev in ipairs(ctEvs) do
-                    table.insert(combatEvents, ev)
-                    if ev.type == "combat_damage" and ctTarget then
-                        threatMod.addThreat(ctTarget.id, pid, ev.hp or 0)
+                local ctTarget, ctGhost = resolveCastTarget(e)
+                if ctGhost then
+                    forwardCast(e, e.targetId, castingAbility, 0)
+                else
+                    local ctEvs = fxDispatch.execute(e, ctTarget, castingAbility, entities, simTime)
+                    for _, ev in ipairs(ctEvs) do
+                        table.insert(combatEvents, ev)
+                        if ev.type == "combat_damage" and ctTarget then
+                            threatMod.addThreat(ctTarget.id, pid, ev.hp or 0)
+                        end
                     end
                 end
             end
 
             if castResult == "complete" and castingAbility then
-                local target = entities[e.targetId]
-                if not target then target = findNearestEnemy(e) end
+                local target, isGhost = resolveCastTarget(e)
 
                 -- TS applyAbility: 非物理法术默认作为投射物发射 (fireball 有飞行时间)
                 local isSpell = castingAbility.school and castingAbility.school ~= "physical"
                 local firesProjectile = castingAbility.projectile
                     or (isSpell and not castingAbility.noProjectile)
 
-                if firesProjectile and target and target ~= e then
+                if isGhost then
+                    -- 跨分片: 转发施法给归属分片 (投射物按飞行时间延迟)
+                    local delayMs = 0
+                    if firesProjectile then
+                        local gdx = target.x - e.pos.x
+                        local gdz = target.z - e.pos.z
+                        local dist = math.sqrt(gdx * gdx + gdz * gdz)
+                        delayMs = math.max(100, math.floor((dist / 40) * 1000))
+                    end
+                    forwardCast(e, e.targetId, castingAbility, delayMs)
+                elseif firesProjectile and target and target ~= e then
                     -- 投射物: 命中时解析 (TS scheduleProjectile)
                     projectile.launch(e.id, target.id, castingAbility.id, e.pos, target.pos,
                         function(src, tgt)
@@ -706,6 +816,7 @@ local function combatTick(dt)
             -- 自动攻击 (使用命中表 + 形态速度 + 怒气)
             local function processAutoResult(aaResult)
                 if not aaResult then return end
+                if aaResult.forward then return end  -- 跨分片: 已转发, 本地不产生伤害事件
                 if aaResult.damage > 0 then
                     if e.resourceType == "rage" then
                         local rageGain = rage.rageFromDealing(aaResult.damage, e.level)
@@ -959,7 +1070,7 @@ local function ghostSync()
             local function add(dx, dz)
                 local ns = config.regionToShard(rx + dx, rz + dz)
                 if ns ~= shardId then
-                    ser = ser or ghost.serialize(e)
+                    ser = ser or ghost.serialize(e, shardId)
                     groups[ns] = groups[ns] or {}
                     table.insert(groups[ns], ser)
                 end
@@ -978,6 +1089,38 @@ local function ghostSync()
         end
     end
 end
+
+--- 跨分片战斗: 目标为 ghost 时, 序列化攻击者战斗属性并转发给归属分片结算
+local function resolveGhostSwing(attacker, targetId, isOffhand)
+    local g = ghostEntities[targetId]
+    if not g or not g.ownerShard then return nil end
+    -- 近战距离校验 (ghost 路径绕过 _performSwing 的距离检查, 需在此补上避免隔空命中)
+    local gdx = g.x - attacker.pos.x
+    local gdz = g.z - attacker.pos.z
+    if gdx * gdx + gdz * gdz > config.MELEE_RANGE_SQ then return nil end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return nil end
+    moon.send("lua", svc, { t = "combatForward", attacker = buildCombatSnapshot(attacker), targetId = targetId, isOffhand = isOffhand })
+    return { forward = true, targetId = targetId }
+end
+
+-- 跨分片远程自动攻击转发 (远程有死角 + 最大射程)
+local function resolveGhostRanged(attacker, targetId)
+    local g = ghostEntities[targetId]
+    if not g or not g.ownerShard then return nil end
+    local gdx = g.x - attacker.pos.x
+    local gdz = g.z - attacker.pos.z
+    local dsq = gdx * gdx + gdz * gdz
+    if dsq < config.MELEE_RANGE_SQ then return nil end  -- 死角
+    if dsq > 35 * 35 then return nil end  -- RANGED_MAX_DIST
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return nil end
+    moon.send("lua", svc, { t = "combatForward", attacker = buildCombatSnapshot(attacker), targetId = targetId, ranged = true })
+    return { forward = true, targetId = targetId }
+end
+
+autoAttack.setGhostResolver(resolveGhostSwing)
+autoAttack.setGhostRangedResolver(resolveGhostRanged)
 
 local function broadcastSnapshot()
     if not gateSvc() then return end
@@ -1400,6 +1543,102 @@ moon.dispatch("lua", function(sender, session, msg)
         for _, g in ipairs(ghostByShard[src]) do
             ghostEntities[g.id] = g
         end
+    elseif t == "combatForward" then
+        -- 跨分片战斗: 归属分片用重建的攻击者快照结算伤害, 结果回传攻击者分片
+        local target = entities[msg.targetId]
+        local res = { damage = 0, crit = false, offhand = msg.isOffhand }
+        if target and not target.dead and msg.attacker then
+            local atk = msg.attacker
+            if msg.ranged then
+                local rr = autoAttack.rangedSwingResult(atk, target)
+                res = { damage = rr.damage, crit = rr.crit, ranged = true }
+                if rr.damage > 0 then
+                    if target.kind == "mob" then
+                        threatMod.addThreat(target.id, atk.id, rr.damage)
+                    end
+                    if target.hp <= 0 then applyForwardedKill(target); res.targetDead = true end
+                end
+            else
+                local opts = {
+                    weaponMult = msg.isOffhand and 0.5 or 1,
+                    whiteDualWieldPenalty = msg.isOffhand and true or nil,
+                }
+                local r = damage.calcPhysical(atk, target, opts)
+                res = { damage = r.damage, crit = r.crit, offhand = msg.isOffhand,
+                        blocked = r.blocked, dodged = r.dodged, missed = r.missed }
+                if r.damage > 0 then
+                    target.hp = math.max(0, target.hp - r.damage)
+                    if target.kind == "mob" then
+                        threatMod.addThreat(target.id, atk.id, r.damage)
+                    end
+                    if target.hp <= 0 then applyForwardedKill(target); res.targetDead = true end
+                end
+            end
+        end
+        moon.send("lua", sender, { t = "combatResult", attackerId = msg.attacker and msg.attacker.id, targetId = msg.targetId, result = res })
+    elseif t == "combatResult" then
+        -- 跨分片战斗结果回传: 生成 auto_attack 事件给攻击者客户端
+        if msg.result and msg.result.damage > 0 then
+            local gs = gateSvc()
+            if gs then
+                local evs = {{
+                    type = "auto_attack", pid = msg.attackerId, targetId = msg.targetId,
+                    dmg = msg.result.damage, crit = msg.result.crit, offhand = msg.result.offhand,
+                    blocked = msg.result.blocked, dodged = msg.result.dodged, missed = msg.result.missed,
+                }}
+                moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(evs) })
+            end
+        end
+    elseif t == "castForward" then
+        -- 跨分片施法结算: 归属分片用攻击者快照+技能解析效果 (可选投射物飞行延迟)
+        local function resolve()
+            local target = entities[msg.targetId]
+            if not target or target.dead or not msg.attacker then return end
+            local ability = abilities.ABILITIES[msg.abilityId]
+            if not ability then return end
+            local atk = msg.attacker
+            local events = {}
+            local isSpell = ability.school and ability.school ~= "physical"
+            local isFriendly = false
+            if ability.effects then
+                for _, ef in ipairs(ability.effects) do
+                    if ef.type == "heal" or ef.type == "aoeHeal" or ef.type == "hot" or
+                       (ef.type == "buff" and ef.target == "self") or ef.target == "friendly" then
+                        isFriendly = true
+                        break
+                    end
+                end
+            end
+            if isSpell and not isFriendly then
+                if spellResist.isSpellResisted(atk.level, target.level, atk.hitBonus or 0) then
+                    table.insert(events, { type = "spell_resisted", pid = atk.id, sid = atk.id, targetId = target.id })
+                    moon.send("lua", sender, { t = "castResult", attackerId = atk.id, targetId = target.id, events = events })
+                    return
+                end
+            end
+            local evs = fxDispatch.execute(atk, target, ability, entities, simTime)
+            for _, ev in ipairs(evs) do
+                table.insert(events, ev)
+                if ev.type == "combat_damage" and target.kind == "mob" then
+                    threatMod.addThreat(target.id, atk.id, ev.hp or 0, ability.school, atk)
+                end
+            end
+            if target.hp <= 0 then applyForwardedKill(target) end
+            moon.send("lua", sender, { t = "castResult", attackerId = atk.id, targetId = target.id, events = events })
+        end
+        if msg.delayMs and msg.delayMs > 0 then
+            moon.timeout(msg.delayMs, resolve)
+        else
+            resolve()
+        end
+    elseif t == "castResult" then
+        -- 跨分片施法结果回传: 事件路由给攻击者客户端
+        if msg.attackerId and msg.events and #msg.events > 0 then
+            local gs = gateSvc()
+            if gs then
+                moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(msg.events) })
+            end
+        end
     end
 end)
 
@@ -1524,6 +1763,8 @@ moon.exports.handleCommand = function(pid, cmd)
         deeds = deeds, pvpHonor = pvpHonor, doorTriggers = doorTriggers,
         noteEvents = noteEvents, socialCmd = socialCmd,
         findNearestEnemy = findNearestEnemy,
+        findNearestTarget = findNearestTarget, ghostEntities = ghostEntities,
+        forwardCast = forwardCast,
         createMobEntity = createMobEntity, allocId = allocId,
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
         protoGet = protoGet, nodeTypeFor = nodeTypeFor,

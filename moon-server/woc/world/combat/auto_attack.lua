@@ -10,10 +10,17 @@ local m3d = require("world.math3d")
 
 local M = {}
 
+-- 跨分片 ghost 目标解析器 (由 init.lua 注入): 目标非本地实体时转发给归属分片
+local ghostResolver = nil
+function M.setGhostResolver(fn) ghostResolver = fn end
+local ghostRangedResolver = nil
+function M.setGhostRangedResolver(fn) ghostRangedResolver = fn end
+
 local COMBO_EXPIRE_SEC = 6
 local OFFHAND_DMG_MULT = 0.5
 local RANGED_WEAPON_COEFF = 0.6
 local RANGED_MAX_DIST = 35
+local rollRangedDamage
 
 --- 开始自动攻击
 function M.startAutoAttack(attacker, target)
@@ -96,7 +103,13 @@ end
 --- 执行近战挥击 (共享主手/副手逻辑)
 function M._performSwing(attacker, entities, simTime, isOffhand)
     local target = entities[attacker.targetId]
-    if not target or target.dead then return nil end
+    if not target or target.dead then
+        -- 跨分片 ghost 目标: 转发给归属分片结算 (伤害由归属分片回传)
+        if ghostResolver then
+            return ghostResolver(attacker, attacker.targetId, isOffhand)
+        end
+        return nil
+    end
 
     local dx = target.pos.x - attacker.pos.x
     local dz = target.pos.z - attacker.pos.z
@@ -140,7 +153,13 @@ end
 --- 执行远程射击
 function M._performRangedSwing(attacker, entities, simTime)
     local target = entities[attacker.targetId]
-    if not target or target.dead then return nil end
+    if not target or target.dead then
+        -- 跨分片 ghost 目标: 转发给归属分片结算
+        if ghostRangedResolver then
+            return ghostRangedResolver(attacker, attacker.targetId)
+        end
+        return nil
+    end
 
     local dx = target.pos.x - attacker.pos.x
     local dz = target.pos.z - attacker.pos.z
@@ -148,6 +167,11 @@ function M._performRangedSwing(attacker, entities, simTime)
     if distSq > RANGED_MAX_DIST * RANGED_MAX_DIST then return nil end
     if distSq < config.MELEE_RANGE_SQ then return nil end  -- 死角
 
+    return M.rangedSwingResult(attacker, target)
+end
+
+--- 远程射击伤害结算 (本地与跨片转发共用; 归属分片以攻击者快照为 attacker 调用)
+function M.rangedSwingResult(attacker, target)
     local weapon = attacker.weapon or { min = 1, max = 2, speed = 3.0 }
     local baseDmg = rollRangedDamage(weapon)
     local ap = attacker.rangedPower or attacker.attackPower or 0
@@ -168,7 +192,7 @@ function M._performRangedSwing(attacker, entities, simTime)
     return { damage = dmg, crit = crit, ranged = true }
 end
 
-local function rollRangedDamage(weapon)
+rollRangedDamage = function(weapon)
     local raw = weapon.max and weapon.max > weapon.min and simrng.randint(weapon.min, weapon.max) or (weapon.min or 1)
     return raw * ((weapon.speed or 3.0) / 2.0)
 end

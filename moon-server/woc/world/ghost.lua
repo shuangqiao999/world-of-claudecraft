@@ -7,14 +7,18 @@ local snapshot = require("world.snapshot")
 
 local M = {}
 
---- 序列化一个实体为 ghost (完整 wire 记录 + 空间坐标)
+--- 序列化一个实体为 ghost (完整 wire 记录 + 空间坐标 + 归属分片)
 --- @param e Entity
---- @return {id, x, z, json}  json 为完整 wire JSON 字符串
-function M.serialize(e)
+--- @param ownerShard number 实体归属分片 (跨片战斗转发用)
+--- @return {id, x, z, ownerShard, json}  json 为完整 wire JSON 字符串
+function M.serialize(e, ownerShard)
     return {
         id = e.id,
         x = e.pos.x,
         z = e.pos.z,
+        ownerShard = ownerShard,
+        kind = e.kind,
+        pedestrian = e.pedestrian or false,
         json = snapshot.buildGhostWire(e),
     }
 end

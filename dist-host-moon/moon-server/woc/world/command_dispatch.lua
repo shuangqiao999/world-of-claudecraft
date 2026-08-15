@@ -47,8 +47,13 @@ function H.cast(ctx, pid, cmd)
         return false
     end
     local target = nil
+    local isGhostTarget = false
     local tId = n(cmd.target)
     if tId then target = ctx.entities[tId] end
+    if not target and tId and ctx.ghostEntities and ctx.ghostEntities[tId] then
+        isGhostTarget = true
+        target = ctx.ghostEntities[tId]
+    end
     if not target then target = ctx.findNearestEnemy(e) end
     if not target and ability.effects and ability.effects[1] then
         local et = ability.effects[1].target
@@ -57,8 +62,10 @@ function H.cast(ctx, pid, cmd)
     end
     if ability.requiresTarget and target and target ~= e then
         local maxRange = (ability.range and ability.range > 0) and ability.range or ctx.config.MELEE_RANGE
-        local dx = e.pos.x - target.pos.x
-        local dz = e.pos.z - target.pos.z
+        local tx = target.pos and target.pos.x or target.x
+        local tz = target.pos and target.pos.z or target.z
+        local dx = e.pos.x - tx
+        local dz = e.pos.z - tz
         if m3d.dist(dx, dz) > maxRange + 2 then
             ctx.noteEvents({ { type = "log", text = "Out of range.", pid = pid } })
             return false
@@ -70,6 +77,11 @@ function H.cast(ctx, pid, cmd)
         return false
     end
     if ct == 0 then
+        if isGhostTarget and ctx.forwardCast then
+            -- 跨分片瞬发: 转发给归属分片结算 (资源/gcd/冷却已在 startCast 扣减)
+            ctx.forwardCast(e, tId, ability, 0)
+            return true
+        end
         if ability.school and ability.school ~= "physical" and target and target ~= e then
             if ctx.spellResist.isSpellResisted(e.level, target.level, e.hitBonus or 0) then
                 ctx.noteEvents({ { type = "log", text = "Resisted!", pid = pid } })
@@ -186,7 +198,7 @@ end
 function H.attack(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e or e.dead then return false end
-    local nearest = ctx.findNearestEnemy(e)
+    local nearest = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
     if nearest then e.targetId = nearest.id end
     ctx.autoAttack.startAutoAttack(e, nearest)
     return true
@@ -209,14 +221,15 @@ function H.target(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e then return false end
     local id = n(cmd.id)
-    if id and ctx.entities[id] then e.targetId = id else e.targetId = nil end
+    -- 允许以本地实体或跨分片 ghost 为目标 (显式点击 ghost 选取攻击目标)
+    if id and (ctx.entities[id] or (ctx.ghostEntities and ctx.ghostEntities[id])) then e.targetId = id else e.targetId = nil end
     return true
 end
 
 function H.tab(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e then return false end
-    local nearest = ctx.findNearestEnemy(e)
+    local nearest = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
     if nearest then e.targetId = nearest.id end
     return true
 end
@@ -1632,6 +1645,26 @@ function H.dev_teleport(ctx, pid, cmd)
         e.pos.x, e.pos.z = x, z
         ctx.grid.update(e)
     end
+    return true
+end
+function H.dev_target(ctx, pid, cmd)
+    if not ctx.config.getAllowDevCommands() then return false end
+    local e = ctx.entities[pid]
+    if not e then return false end
+    local id = n(cmd.id)
+    if not id then return false end
+    -- 允许以任意实体 id (含跨分片 ghost) 为目标, 便于测试跨分片战斗。
+    -- 正常玩法中跨分片目标需扩展 findNearestEnemy/target 以覆盖 ghost 实体。
+    ctx.autoAttack.startAutoAttack(e, { id = id })
+    return true
+end
+function H.dev_ranged(ctx, pid, cmd)
+    if not ctx.config.getAllowDevCommands() then return false end
+    local e = ctx.entities[pid]
+    if not e then return false end
+    -- 测试用: 给实体装一把远程武器 (当前无弓箭/魔杖物品, 直接注入 weapon.kind="ranged")
+    e.weapon = { kind = "ranged", min = 10, max = 20, speed = 2.5 }
+    ctx.noteEvents({ { type = "log", text = "Ranged weapon set (dev)", pid = pid } })
     return true
 end
 function H.dev_complete_quest(ctx, pid, cmd)
