@@ -28,18 +28,47 @@ local function envOr(key, default)
     return os.getenv(key) or default
 end
 
+--- 检测 CPU 逻辑核数 (纯 Lua, __init__ 临时 VM 无 package.path 不能 require config/moon)
+--- 与 config.getCpuCount 同规则: WOC_CPU_COUNT → NUMBER_OF_PROCESSORS(全机总数) → /proc/cpuinfo → 4
+local function cpuCount()
+    local n = tonumber(os.getenv("WOC_CPU_COUNT"))
+    if not n or n < 1 then n = tonumber(os.getenv("NUMBER_OF_PROCESSORS")) end
+    if not n or n < 1 then
+        local f = io.open("/proc/cpuinfo", "r")
+        if f then
+            local count = 0
+            for line in f:lines() do
+                if line:match("^processor%s") then count = count + 1 end
+            end
+            f:close()
+            if count > 0 then n = count end
+        end
+    end
+    if not n or n < 1 then n = 4 end
+    return math.max(1, math.min(n, 256))
+end
+
+--- 世界分片数 (与 config.getWorldShards 同规则: WOC_SHARDS 覆盖, 否则 floor(cpu/2) 至多 32)
+local function worldShards()
+    local n = tonumber(os.getenv("WOC_SHARDS"))
+    if n and n >= 1 then return n end
+    local s = math.floor(cpuCount() / 2)
+    if s < 1 then s = 1 end
+    if s > 32 then s = 32 end
+    return s
+end
+
 ----------------------------------------
 -- Moon 运行时配置
 -- Moon 在启动时创建一个临时 VM，设置 __init__ = true
 -- 然后执行此文件，return 的 table 即服务端配置
 ----------------------------------------
 if _G["__init__"] then
-    -- 线程数: 至少 5 + 32 = 37 (足够容纳最多 32 个世界分片各自独立线程)。
-    -- 启动器可能按错误的组内核数传 WOC_THREADS=21, 这里兜底到 37; WOC_THREADS 显式更高值仍可覆盖。
-    local threads = tonumber(envOr("WOC_THREADS", "")) or 37
-    if threads < 37 then threads = 37 end
+    -- 线程数 = 固定服务 5 + 世界分片 (各分片独立线程), 随硬件自适应; WOC_THREADS 可覆盖(低于 5+shards 兜底)
+    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + worldShards())
+    if threads < 5 + worldShards() then threads = 5 + worldShards() end
     return {
-        -- 工作线程数 (足够容纳最多 32 个世界分片)
+        -- 工作线程数 (自适应: 固定服务 5 + 世界分片)
         thread = threads,
 
         -- 日志级别: 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG
