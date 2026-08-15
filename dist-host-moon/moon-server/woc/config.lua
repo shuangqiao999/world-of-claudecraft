@@ -173,31 +173,51 @@ M.getDbPoolSize = function()
     return p
 end
 
---- 检测 CPU 逻辑核数 (纯 Lua, 无 moon 依赖, __init__ 阶段可用)
+--- 检测 CPU 逻辑核数 (缓存; 优先 moon.cpu() 硬件并发数, 不受 NUMBER_OF_PROCESSORS 亲和/处理器组波动影响)
+local cachedCpuCount = nil
 function M.getCpuCount()
-    local n = tonumber(os.getenv("NUMBER_OF_PROCESSORS"))
-    if n and n > 0 then return n end
-    local f = io.open("/proc/cpuinfo", "r")
-    if f then
-        local count = 0
-        for line in f:lines() do
-            if line:match("^processor%s") then count = count + 1 end
-        end
-        f:close()
-        if count > 0 then return count end
+    if cachedCpuCount then return cachedCpuCount end
+    local n = nil
+    -- WOC_CPU_COUNT 显式覆盖 (部署时兜底)
+    n = tonumber(os.getenv("WOC_CPU_COUNT"))
+    if not n or n < 1 then
+        -- moon.cpu() 为 C++ 运行时 hardware_concurrency, 跨服务 VM 稳定; 纯 Lua 无 moon 时降级
+        local ok, mcpu = pcall(function() return require("moon").cpu() end)
+        if ok and type(mcpu) == "number" and mcpu > 0 then n = mcpu end
     end
-    return 4
+    if not n or n < 1 then
+        n = tonumber(os.getenv("NUMBER_OF_PROCESSORS"))
+    end
+    if not n or n < 1 then
+        local f = io.open("/proc/cpuinfo", "r")
+        if f then
+            local count = 0
+            for line in f:lines() do
+                if line:match("^processor%s") then count = count + 1 end
+            end
+            f:close()
+            if count > 0 then n = count end
+        end
+    end
+    if not n or n < 1 then n = 4 end
+    n = math.max(1, math.min(n, 256))
+    cachedCpuCount = n
+    return n
 end
 
---- 世界分片数 (自适应: 核心数的一半, 至少 1, 至多 32)
---- 每分片完整复制世界(NPC/怪/路人+高度表), 分片越多内存/世界逻辑开销越大。
---- 分片是静态玩家分片 (pid % N), 跨分片不可见 (压测够用; 真跨分片可见需空间分片+AOI迁移)。
+--- 世界分片数 (自适应: 核心数的一半, 至少 1, 至多 32; 缓存保证各服务 VM 一致)
+local cachedShards = nil
 function M.getWorldShards()
+    if cachedShards then return cachedShards end
     local n = tonumber(os.getenv("WOC_WORLD_SHARDS"))
-    if n and n >= 1 then return n end
+    if n and n >= 1 then
+        cachedShards = n
+        return n
+    end
     local shards = math.floor(M.getCpuCount() / 2)
     if shards < 1 then shards = 1 end
     if shards > 32 then shards = 32 end
+    cachedShards = shards
     return shards
 end
 
@@ -213,7 +233,9 @@ M.getPort = function()
 end
 
 M.getAllowDevCommands = function()
-    return os.getenv("ALLOW_DEV_COMMANDS") == "1"
+    -- 开发阶段持续启用 dev 命令 (dev_level/dev_teleport/dev_give/dev_target 等), 后续测试常驻。
+    -- 上线前需改回 os.getenv("ALLOW_DEV_COMMANDS") == "1" 门控。
+    return true
 end
 
 M.isProduction = function()

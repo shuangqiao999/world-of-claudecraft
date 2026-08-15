@@ -12,6 +12,7 @@ local jh = require("shared.json_helpers")
 local grid = require("world.grid")
 local Entity = require("world.entity")
 local inventory = require("world.inventory")
+local zoneMod = require("world.zone")
 
 local M = {}
 
@@ -123,12 +124,20 @@ local function buildSelfJson(e, meta, session)
         mhp = e.maxHp or 100,
     }
 
-    -- 当前区域 (从 proto/zones.json)
+    -- 当前区域 (从 proto/zones.json; 按 z-band 缓存到实体, 仅跨 band 时重查, 避免每 tick O(zones) 扫描)
     if e.kind == "player" then
-        local zok, zzone = pcall(function() return require("world.zone").getZoneAt(e.pos.x, e.pos.z) end)
-        if zok and zzone then
-            self.zone = zzone.id
-            self.zoneName = zzone.name
+        local zc = e._zoneCache
+        local z = e.pos.z
+        if zc and zc.zone and z >= zc.zone.zMin and z <= zc.zone.zMax then
+            self.zone = zc.zone.id
+            self.zoneName = zc.zone.name
+        else
+            local zzone = zoneMod.getZoneAt(e.pos.x, z)
+            e._zoneCache = { zone = zzone }
+            if zzone then
+                self.zone = zzone.id
+                self.zoneName = zzone.name
+            end
         end
     end
 
@@ -481,7 +490,7 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
                 if not seenBefore or seenBefore ~= idHash then
                     -- Full record (首次或身份变化)
                     session.seenEntities[other.id] = idHash
-                    table.insert(entsArr, buildEntityFull(other))
+                    entsArr[#entsArr + 1] = buildEntityFull(other)
                     session.lastDyn[other.id] = nil
                     session.lastStamp[other.id] = nil
                     session.lastRefresh[other.id] = tick
@@ -496,7 +505,7 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
                             and config.HALF_RATE_DIVISOR or config.QUARTER_RATE_DIVISOR
                         local lastSent = session.lastSentTick[other.id] or -divisor
                         if tick - lastSent < divisor then
-                            table.insert(keepArr, other.id)
+                            keepArr[#keepArr + 1] = other.id
                             goto continue_entity
                         end
                     end
@@ -506,7 +515,7 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
                     local lastVer = session.lastStamp[other.id]
                     local lastRefresh = session.lastRefresh[other.id] or -LITE_REFRESH_TICKS
                     if ver == lastVer and tick - lastRefresh < LITE_REFRESH_TICKS then
-                        table.insert(keepArr, other.id)
+                        keepArr[#keepArr + 1] = other.id
                     else
                         -- 双缓冲: 复用 scratch 表填充, 变化时与 lastDyn 交换, 避免每 tick 分配
                         local dyn = session.scratchDyn[other.id]
@@ -523,9 +532,9 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
                             session.lastDyn[other.id] = dyn
                             session.scratchDyn[other.id] = lastDyn
                             session.lastSentTick[other.id] = tick
-                            table.insert(entsArr, jh.safeEncode(dyn))
+                            entsArr[#entsArr + 1] = jh.safeEncode(dyn)
                         else
-                            table.insert(keepArr, other.id)
+                            keepArr[#keepArr + 1] = other.id
                         end
                     end
                 end
@@ -547,25 +556,22 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
         end
     end
 
-    -- 跨分片 ghost 实体 (边界可见性): 线性扫描 ghost 表 (数量少), 变化时插入完整记录, 否则 keep
-    if ghostEntities and next(ghostEntities) then
+    -- 跨分片 ghost 实体 (边界可见性): 用 ghost 空间索引只查 AOI 内 ghost (不再扫全表)
+    if next(ghostEntities) ~= nil then
         local ghostSeen = session.ghostSeen
         if not ghostSeen then ghostSeen = {}; session.ghostSeen = ghostSeen end
         local ghostThisTick = {}
-        local RSQ = config.INTEREST_QUERY_RADIUS * config.INTEREST_QUERY_RADIUS
-        for gid, g in pairs(ghostEntities) do
-            local dx = g.x - anchorPos.x
-            local dz = g.z - anchorPos.z
-            if dx * dx + dz * dz <= RSQ then
-                ghostThisTick[gid] = true
-                if ghostSeen[gid] ~= g.json then
-                    ghostSeen[gid] = g.json
-                    table.insert(entsArr, g.json)
-                else
-                    table.insert(keepArr, gid)
-                end
+        local ghosts = grid.queryGhosts(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS)
+        for _, g in ipairs(ghosts) do
+            ghostThisTick[g.id] = true
+            if ghostSeen[g.id] ~= g.json then
+                ghostSeen[g.id] = g.json
+                entsArr[#entsArr + 1] = g.json
+            else
+                keepArr[#keepArr + 1] = g.id
             end
         end
+        grid.releaseGhosts(ghosts)
         -- 清理离场 ghost
         for gid in pairs(ghostSeen) do
             if not ghostThisTick[gid] then ghostSeen[gid] = nil end

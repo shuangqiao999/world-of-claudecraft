@@ -69,6 +69,27 @@ function M.update(entity)
     end
 end
 
+-- 访问单个 cell: 把范围内的实体加入 result (返回新 count, 是否已到 maxCount)
+-- 模块级函数 (无闭包), 供 queryRadius 螺旋遍历复用, 避免每查询分配闭包
+local function visitCell(gx, gz, x, z, radiusSq, entities, result, count, maxCount)
+    local cell = cells[gx * 100000 + gz]
+    if cell then
+        for _, eid in ipairs(cell) do
+            local e = entities[eid]
+            if e then
+                local dx = e.pos.x - x
+                local dz = e.pos.z - z
+                if dx * dx + dz * dz <= radiusSq then
+                    result[#result + 1] = e
+                    count = count + 1
+                    if maxCount and count >= maxCount then return count, true end
+                end
+            end
+        end
+    end
+    return count, false
+end
+
 --- 查询范围内的实体 (同心方环遍历: 中心 cell 优先, 结果近似按距离升序)
 --- @param x number 中心 X
 --- @param z number 中心 Z
@@ -90,26 +111,7 @@ function M.queryRadius(x, z, radius, entities, maxCount)
     local count = 0
     local done = false
 
-    local function visitCell(gx, gz)
-        if done then return end
-        local cell = cells[gx * 100000 + gz]
-        if cell then
-            for _, eid in ipairs(cell) do
-                local e = entities[eid]
-                if e then
-                    local dx = e.pos.x - x
-                    local dz = e.pos.z - z
-                    if dx * dx + dz * dz <= radiusSq then
-                        table.insert(result, e)
-                        count = count + 1
-                        if maxCount and count >= maxCount then done = true; return end
-                    end
-                end
-            end
-        end
-    end
-
-    visitCell(cx, cz) -- ring 0 (中心 cell)
+    count, done = visitCell(cx, cz, x, z, radiusSq, entities, result, count, maxCount) -- ring 0 (中心 cell)
     for ring = 1, cellRadius do
         if done then break end
         local top = cz - ring
@@ -118,14 +120,16 @@ function M.queryRadius(x, z, radius, entities, maxCount)
         local right = cx + ring
         for d = left, right do
             if done then break end
-            visitCell(d, top)
-            visitCell(d, bottom)
+            count, done = visitCell(d, top, x, z, radiusSq, entities, result, count, maxCount)
+            if done then break end
+            count, done = visitCell(d, bottom, x, z, radiusSq, entities, result, count, maxCount)
         end
         if done then break end
         for d = cz - ring + 1, cz + ring - 1 do
             if done then break end
-            visitCell(left, d)
-            visitCell(right, d)
+            count, done = visitCell(left, d, x, z, radiusSq, entities, result, count, maxCount)
+            if done then break end
+            count, done = visitCell(right, d, x, z, radiusSq, entities, result, count, maxCount)
         end
     end
 
@@ -136,6 +140,62 @@ end
 function M.releaseRadiusResult(result)
     if result and #resultPool < 4096 then
         resultPool[#resultPool + 1] = result
+    end
+end
+
+-- ===== 跨分片 ghost 空间索引 =====
+-- ghost 不是主实体 (不在 entities 表), 单独用一套 cell 索引, 快照构建只查 AOI 内 ghost
+local ghostCells = {}   -- hash → { ghost1, ghost2, ... }
+local ghostCellOf = {}  -- ghost.id → hash
+local ghostPool = {}    -- queryGhosts 结果池
+
+function M.ghostInsert(g)
+    local h = hashCell(g.x, g.z)
+    local cell = ghostCells[h]
+    if not cell then cell = {}; ghostCells[h] = cell end
+    table.insert(cell, g)
+    ghostCellOf[g.id] = h
+end
+
+function M.ghostRemove(g)
+    local h = ghostCellOf[g.id]
+    if h and ghostCells[h] then
+        for i, gg in ipairs(ghostCells[h]) do
+            if gg.id == g.id then table.remove(ghostCells[h], i); break end
+        end
+        if #ghostCells[h] == 0 then ghostCells[h] = nil end
+    end
+    ghostCellOf[g.id] = nil
+end
+
+--- 查询 AOI 内 ghost (包围盒 cell 扫描, 过滤精确距离)
+function M.queryGhosts(x, z, radius)
+    local result = table.remove(ghostPool)
+    if result then for i = #result, 1, -1 do result[i] = nil end else result = {} end
+    local radiusSq = radius * radius
+    local cellRadius = math.ceil(radius / CELL_SIZE) + 1
+    local cx = math.floor(x / CELL_SIZE)
+    local cz = math.floor(z / CELL_SIZE)
+    for gx = cx - cellRadius, cx + cellRadius do
+        for gz = cz - cellRadius, cz + cellRadius do
+            local cell = ghostCells[gx * 100000 + gz]
+            if cell then
+                for _, g in ipairs(cell) do
+                    local dx = g.x - x
+                    local dz = g.z - z
+                    if dx * dx + dz * dz <= radiusSq then
+                        result[#result + 1] = g
+                    end
+                end
+            end
+        end
+    end
+    return result
+end
+
+function M.releaseGhosts(result)
+    if result and #ghostPool < 4096 then
+        ghostPool[#ghostPool + 1] = result
     end
 end
 

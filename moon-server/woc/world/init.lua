@@ -1679,6 +1679,7 @@ moon.dispatch("lua", function(sender, session, msg)
         if ghostByShard[src] then
             for _, g in ipairs(ghostByShard[src]) do
                 ghostEntities[g.id] = nil
+                grid.ghostRemove(g)
             end
         end
         ghostByShard[src] = msg.ghosts or {}
@@ -1686,6 +1687,7 @@ moon.dispatch("lua", function(sender, session, msg)
             -- 跳过已变成本地实体的 id (如刚迁移入站的 mob), 避免快照重复下发
             if not entities[g.id] then
                 ghostEntities[g.id] = g
+                grid.ghostInsert(g)
             end
         end
     elseif t == "combatForward" then

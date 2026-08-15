@@ -38,14 +38,29 @@ if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is required'); proc
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const L = 'abcdefghijklmnopqrstuvwxyz';
 function letters(n) { let s = ''; let x = n + 1; while (x > 0) { s = L[x % 26] + s; x = Math.floor(x / 26); } return s; }
+function scatterPos(i) {
+  const ang = (i * 137.508) % 360;
+  const r = Math.sqrt((i + 0.5) / BOTS) * SPREAD_RADIUS;
+  return {
+    x: Math.round(Math.cos((ang * Math.PI) / 180) * r),
+    z: Math.round(Math.sin((ang * Math.PI) / 180) * r),
+  };
+}
 
 async function seedBots(pool, count, offset) {
-  const usernames = [], names = [], tokens = [];
+  const usernames = [], names = [], tokens = [], states = [];
   for (let i = 0; i < count; i++) {
     const n = offset + i;
     usernames.push(`ld${RUN}${String(n).padStart(5, '0')}`);
     names.push(`L${RUN}${letters(n)}`.slice(0, 16));
     tokens.push(randomBytes(32).toString('hex'));
+    // SPREAD: 种子化出生坐标 (玩家上线即在散布位置, 首 tick 迁移到归属分片, 避免 dev_teleport 与初迁竞态)
+    if (SPREAD) {
+      const p = scatterPos(n);
+      states.push(JSON.stringify({ pos: { x: p.x, z: p.z } }));
+    } else {
+      states.push('{}');
+    }
   }
   const client = await pool.connect();
   try {
@@ -67,10 +82,10 @@ async function seedBots(pool, count, offset) {
     );
     const chars = await client.query(
       `INSERT INTO characters (account_id, name, class, realm, state)
-       SELECT a, n, 'warrior', $3, '{}'::jsonb FROM unnest($1::int[], $2::text[]) AS p(a, n)
+       SELECT a, n, 'warrior', $3, s::jsonb FROM unnest($1::int[], $2::text[], $4::text[]) AS p(a, n, s)
        ON CONFLICT (name) DO NOTHING
        RETURNING id, account_id`,
-      [accountIds, names, REALM],
+      [accountIds, names, REALM, states],
     );
     if (chars.rows.length !== count) throw new Error(`char seed: ${chars.rows.length}/${count}`);
     const charByAcct = new Map(chars.rows.map((r) => [r.account_id, r.id]));
@@ -148,23 +163,11 @@ async function main() {
       const connStart = Date.now();
       let cursor = nextIdx;
       const added = [];
-      const scatterPos = (i) => {
-        const ang = (i * 137.508) % 360;
-        const r = Math.sqrt((i + 0.5) / BOTS) * SPREAD_RADIUS;
-        return {
-          x: Math.round(Math.cos((ang * Math.PI) / 180) * r),
-          z: Math.round(Math.sin((ang * Math.PI) / 180) * r),
-        };
-      };
       await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
         while (cursor < target) {
           const i = cursor++;
           try {
             const ws = await connect(bots[i].token, bots[i].charId);
-            if (SPREAD) {
-              const p = scatterPos(i);
-              ws.send(JSON.stringify({ cmd: 'dev_teleport', x: p.x, z: p.z }));
-            }
             added.push(ws);
           } catch {}
         }

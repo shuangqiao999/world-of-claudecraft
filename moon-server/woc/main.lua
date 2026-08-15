@@ -28,43 +28,19 @@ local function envOr(key, default)
     return os.getenv(key) or default
 end
 
---- 检测 CPU 逻辑核数 (纯 Lua, __init__ 临时 VM 无 package.path 不能 require config)
-local function cpuCount()
-    local n = tonumber(os.getenv("NUMBER_OF_PROCESSORS"))
-    if n and n > 0 then return n end
-    local f = io.open("/proc/cpuinfo", "r")
-    if f then
-        local count = 0
-        for line in f:lines() do
-            if line:match("^processor%s") then count = count + 1 end
-        end
-        f:close()
-        if count > 0 then return count end
-    end
-    return 4
-end
-
---- 世界分片数 (与 config.getWorldShards 同规则, 至多 32)
-local function worldShards()
-    local n = tonumber(os.getenv("WOC_WORLD_SHARDS"))
-    if n and n >= 1 then return n end
-    local s = math.floor(cpuCount() / 2)
-    if s < 1 then s = 1 end
-    if s > 32 then s = 32 end
-    return s
-end
-
 ----------------------------------------
 -- Moon 运行时配置
 -- Moon 在启动时创建一个临时 VM，设置 __init__ = true
 -- 然后执行此文件，return 的 table 即服务端配置
 ----------------------------------------
 if _G["__init__"] then
-    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + worldShards())
-    -- 保证至少 5 + shards 个线程 (世界分片需要独立线程), 用户 WOC_THREADS 过低时兜底
-    if threads < 5 + worldShards() then threads = 5 + worldShards() end
+    -- 线程数: 固定服务 5 + 世界分片上限 32 = 37 (各分片需独立线程)。
+    -- 临时 VM 里无法用 moon.cpu(), 直接用上限给足, 避免 NUMBER_OF_PROCESSORS 受 CPU 亲和/
+    -- 处理器组影响而少于实际分片数 (实际分片数由 config.getWorldShards 用 moon.cpu() 决定)。
+    -- WOC_THREADS 可覆盖。
+    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + 32)
     return {
-        -- 工作线程数 (自适应: 固定服务 5 + 世界分片)
+        -- 工作线程数 (足够容纳最多 32 个世界分片)
         thread = threads,
 
         -- 日志级别: 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG
