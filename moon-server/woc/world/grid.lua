@@ -4,10 +4,15 @@
 
 local config = require("config")
 
--- 灰度门控: 设置 WOC_AOI_GRID=1 时委托给 C++ aoi 空间索引 (world.aoi_grid)
--- 所有模块经 require("world.grid") 共享同一索引, 保证 insert/query 状态一致
+-- 空间索引: 默认委托给 C++ aoi 空间索引 (world.aoi_grid); 设 WOC_AOI_GRID=0 回退纯 Lua 网格。
+-- 所有模块经 require("world.grid") 共享同一索引, 保证 insert/query 状态一致。
+-- aoi 模块缺失/加载失败时兜底回退, 避免 AOI/快照/索敌路径崩溃。
 if config.USE_AOI_GRID then
-    return require("world.aoi_grid")
+    local ok, aoiGrid = pcall(require, "world.aoi_grid")
+    if ok and aoiGrid then
+        return aoiGrid
+    end
+    print("[Grid] WARNING: aoi spatial index unavailable, falling back to pure-Lua grid")
 end
 
 local M = {}

@@ -57,8 +57,8 @@ M.HALF_RATE_RADIUS_SQ = 80 * 80
 M.HALF_RATE_DIVISOR = 2
 M.QUARTER_RATE_DIVISOR = 4
 
--- 空间索引进阶: 设置 WOC_AOI_GRID=1 时 world.grid 委托给 C++ aoi 空间索引 (灰度开关, 默认关)
-M.USE_AOI_GRID = os.getenv("WOC_AOI_GRID") == "1"
+-- 空间索引: world.grid 默认走 C++ aoi 空间索引; 设 WOC_AOI_GRID=0 回退纯 Lua 网格
+M.USE_AOI_GRID = os.getenv("WOC_AOI_GRID") ~= "0"
 
 ----------------------------------------
 -- 空间分片 (Spatial Sharding)
