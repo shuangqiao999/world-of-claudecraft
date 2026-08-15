@@ -2,19 +2,6 @@
 -- 空间网格用于兴趣管理 (Interest Management)
 -- 将世界划分为等大 cell，加速实体查询
 
-local config = require("config")
-
--- 空间索引: 默认纯 Lua 螺旋网格 (更快)。设 WOC_AOI_GRID=1 显式启用 C++ aoi 索引做 A/B。
--- 所有模块经 require("world.grid") 共享同一索引, 保证 insert/query 状态一致。
--- aoi 模块缺失/加载失败时兜底回退, 避免 AOI/快照/索敌路径崩溃。
-if config.USE_AOI_GRID then
-    local ok, aoiGrid = pcall(require, "world.aoi_grid")
-    if ok and aoiGrid then
-        return aoiGrid
-    end
-    print("[Grid] WARNING: aoi spatial index unavailable, falling back to pure-Lua grid")
-end
-
 local M = {}
 
 local CELL_SIZE = 32  -- 每个 cell 32 yards (TS spatial.ts:14)

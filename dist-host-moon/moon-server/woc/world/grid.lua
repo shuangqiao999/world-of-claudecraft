@@ -2,8 +2,6 @@
 -- 空间网格用于兴趣管理 (Interest Management)
 -- 将世界划分为等大 cell，加速实体查询
 
-local config = require("config")
-
 local M = {}
 
 local CELL_SIZE = 32  -- 每个 cell 32 yards (TS spatial.ts:14)

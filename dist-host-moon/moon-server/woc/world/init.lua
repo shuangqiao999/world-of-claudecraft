@@ -815,8 +815,9 @@ local function combatTick(dt)
     for _ in pairs(players) do hasPlayers = true; break end
 
     -- 玩家施法 + 自动攻击
-    for pid, e in pairs(entities) do
-        if players[pid] and not e.dead then
+    for pid in pairs(players) do
+        local e = entities[pid]
+        if e and not e.dead then
             -- TS updateTimers: 每 tick 递增 fiveSecondRule/combatTimer/gcd/药水cd
             regen.updateTimers(e, dt)
             castSys.updateCooldowns(e, dt)
@@ -1331,8 +1332,9 @@ local function doGameTick()
 
     -- Phase: 门触发器 (TS updateDoorTriggers: 移动后检测副本入口)
     pcall(function()
-        for pid, e in pairs(entities) do
-            if players[pid] and not e.dead and not e.dungeonId then
+        for pid in pairs(players) do
+            local e = entities[pid]
+            if e and not e.dead and not e.dungeonId then
                 local doorEvents = doorTriggers.checkPlayerDoors(e, entities, players, simTime)
                 for _, ev in ipairs(doorEvents) do
                     table.insert(combatEvents, ev)
@@ -1385,9 +1387,9 @@ local function doGameTick()
         migratePlayerOut(pid)
     end
 
-    for pid, e in pairs(entities) do
-        local meta = players[pid]
-        if meta then
+    for pid, meta in pairs(players) do
+        local e = entities[pid]
+        if e then
             pcall(function()
                 if not e.dead then
                     warriorStance.ensureWarriorStance(e, meta)

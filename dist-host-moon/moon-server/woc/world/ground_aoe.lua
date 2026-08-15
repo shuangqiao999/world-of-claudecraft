@@ -3,6 +3,7 @@
 -- 对应原项目 src/sim/entity_roster.ts tickGroundAoEs
 
 local config = require("config")
+local grid = require("world.grid")
 local M = {}
 
 -- 地面 AoE 列表: { sourceId, pos{x,z}, radius, remaining, tickInterval, tickTimer, abilityId, school, damage }
@@ -41,22 +42,21 @@ function M.tick(entities, dt)
                 gae.tickTimer = gae.tickTimer - gae.tickInterval
 
                 local targets = {}
-                for _, e in pairs(entities) do
+                local cand = grid.queryRadius(gae.pos.x, gae.pos.z, gae.radius, entities)
+                for _, e in ipairs(cand) do
                     if (not gae.targetKind or e.kind == gae.targetKind) and not e.dead then
-                        local dx = e.pos.x - gae.pos.x
-                        local dz = e.pos.z - gae.pos.z
-                        if dx * dx + dz * dz <= gae.radius * gae.radius then
-                            table.insert(targets, e)
-                        end
+                        table.insert(targets, e)
                     end
                 end
+                grid.releaseRadiusResult(cand)
 
                 -- 限制目标数
                 if #targets > gae.maxTargets then
                     table.sort(targets, function(a, b)
                         local da = (a.pos.x - gae.pos.x)^2 + (a.pos.z - gae.pos.z)^2
                         local db = (b.pos.x - gae.pos.x)^2 + (b.pos.z - gae.pos.z)^2
-                        return da < db
+                        if da ~= db then return da < db end
+                        return a.id < b.id
                     end)
                     while #targets > gae.maxTargets do table.remove(targets) end
                 end

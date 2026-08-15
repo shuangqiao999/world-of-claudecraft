@@ -2,6 +2,7 @@
 -- 聊天分发、脏词过滤、频道管理
 
 local config = require("config")
+local grid = require("world.grid")
 
 local M = {}
 
@@ -94,23 +95,22 @@ function M.processMessage(entities, players, senderPid, text, channel, target)
 
     -- 范围聊天 (say, yell, general)
     if chanConfig.rangeSq then
-        for pid, otherE in pairs(entities) do
+        local range = math.sqrt(chanConfig.rangeSq)
+        local cand = grid.queryRadius(sender.pos.x, sender.pos.z, range, entities)
+        for _, otherE in ipairs(cand) do
+            local pid = otherE.id
             if otherE.kind == "player" and pid ~= senderPid then
-                local dx = sender.pos.x - otherE.pos.x
-                local dz = sender.pos.z - otherE.pos.z
-                local distSq = dx * dx + dz * dz
-                if distSq <= chanConfig.rangeSq then
-                    table.insert(events, {
-                        type = "chat",
-                        channel = ch,
-                        from = senderName,
-                        fromPid = senderPid,
-                        text = filtered,
-                        toPid = pid,
-                    })
-                end
+                table.insert(events, {
+                    type = "chat",
+                    channel = ch,
+                    from = senderName,
+                    fromPid = senderPid,
+                    text = filtered,
+                    toPid = pid,
+                })
             end
         end
+        grid.releaseRadiusResult(cand)
     else
         -- 全局频道: 发送给所有玩家
         for pid, _ in pairs(players) do

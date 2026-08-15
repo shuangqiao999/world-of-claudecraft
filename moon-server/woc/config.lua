@@ -57,11 +57,6 @@ M.HALF_RATE_RADIUS_SQ = 80 * 80
 M.HALF_RATE_DIVISOR = 2
 M.QUARTER_RATE_DIVISOR = 4
 
--- 空间索引: 默认纯 Lua 螺旋网格 (queryRadius 无排序 + 最近优先提前停止, 更快)。
--- C++ aoi 的 query 只返回矩形且无序, 需在 Lua 侧 table.sort 才能补圆距/最近优先,
--- 密集场景反而更慢。设 WOC_AOI_GRID=1 可显式启用 C++ aoi 索引做 A/B 对比。
-M.USE_AOI_GRID = os.getenv("WOC_AOI_GRID") == "1"
-
 ----------------------------------------
 -- 空间分片 (Spatial Sharding)
 ----------------------------------------

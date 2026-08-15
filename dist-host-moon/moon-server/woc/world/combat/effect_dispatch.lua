@@ -8,6 +8,7 @@ local heal = require("world.combat.heal")
 local aura = require("world.combat.aura")
 local simrng = require("world.simrng")
 local config = require("config")
+local grid = require("world.grid")
 
 local M = {}
 
@@ -231,23 +232,21 @@ function M._resolveTargets(caster, primary, effect, entities)
     elseif isAoe then
         local center = (effect.center == "self") and caster or (primary or caster)
         local radius = effect.radius or 8
-        local radiusSq = radius * radius
 
-        for _, e in pairs(entities) do
+        local cand = grid.queryRadius(center.pos.x, center.pos.z, radius, entities)
+        for _, e in ipairs(cand) do
             if e.kind == effect.targetKind or not effect.targetKind then
-                local dx = e.pos.x - center.pos.x
-                local dz = e.pos.z - center.pos.z
-                if dx * dx + dz * dz <= radiusSq then
-                    table.insert(targets, e)
-                end
+                table.insert(targets, e)
             end
         end
+        grid.releaseRadiusResult(cand)
 
         if effect.maxTargets and #targets > effect.maxTargets then
             table.sort(targets, function(a, b)
                 local da = (a.pos.x - center.pos.x)^2 + (a.pos.z - center.pos.z)^2
                 local db = (b.pos.x - center.pos.x)^2 + (b.pos.z - center.pos.z)^2
-                return da < db
+                if da ~= db then return da < db end
+                return a.id < b.id
             end)
             while #targets > effect.maxTargets do
                 table.remove(targets)
