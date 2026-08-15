@@ -198,9 +198,25 @@ end
 function H.attack(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e or e.dead then return false end
-    local nearest = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
-    if nearest then e.targetId = nearest.id end
-    ctx.autoAttack.startAutoAttack(e, nearest)
+    -- 目标解析优先级: 显式 id > 当前选中目标 > 最近敌人。
+    -- 之前只取最近敌人, 忽略了 target(id) 选中的目标, 导致"攻击无反馈"(打错目标)。
+    local target = nil
+    local tid = targetIdOf(cmd)
+    if tid then
+        target = ctx.entities[tid] or (ctx.ghostEntities and ctx.ghostEntities[tid])
+    end
+    if not target and e.targetId then
+        target = ctx.entities[e.targetId] or (ctx.ghostEntities and ctx.ghostEntities[e.targetId])
+    end
+    if not target then
+        target = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
+    end
+    if target then
+        e.targetId = target.id
+        ctx.autoAttack.startAutoAttack(e, target)
+    else
+        ctx.autoAttack.stopAutoAttack(e)
+    end
     return true
 end
 
