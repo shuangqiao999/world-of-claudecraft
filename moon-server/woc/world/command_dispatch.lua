@@ -225,6 +225,30 @@ function H.stopattack(ctx, pid, cmd)
     return true
 end
 
+function H.pvp_attack(ctx, pid, cmd)
+    local e = ctx.entities[pid]
+    if not e or e.dead then return false end
+    if not ctx.config.ENABLE_PLAYER_PVP then
+        ctx.noteEvents({ { type = "log", text = "Player PvP is disabled.", pid = pid } })
+        return false
+    end
+    -- 目标解析: 显式 id > 当前选中; 仅玩家目标
+    local target = nil
+    local tid = targetIdOf(cmd)
+    if tid then target = ctx.entities[tid] or (ctx.ghostEntities and ctx.ghostEntities[tid]) end
+    if not target and e.targetId then target = ctx.entities[e.targetId] or (ctx.ghostEntities and ctx.ghostEntities[e.targetId]) end
+    if not target or target.kind ~= "player" or target.id == pid then
+        ctx.noteEvents({ { type = "log", text = "Invalid PvP target.", pid = pid } })
+        return false
+    end
+    -- 双方进入 PVP_FIGHT (跨分片目标需 Phase 5 转发同意, 此处仅本地)
+    ctx.combatState.enterPvpFight(e, target)
+    local tother = ctx.entities[target.id]
+    if tother then ctx.combatState.enterPvpFight(tother, e) end
+    ctx.noteEvents({ { type = "log", text = "PvP combat started.", pid = pid } })
+    return true
+end
+
 function H.stopAutoAttackOnTargetSwitch(ctx, pid, cmd)
     local meta = ctx.players[pid]
     if meta then meta.stopAutoAttackOnTargetSwitch = cmd.enabled == true end
