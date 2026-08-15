@@ -25,8 +25,18 @@ export class ZoneProcessBridge {
   private ready = false;
 
   onClientFrame: ((playerId: number, data: unknown) => void) | null = null;
-  onJoinRequest: ((playerId: number, characterId: number, token: string,
-    accountId: number, name: string, cls: string, state: any, level: number) => void) | null = null;
+  onJoinRequest:
+    | ((
+        playerId: number,
+        characterId: number,
+        token: string,
+        accountId: number,
+        name: string,
+        cls: string,
+        state: any,
+        level: number,
+      ) => void)
+    | null = null;
   onChatRelay: ((channel: string, text: string, sender: string) => void) | null = null;
 
   constructor(config: ZoneProcessConfig, log: (msg: string) => void = console.log) {
@@ -53,9 +63,14 @@ export class ZoneProcessBridge {
         // Join request: gateway sends { t: 'join', characterId, token }
         if (data?.t === 'join' && data?.characterId) {
           this.onJoinRequest?.(
-            pid, data.characterId, data.token ?? '',
-            data.accountId ?? 0, data.name ?? '', data.class ?? '',
-            data.state ?? {}, data.level ?? 1
+            pid,
+            data.characterId,
+            data.token ?? '',
+            data.accountId ?? 0,
+            data.name ?? '',
+            data.class ?? '',
+            data.state ?? {},
+            data.level ?? 1,
           );
         } else if (data?.t === 'chat_relay') {
           // Gateway relayed cross-zone chat: deliver to local players
@@ -82,7 +97,16 @@ export class ZoneProcessBridge {
     for (const q of this.queuedMessages) {
       const data = q.data as any;
       if (data?.t === 'join' && data?.characterId) {
-        this.onJoinRequest?.(q.playerId, data.characterId, data.token);
+        this.onJoinRequest?.(
+          q.playerId,
+          data.characterId,
+          data.token ?? '',
+          data.accountId ?? 0,
+          data.name ?? '',
+          data.class ?? '',
+          data.state ?? {},
+          data.level ?? 1,
+        );
       }
     }
     this.queuedMessages.length = 0;
@@ -124,7 +148,10 @@ export class ZoneProcessBridge {
 
 /** Read zone-process config from env. Returns null if ZONES is not set. */
 export function resolveZoneConfig(): ZoneProcessConfig | null {
-  const zones = (process.env.ZONES ?? '').split(',').map(z => z.trim()).filter(Boolean);
+  const zones = (process.env.ZONES ?? '')
+    .split(',')
+    .map((z) => z.trim())
+    .filter(Boolean);
   if (zones.length === 0) return null;
   const gatewayHost = process.env.GATEWAY_HOST ?? '127.0.0.1';
   const gatewayPort = parseInt(process.env.GATEWAY_PORT ?? '9000', 10);

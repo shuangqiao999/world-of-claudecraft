@@ -2029,6 +2029,7 @@ export const ko_KR: Partial<Record<TranslationKey, string>> = {
   'hud.chat.context.invite': '파티 초대',
   'hud.chat.context.trade': '거래',
   'hud.chat.context.challengeDuel': '결투 신청',
+  'hud.chat.context.attack': '공격',
   'hud.chat.context.addFriend': '친구 추가',
   'hud.chat.context.removeFriend': '친구 삭제',
   'hud.chat.context.inviteGuild': '길드 초대',

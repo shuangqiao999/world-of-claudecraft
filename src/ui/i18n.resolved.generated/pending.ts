@@ -9,25 +9,55 @@
 // Reproducibility is checked by tests/i18n_resolved_equivalence.test.ts.
 
 export const pending: Record<string, readonly string[]> = {
-  "es": [],
-  "es_ES": [],
-  "fr_FR": [],
-  "fr_CA": [],
+  "es": [
+    "hud.chat.context.attack"
+  ],
+  "es_ES": [
+    "hud.chat.context.attack"
+  ],
+  "fr_FR": [
+    "hud.chat.context.attack"
+  ],
+  "fr_CA": [
+    "hud.chat.context.attack"
+  ],
   "en_CA": [],
-  "it_IT": [],
-  "de_DE": [],
+  "it_IT": [
+    "hud.chat.context.attack"
+  ],
+  "de_DE": [
+    "hud.chat.context.attack"
+  ],
   "zh_CN": [],
   "zh_TW": [],
   "ko_KR": [],
   "ja_JP": [],
-  "pt_BR": [],
+  "pt_BR": [
+    "hud.chat.context.attack"
+  ],
   "ru_RU": [],
-  "cs_CZ": [],
-  "nl_NL": [],
-  "pl_PL": [],
-  "id_ID": [],
-  "tr_TR": [],
-  "sv_SE": [],
-  "vi_VN": [],
-  "da_DK": []
+  "cs_CZ": [
+    "hud.chat.context.attack"
+  ],
+  "nl_NL": [
+    "hud.chat.context.attack"
+  ],
+  "pl_PL": [
+    "hud.chat.context.attack"
+  ],
+  "id_ID": [
+    "hud.chat.context.attack"
+  ],
+  "tr_TR": [
+    "hud.chat.context.attack"
+  ],
+  "sv_SE": [
+    "hud.chat.context.attack"
+  ],
+  "vi_VN": [
+    "hud.chat.context.attack"
+  ],
+  "da_DK": [
+    "hud.chat.context.attack"
+  ]
 };

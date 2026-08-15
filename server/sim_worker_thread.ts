@@ -1,8 +1,8 @@
-import { parentPort } from 'node:worker_threads';
 import type { MessagePort } from 'node:worker_threads';
+import { parentPort } from 'node:worker_threads';
 import {
-  computePlayerSelfOnly,
   computeMobSelfOnly,
+  computePlayerSelfOnly,
   type MobBatch,
   type MobMutation,
   type PlayerBatch,
@@ -14,14 +14,14 @@ if (!parentPort) throw new Error('sim_worker_thread must run as a worker');
 let replyPort: MessagePort | null = null;
 
 parentPort.on('message', (msg: SimWorkerMessage) => {
-  if ('type' in msg && msg.type === 'init' && msg.port) {
-    replyPort = msg.port;
+  if ('type' in msg) {
+    if (msg.port) replyPort = msg.port;
     return;
   }
 
   const { batch } = msg;
   try {
-    let results: { playerMuts?: PlayerMutation[]; mobMuts?: MobMutation[] } = {};
+    const results: { playerMuts?: PlayerMutation[]; mobMuts?: MobMutation[] } = {};
     if (batch?.kind === 'players' && batch.data) {
       results.playerMuts = computePlayerSelfOnly(batch.data);
     } else if (batch?.kind === 'mobs' && batch.data) {
@@ -37,12 +37,8 @@ parentPort.on('message', (msg: SimWorkerMessage) => {
   }
 });
 
-type SimWorkerMessage =
-  | { type: 'init'; port: MessagePort }
-  | { batch: SimTask };
+type SimWorkerMessage = { type: 'init'; port: MessagePort } | { batch: SimTask };
 
-interface SimTask {
-  kind: 'players' | 'mobs';
-  data: PlayerBatch | MobBatch;
-  chunkIndex: number;
-}
+type SimTask =
+  | { kind: 'players'; data: PlayerBatch; chunkIndex: number }
+  | { kind: 'mobs'; data: MobBatch; chunkIndex: number };

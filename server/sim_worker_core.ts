@@ -14,7 +14,11 @@
 
 // ---------- Types ----------
 
-export interface Vec3 { x: number; y: number; z: number; }
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
 
 export interface PlayerSlice {
   id: number;
@@ -22,14 +26,14 @@ export interface PlayerSlice {
   combatTimer: number;
   gcdRemaining: number;
   potionCooldownUntil: number;
-  cooldowns: [number, number][];
+  cooldowns: [string, number][];
 }
 
 export interface PlayerMutation {
   id: number;
   gcdRemaining: number;
   potionCooldownUntil: number;
-  cooldowns: [number, number][];
+  cooldowns: [string, number][];
 }
 
 export interface PlayerBatch {
@@ -104,7 +108,7 @@ export function computePlayerSelfOnly(batch: PlayerBatch): PlayerMutation[] {
     if (p.potionCooldownUntil > 0) {
       mut.potionCooldownUntil = p.potionCooldownUntil - dt;
     }
-    const cds: [number, number][] = [];
+    const cds: [string, number][] = [];
     for (const [id, remaining] of p.cooldowns) {
       const nr = remaining - dt;
       if (nr > 0) cds.push([id, nr]);

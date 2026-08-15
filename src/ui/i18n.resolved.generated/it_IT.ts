@@ -7002,6 +7002,7 @@ export const it_IT: EnTranslations = {
         "invite": "Invita nel gruppo",
         "trade": "Commercia",
         "challengeDuel": "Sfida a duello",
+        "attack": "Attack",
         "addFriend": "Aggiungi amico",
         "removeFriend": "Rimuovi amico",
         "inviteGuild": "Invita in gilda",

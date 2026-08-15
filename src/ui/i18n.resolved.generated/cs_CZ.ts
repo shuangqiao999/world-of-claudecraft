@@ -7002,6 +7002,7 @@ export const cs_CZ: EnTranslations = {
         "invite": "Pozvat do skupiny",
         "trade": "Obchodovat",
         "challengeDuel": "Vyzvat k duelu",
+        "attack": "Attack",
         "addFriend": "Přidat přítele",
         "removeFriend": "Odebrat přítele",
         "inviteGuild": "Pozvat do cechu",

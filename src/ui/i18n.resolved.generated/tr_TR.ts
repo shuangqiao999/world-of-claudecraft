@@ -7002,6 +7002,7 @@ export const tr_TR: EnTranslations = {
         "invite": "Gruba Davet Et",
         "trade": "Takas",
         "challengeDuel": "Düelloya Davet Et",
+        "attack": "Attack",
         "addFriend": "Arkadaş Ekle",
         "removeFriend": "Arkadaşı Çıkar",
         "inviteGuild": "Loncaya Davet Et",

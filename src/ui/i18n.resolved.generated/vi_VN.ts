@@ -7002,6 +7002,7 @@ export const vi_VN: EnTranslations = {
         "invite": "Mời Vào Tổ Đội",
         "trade": "Giao Dịch",
         "challengeDuel": "Thách Đấu Tay Đôi",
+        "attack": "Attack",
         "addFriend": "Thêm Bạn",
         "removeFriend": "Xóa Bạn",
         "inviteGuild": "Mời Vào Bang Hội",

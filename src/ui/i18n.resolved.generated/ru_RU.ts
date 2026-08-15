@@ -7002,6 +7002,7 @@ export const ru_RU: EnTranslations = {
         "invite": "Пригласить в группу",
         "trade": "Торговать",
         "challengeDuel": "Вызвать на дуэль",
+        "attack": "Атаковать",
         "addFriend": "Добавить друга",
         "removeFriend": "Удалить друга",
         "inviteGuild": "Пригласить в гильдию",

@@ -2066,6 +2066,7 @@ export const ru_RU: Partial<Record<TranslationKey, string>> = {
   'hud.chat.context.invite': 'Пригласить в группу',
   'hud.chat.context.trade': 'Торговать',
   'hud.chat.context.challengeDuel': 'Вызвать на дуэль',
+  'hud.chat.context.attack': 'Атаковать',
   'hud.chat.context.addFriend': 'Добавить друга',
   'hud.chat.context.removeFriend': 'Удалить друга',
   'hud.chat.context.inviteGuild': 'Пригласить в гильдию',

@@ -569,6 +569,9 @@ export const COMMAND_NAMES = [
   // Paperdoll eye toggle: helmet-visibility preference on the composed body.
   // Appended because wire tokens are never reordered.
   'set_helm',
+  // GTA open-world PvP consent: the deliberate second confirmation turning a
+  // selected player into a mutual pvp_fight (moon-server combat redesign).
+  'pvp_attack',
 ] as const;
 
 // The union both the send path (`online.ts`) and the dispatch switch
@@ -661,6 +664,7 @@ export const COMMAND_FACETS = {
   cancel_aura: 'IWorldCombat',
   attack: 'IWorldCombat',
   stopattack: 'IWorldCombat',
+  pvp_attack: 'IWorldCombat',
   release: 'IWorldCombat',
   unstuck: 'IWorldCombat',
   // Ghost resurrection: run the spirit to its corpse, or accept the Spirit Healer's

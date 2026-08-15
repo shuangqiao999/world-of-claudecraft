@@ -1844,8 +1844,10 @@ const OFFLINE_GUILD_BANK_LOG: import('../world_api').GuildBankLogView = Object.f
 export class Sim {
   // `world` stays optional (a custom map for play-test, else undefined for the
   // built-in world); everything else is defaulted to a concrete value below.
-  cfg: Required<Omit<SimConfig, 'noPlayer' | 'world' | 'perfLap' | 'respawnSeconds'>> &
-    Pick<SimConfig, 'world' | 'perfLap' | 'respawnSeconds'>;
+  cfg: Required<
+    Omit<SimConfig, 'noPlayer' | 'world' | 'perfLap' | 'respawnSeconds' | 'zoneFilter'>
+  > &
+    Pick<SimConfig, 'world' | 'perfLap' | 'respawnSeconds' | 'zoneFilter'>;
   /**
    * The authored world this simulation owns. The active registry is a host/render
    * seam and may be swapped by an editor after construction; gameplay services,
@@ -2121,6 +2123,7 @@ export class Sim {
       world: cfg.world,
       perfLap: cfg.perfLap,
       idleMobTickRadius: cfg.idleMobTickRadius ?? 0,
+      zoneFilter: cfg.zoneFilter,
     };
     const activeWorldContent = getActiveWorldContent();
     this.worldContent = cfg.world ?? activeWorldContent;
@@ -2193,7 +2196,8 @@ export class Sim {
     // NPCs — nudged out of buildings and deep water if their data position is bad
     for (const npcDef of Object.values(worldContent.npcs)) {
       if (npcDef.dynamic) continue;
-      if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(npcDef.pos.x, npcDef.pos.z).id)) continue;
+      if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(npcDef.pos.x, npcDef.pos.z).id))
+        continue;
       const safe = this.findSafePos(npcDef.pos.x, npcDef.pos.z, waterLevel() + 0.6);
       const npc = createNpc(this.nextId++, npcDef, this.groundPos(safe.x, safe.z));
       this.addEntity(npc);
@@ -2204,7 +2208,8 @@ export class Sim {
 
     // Mobs from camps
     for (const camp of worldContent.camps) {
-      if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(camp.center.x, camp.center.z).id)) continue;
+      if (cfg.zoneFilter && !cfg.zoneFilter.includes(zoneAt(camp.center.x, camp.center.z).id))
+        continue;
       const template = MOBS[camp.mobId];
       // Aquatic/flagged swimmers may wade in the shallows; everyone else
       // still spawns on dry land even though combat movement can enter water.
@@ -5667,8 +5672,10 @@ export class Sim {
 
   /** Apply pre-computed self-only mutations (timer countdowns). Live only. */
   applyPlayerSelfMutations(
-    muts: ReadonlyMap<number, { gcdRemaining: number; potionCooldownUntil: number;
-      cooldowns: [number, number][] }>,
+    muts: ReadonlyMap<
+      number,
+      { gcdRemaining: number; potionCooldownUntil: number; cooldowns: [string, number][] }
+    >,
   ): void {
     this._selfMutsPreApplied = true;
     for (const [id, mut] of muts) {
@@ -5677,8 +5684,10 @@ export class Sim {
       p.gcdRemaining = mut.gcdRemaining;
       p.potionCooldownUntil = mut.potionCooldownUntil;
       if (mut.cooldowns.length > 0) {
-        const kept = new Map<number, number>();
-        for (const [spellId, rem] of mut.cooldowns) { if (rem > 0) kept.set(spellId, rem); }
+        const kept = new Map<string, number>();
+        for (const [spellId, rem] of mut.cooldowns) {
+          if (rem > 0) kept.set(spellId, rem);
+        }
         p.cooldowns = kept;
       } else {
         p.cooldowns.clear();
@@ -7165,6 +7174,12 @@ export class Sim {
   stopAutoAttack(pid?: number): void {
     stopAutoAttackImpl(this.ctx, pid);
   }
+
+  // GTA open-world PvP consent is a moon-server feature; the offline Sim keeps the
+  // classic auto-attack model. This stub exists only to satisfy the IWorld parity
+  // contract (render/ui call the same member on both hosts). Online, ClientWorld
+  // routes it to the `pvp_attack` wire command instead.
+  pvpAttack(_targetId: number, _pid?: number): void {}
 
   private updatePlayerAutoAttack(p: Entity, meta: PlayerMeta): void {
     updatePlayerAutoAttackImpl(this.ctx, p, meta);

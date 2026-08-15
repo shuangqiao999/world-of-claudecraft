@@ -7002,6 +7002,7 @@ export const en_XA: EnTranslations = {
         "invite": "[Íñʋíţé ţó Þáŕţý]",
         "trade": "[Ţŕáðé]",
         "challengeDuel": "[Çĥáļļéñĝé ţó á Ðúéļ]",
+        "attack": "[Áţţáçķ]",
         "addFriend": "[Áðð Ƒŕíéñð]",
         "removeFriend": "[Ŕéɱóʋé Ƒŕíéñð]",
         "inviteGuild": "[Íñʋíţé ţó Ĝúíļð]",

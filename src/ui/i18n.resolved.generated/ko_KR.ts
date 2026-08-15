@@ -7002,6 +7002,7 @@ export const ko_KR: EnTranslations = {
         "invite": "파티 초대",
         "trade": "거래",
         "challengeDuel": "결투 신청",
+        "attack": "공격",
         "addFriend": "친구 추가",
         "removeFriend": "친구 삭제",
         "inviteGuild": "길드 초대",

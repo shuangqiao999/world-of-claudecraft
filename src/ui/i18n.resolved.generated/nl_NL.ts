@@ -7002,6 +7002,7 @@ export const nl_NL: EnTranslations = {
         "invite": "Uitnodigen voor Groep",
         "trade": "Ruilen",
         "challengeDuel": "Uitdagen tot een Duel",
+        "attack": "Attack",
         "addFriend": "Vriend Toevoegen",
         "removeFriend": "Vriend Verwijderen",
         "inviteGuild": "Uitnodigen voor Gilde",

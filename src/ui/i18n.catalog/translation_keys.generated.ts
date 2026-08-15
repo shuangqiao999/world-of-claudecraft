@@ -5762,6 +5762,7 @@ export type TranslationKeyFlat =
   | 'hud.arena.title'
   | 'hud.arena.vsLine'
   | 'hud.chat.context.addFriend'
+  | 'hud.chat.context.attack'
   | 'hud.chat.context.cancel'
   | 'hud.chat.context.challengeDuel'
   | 'hud.chat.context.convertToParty'

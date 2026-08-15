@@ -3197,6 +3197,11 @@ export class ClientWorld implements IWorld {
       // budget decrement per self snapshot.
       this.applySelfTargetFromServer(e, s.target ?? null, true);
       e.autoAttack = !!s.auto;
+      // GTA combat state + wanted (moon-server): wire-mirrored self fields. Both
+      // absent on the TypeScript server, so keep the sim's default ('' / 0) when
+      // missing rather than clobbering a prior value.
+      if (s.cst !== undefined) e.combatState = s.cst;
+      if (s.wanted !== undefined) e.wantedLevel = s.wanted;
       e.swingTimer = s.swing ?? e.swingTimer;
       e.queuedOnSwing = s.queued ?? null;
       // A rolling deploy can pair this client with an older server whose stats
@@ -3694,6 +3699,9 @@ export class ClientWorld implements IWorld {
   }
   stopAutoAttack(): void {
     this.cmd({ cmd: 'stopattack' });
+  }
+  pvpAttack(targetId: number): void {
+    this.cmd({ cmd: 'pvp_attack', id: targetId });
   }
   unstuck(): void {
     this.cmd({ cmd: 'unstuck' });

@@ -7002,6 +7002,7 @@ export const da_DK: EnTranslations = {
         "invite": "Inviter til Gruppe",
         "trade": "Byt",
         "challengeDuel": "Udfordr til Duel",
+        "attack": "Attack",
         "addFriend": "Tilføj Ven",
         "removeFriend": "Fjern Ven",
         "inviteGuild": "Inviter til Lav",

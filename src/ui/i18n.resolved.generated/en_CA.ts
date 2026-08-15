@@ -7002,6 +7002,7 @@ export const en_CA: EnTranslations = {
         "invite": "Invite to Party",
         "trade": "Trade",
         "challengeDuel": "Challenge to a Duel",
+        "attack": "Attack",
         "addFriend": "Add Friend",
         "removeFriend": "Remove Friend",
         "inviteGuild": "Invite to Guild",

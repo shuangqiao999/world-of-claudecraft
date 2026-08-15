@@ -3350,6 +3350,14 @@ export interface DamageTick {
 }
 
 /**
+ * Player combat state machine (GTA open-world). This is a moon-server feature:
+ * the offline `Sim` does not run this state machine (it keeps the classic
+ * `autoAttack` boolean), so the value is a wire-mirrored field only, decoded
+ * from `snap.self.cst` online and absent offline.
+ */
+export type PlayerCombatState = 'idle' | 'auto_fight' | 'pvp_fight' | 'fleeing' | 'dead';
+
+/**
  * Fields the SIM NEVER WRITES: client-side mirrors decoded from the wire
  * (src/net/online.ts) so the online renderer can pose movement modes it does
  * not simulate. Grouping them behind this one interface is the type-level
@@ -3363,6 +3371,12 @@ export interface ClientMirroredEntityFields {
    *  0..1 through the pull at the snapshot cadence; the visual smooths it. */
   climbing?: boolean;
   climbProgress?: number;
+  /** Wire mirror of the moon-server GTA combat state (snap.self.cst); absent
+   *  offline where the sim keeps only the `autoAttack` boolean. */
+  combatState?: PlayerCombatState;
+  /** Wire mirror of the moon-server wanted/notoriety level 0-5 (snap.self.wanted);
+   *  absent offline. */
+  wantedLevel?: number;
 }
 
 export interface Entity extends ClientMirroredEntityFields {

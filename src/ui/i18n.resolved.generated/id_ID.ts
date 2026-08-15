@@ -7002,6 +7002,7 @@ export const id_ID: EnTranslations = {
         "invite": "Undang ke Party",
         "trade": "Berdagang",
         "challengeDuel": "Tantang Duel",
+        "attack": "Attack",
         "addFriend": "Tambah Teman",
         "removeFriend": "Hapus Teman",
         "inviteGuild": "Undang ke Guild",

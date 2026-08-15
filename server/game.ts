@@ -166,6 +166,7 @@ import {
   openPlaySession,
   pool,
   releaseCharacterLease,
+  revokeAccountMechChroma,
   saveCharacterAndGuildBankState,
   saveCharacterAndMarketState,
   saveCharacterState,
@@ -208,13 +209,6 @@ import { fishingBandLabel, isKoi, isRodFeeRecipe } from './fishing_telemetry';
 import { mergedPrsForLogin } from './github_contributors';
 import { githubForAccount } from './github_db';
 import { forEachGuarded, runGuarded } from './guarded_iter';
-import { SnapshotPool } from './snapshot_pool';
-import { SimWorkerPool } from './sim_worker_pool';
-import { ZoneWorkerPool } from './zone_worker_pool';
-import { groupEntitiesByZone } from './zone_config';
-import { ZoneProcessBridge, resolveZoneConfig } from './zone_bridge';
-import type { PlayerSlice } from './sim_worker_core';
-import type { ZoneEntitySlice, ZoneBatch, ZonePlayerCell } from './zone_worker_core';
 import {
   type CounterpartyActor,
   type CounterpartyMovement,
@@ -300,6 +294,9 @@ import { createRealmReadoutMemo, realmReadoutJson, realmReadoutObject } from './
 import { RiftAssetCoordinator, riftAssetConfigFromEnv } from './rift_assets';
 import { RiftUpgradeCoordinator, riftUpgraderConfigFromEnv } from './rift_upgrader';
 import { createSerialWriter } from './serial_writer';
+import type { PlayerSlice } from './sim_worker_core';
+import { SimWorkerPool } from './sim_worker_pool';
+import { SnapshotPool } from './snapshot_pool';
 import {
   jsonWithField,
   StableAuraWireCache,
@@ -314,6 +311,10 @@ import { hrtimeToMs, TickRateMeter } from './tick_rate_meter';
 import { recordUnstuckEvent } from './unstuck_records';
 import { holderInfoForPubkey } from './woc_balance';
 import { isBackpressureExceeded } from './ws_backpressure';
+import { resolveZoneConfig, ZoneProcessBridge } from './zone_bridge';
+import { groupEntitiesByZone } from './zone_config';
+import type { ZoneBatch, ZoneEntitySlice, ZonePlayerCell } from './zone_worker_core';
+import { ZoneWorkerPool } from './zone_worker_pool';
 
 // Resolves the snapshot-worker count set by the WOC_SNAPSHOT_WORKERS env var
 // (decimal, empty = adaptive).  Returns 0 to keep the serial broadcast path.
@@ -1899,7 +1900,12 @@ export class GameServer {
 
   constructor() {
     const zonesEnv = (process.env.ZONES ?? '').trim();
-    const zoneFilter = zonesEnv ? zonesEnv.split(',').map(z => z.trim()).filter(Boolean) : undefined;
+    const zoneFilter = zonesEnv
+      ? zonesEnv
+          .split(',')
+          .map((z) => z.trim())
+          .filter(Boolean)
+      : undefined;
     this.zoneFilter = zoneFilter;
     if (zoneFilter?.length) console.log(`[game] zone filter: ${zoneFilter.join(',')}`);
 
@@ -1979,18 +1985,11 @@ export class GameServer {
       build: readBuildVersion(),
       resolveParticipant: (pid) => this.resolveParseParticipant(pid),
     });
-    this.snapshotPool = new SnapshotPool(
-      { workers: parseSnapshotWorkers() },
-      (msg) => console.log(`[snap-pool] ${msg}`),
+    this.snapshotPool = new SnapshotPool({ workers: parseSnapshotWorkers() }, (msg) =>
+      console.log(`[snap-pool] ${msg}`),
     );
-    this.simPool = new SimWorkerPool(
-      {},
-      (msg) => console.log(`[sim-pool] ${msg}`),
-    );
-    this.zonePool = new ZoneWorkerPool(
-      {},
-      (msg) => console.log(`[zone-pool] ${msg}`),
-    );
+    this.simPool = new SimWorkerPool({}, (msg) => console.log(`[sim-pool] ${msg}`));
+    this.zonePool = new ZoneWorkerPool({}, (msg) => console.log(`[zone-pool] ${msg}`));
     // Zone-process bridge: connects to gateway for cross-zone routing.
     const zc = resolveZoneConfig();
     if (zc) {
@@ -1998,7 +1997,16 @@ export class GameServer {
       this.zoneBridge.onClientFrame = (playerId, data) => {
         this.dispatchGatewayMessage(playerId, data);
       };
-      this.zoneBridge.onJoinRequest = (playerId, characterId, token, accountId, name, cls, state, level) => {
+      this.zoneBridge.onJoinRequest = (
+        playerId,
+        characterId,
+        token,
+        accountId,
+        name,
+        cls,
+        state,
+        level,
+      ) => {
         this.handleGatewayJoin(playerId, characterId, token, accountId, name, cls, state, level);
       };
       this.zoneBridge.onChatRelay = (channel, text, sender) => {
@@ -2669,7 +2677,7 @@ export class GameServer {
             yield e;
           }
         }
-      })()
+      })(),
     );
 
     if (zoneIds.length === 0) return;
@@ -2679,7 +2687,14 @@ export class GameServer {
       const pc = sim.entities.get(meta.entityId);
       if (!pc || pc.dead) continue;
       const stealthed = pc.auras.some((a: { kind: string }) => a.kind === 'stealth');
-      playerCells.push({ id: pc.id, x: pc.pos.x, z: pc.pos.z, stealthed, dead: false, level: pc.level });
+      playerCells.push({
+        id: pc.id,
+        x: pc.pos.x,
+        z: pc.pos.z,
+        stealthed,
+        dead: false,
+        level: pc.level,
+      });
     }
 
     const batches: ZoneBatch[] = [];
@@ -2741,8 +2756,8 @@ export class GameServer {
         },
       });
     }
-    rawPlayers.sort((a, b) => a.zoneId < b.zoneId ? -1 : a.zoneId > b.zoneId ? 1 : 0);
-    const playerSlices = rawPlayers.map(r => r.slice);
+    rawPlayers.sort((a, b) => (a.zoneId < b.zoneId ? -1 : a.zoneId > b.zoneId ? 1 : 0));
+    const playerSlices = rawPlayers.map((r) => r.slice);
 
     if (playerSlices.length === 0) return;
 
@@ -2750,9 +2765,16 @@ export class GameServer {
     const muts = this.simPool.computePlayers(batch);
     if (muts.size === 0) return;
 
-    const applyMap = new Map<number, { gcdRemaining: number; potionCooldownUntil: number; cooldowns: [number, number][] }>();
+    const applyMap = new Map<
+      number,
+      { gcdRemaining: number; potionCooldownUntil: number; cooldowns: [string, number][] }
+    >();
     for (const [id, m] of muts) {
-      applyMap.set(id, { gcdRemaining: m.gcdRemaining, potionCooldownUntil: m.potionCooldownUntil, cooldowns: m.cooldowns });
+      applyMap.set(id, {
+        gcdRemaining: m.gcdRemaining,
+        potionCooldownUntil: m.potionCooldownUntil,
+        cooldowns: m.cooldowns,
+      });
     }
     sim.applyPlayerSelfMutations(applyMap);
   }
@@ -2790,14 +2812,25 @@ export class GameServer {
 
       // Create a virtual WS for join flow — all sends relay through the bridge
       const ws = { readyState: 1, send: () => {} } as any;
-      this.join(ws, accountId, characterId, name, cls, state, false, {});
+      this.join(
+        ws,
+        accountId,
+        characterId,
+        name,
+        cls as import('../src/sim/types').PlayerClass,
+        state,
+        false,
+        {},
+      );
       const session = this.sessionsByCharacterId.get(characterId);
       if (session) {
         // Map gateway playerId to sim pid so dispatchGatewayMessage works
         this.clients.set(playerId, session);
-        session.level = level;
+        session.lastPersistedLevel = level;
         if (this.zoneBridge) this.zoneBridge.notifyPlayerJoined(playerId);
-        console.log(`[game] gateway join: ${name} (cid=${characterId}, pid=${session.pid}, lv=${level})`);
+        console.log(
+          `[game] gateway join: ${name} (cid=${characterId}, pid=${session.pid}, lv=${level})`,
+        );
       }
     } catch (err: any) {
       console.error(`[game] gateway join error pid=${playerId}:`, err.message);
@@ -2807,7 +2840,10 @@ export class GameServer {
   /** Gateway-relayed cross-zone chat: broadcast to all local players. */
   private handleCrossZoneChat(channel: string, text: string, sender: string): void {
     for (const session of this.clients.values()) {
-      this.send(session, { t: 'events', list: [{ type: 'chat', channel, from: sender, text, zone: true }] });
+      this.send(session, {
+        t: 'events',
+        list: [{ type: 'chat', channel, from: sender, text, zone: true }],
+      });
     }
   }
 
@@ -6440,6 +6476,11 @@ export class GameServer {
       case 'stopattack':
         sim.stopAutoAttack(pid);
         break;
+      case 'pvp_attack':
+        // GTA open-world PvP consent (moon-server feature): the TypeScript Sim
+        // keeps a no-op stub; a player-vs-player auto-attack is never started here.
+        if (typeof msg.id === 'number') sim.pvpAttack(msg.id, pid);
+        break;
       case 'interact':
         sim.interact(pid);
         break;
@@ -7010,7 +7051,12 @@ export class GameServer {
               const playerZone = zoneAt(player.pos.x, player.pos.z).id;
               const targetZone = zoneAt(target.pos.x, target.pos.z).id;
               if (playerZone !== targetZone) {
-                this.send(session, { t: 'events', list: [{ type: 'error', text: 'Players must be in the same region to form a party.' }] });
+                this.send(session, {
+                  t: 'events',
+                  list: [
+                    { type: 'error', text: 'Players must be in the same region to form a party.' },
+                  ],
+                });
                 break;
               }
             }
@@ -8115,10 +8161,7 @@ export class GameServer {
     // sessions to amortise the data-transfer overhead, fan the per-session
     // snapshot assembly out across worker threads.  Below ~50 sessions the
     // serial path is faster (no cross-thread serialization cost).
-    if (
-      this.snapshotPool.active &&
-      anchors.length >= 50
-    ) {
+    if (this.snapshotPool.active && anchors.length >= 50) {
       const parResult = this.buildParallelSnapshots(
         head,
         vcupDue,
@@ -8292,8 +8335,23 @@ export class GameServer {
     vcupDue: boolean,
     tick: number,
     tickHzJson: string,
-    activeFrostRings: { x: number; z: number; radius: number; innerRadius: number; duration: number; remaining: number; id: string }[],
-    activeTemporalHourglasses: { x: number; z: number; radius: number; duration: number; remaining: number; id: string }[],
+    activeFrostRings: {
+      x: number;
+      z: number;
+      radius: number;
+      innerRadius: number;
+      duration: number;
+      remaining: number;
+      id: string;
+    }[],
+    activeTemporalHourglasses: {
+      x: number;
+      z: number;
+      radius: number;
+      duration: number;
+      remaining: number;
+      id: string;
+    }[],
     anchors: SnapshotAnchor[],
     candidates: ReturnType<typeof buildSharedInterestCandidates>,
     queryLimitSq: number,
@@ -8340,7 +8398,9 @@ export class GameServer {
           anchorEntity.targetId === e.id
             ? NPC_DROP_RADIUS * NPC_DROP_RADIUS
             : isBgWide
-              ? (known ? BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS : BG_MATCH_INTEREST_RADIUS * BG_MATCH_INTEREST_RADIUS)
+              ? known
+                ? BG_MATCH_DROP_RADIUS * BG_MATCH_DROP_RADIUS
+                : BG_MATCH_INTEREST_RADIUS * BG_MATCH_INTEREST_RADIUS
               : interestLimitSq(e, known);
         if (d2 > effectiveLimitSq) continue;
         if (e.id === anchorEntity.id) continue;
@@ -8396,8 +8456,9 @@ export class GameServer {
           const limit = aoeBase + ring.radius;
           return dx * dx + dz * dz <= limit * limit;
         })
-        .map((ring) =>
-          `{"id":${JSON.stringify(ring.id)},"x":${round2(ring.x)},"z":${round2(ring.z)},"r":${round2(ring.radius)},"i":${round2(ring.innerRadius)},"dur":${round2(ring.duration)},"rem":${round2(ring.remaining)}}`,
+        .map(
+          (ring) =>
+            `{"id":${JSON.stringify(ring.id)},"x":${round2(ring.x)},"z":${round2(ring.z)},"r":${round2(ring.radius)},"i":${round2(ring.innerRadius)},"dur":${round2(ring.duration)},"rem":${round2(ring.remaining)}}`,
         );
       const frostRingsJson = frostRings.length > 0 ? `,"rings":[${frostRings.join(',')}]` : '';
       const temporalHourglasses = activeTemporalHourglasses
@@ -8407,8 +8468,9 @@ export class GameServer {
           const limit = aoeBase + hourglass.radius;
           return dx * dx + dz * dz <= limit * limit;
         })
-        .map((hourglass) =>
-          `{"id":${JSON.stringify(hourglass.id)},"x":${round2(hourglass.x)},"z":${round2(hourglass.z)},"r":${round2(hourglass.radius)},"dur":${round2(hourglass.duration)},"rem":${round2(hourglass.remaining)}}`,
+        .map(
+          (hourglass) =>
+            `{"id":${JSON.stringify(hourglass.id)},"x":${round2(hourglass.x)},"z":${round2(hourglass.z)},"r":${round2(hourglass.radius)},"dur":${round2(hourglass.duration)},"rem":${round2(hourglass.remaining)}}`,
         );
       const temporalHourglassesJson =
         temporalHourglasses.length > 0 ? `,"hourglasses":[${temporalHourglasses.join(',')}]` : '';
@@ -9110,31 +9172,64 @@ export class GameServer {
     h['_selfBase'] = JSON.stringify(self);
 
     // Dynamic fields (mirrors selfWireJson maybe/maybeRaw calls)
-    h['lockouts'] = JSON.stringify(Object.fromEntries([...meta.raidLockouts].filter(([, until]) => until > Date.now())));
+    h['lockouts'] = JSON.stringify(
+      Object.fromEntries([...meta.raidLockouts].filter(([, until]) => until > Date.now())),
+    );
     h['corpse'] = JSON.stringify(p.corpsePos ?? null);
     if (stableTimerWire) {
       h['auras'] = this.stableAuraWireFor(p).json;
       h['cds'] = session.timerWireCache.encodeCooldowns(anchorSession.pid, p, this.sim.time).json;
     } else {
-      h['cds'] = JSON.stringify(Object.fromEntries([...p.cooldowns.entries()].map(([k, v]) => [k, round2(v)])));
+      h['cds'] = JSON.stringify(
+        Object.fromEntries([...p.cooldowns.entries()].map(([k, v]) => [k, round2(v)])),
+      );
     }
     if (stableTimerWire) {
-      h['ncd'] = session.timerWireCache.encodeNodeCooldowns(anchorSession.pid, meta.nodeHarvestReadyAt, this.sim.time).json;
+      h['ncd'] = session.timerWireCache.encodeNodeCooldowns(
+        anchorSession.pid,
+        meta.nodeHarvestReadyAt,
+        this.sim.time,
+      ).json;
     } else {
       let anyCooling = false;
       for (const k in meta.nodeHarvestReadyAt) {
-        if (meta.nodeHarvestReadyAt[k] > this.sim.time) { anyCooling = true; break; }
+        if (meta.nodeHarvestReadyAt[k] > this.sim.time) {
+          anyCooling = true;
+          break;
+        }
       }
       h['ncd'] = anyCooling
-        ? JSON.stringify(Object.fromEntries(Object.entries(meta.nodeHarvestReadyAt).filter(([, until]) => until > this.sim.time).map(([k, until]) => [k, round2(until - this.sim.time)])))
+        ? JSON.stringify(
+            Object.fromEntries(
+              Object.entries(meta.nodeHarvestReadyAt)
+                .filter(([, until]) => until > this.sim.time)
+                .map(([k, until]) => [k, round2(until - this.sim.time)]),
+            ),
+          )
         : '{}';
     }
     if (stableTimerWire) {
       h['achg'] = session.timerWireCache.encodeCharges(anchorSession.pid, p.abilityCharges).json;
-      h['achr'] = session.timerWireCache.encodeChargeRecharges(anchorSession.pid, p.abilityCharges, this.sim.time).json;
+      h['achr'] = session.timerWireCache.encodeChargeRecharges(
+        anchorSession.pid,
+        p.abilityCharges,
+        this.sim.time,
+      ).json;
     } else {
-      h['achg'] = JSON.stringify(p.abilityCharges ? Object.fromEntries(Object.entries(p.abilityCharges).map(([k, v]) => [k, v.charges])) : {});
-      h['achr'] = JSON.stringify(p.abilityCharges ? Object.fromEntries(Object.entries(p.abilityCharges).filter(([, v]) => v.recharge > 0 && Number.isFinite(v.recharge)).map(([k, v]) => [k, [v.recharge, v.rechargeLength]])) : {});
+      h['achg'] = JSON.stringify(
+        p.abilityCharges
+          ? Object.fromEntries(Object.entries(p.abilityCharges).map(([k, v]) => [k, v.charges]))
+          : {},
+      );
+      h['achr'] = JSON.stringify(
+        p.abilityCharges
+          ? Object.fromEntries(
+              Object.entries(p.abilityCharges)
+                .filter(([, v]) => v.recharge > 0 && Number.isFinite(v.recharge))
+                .map(([k, v]) => [k, [v.recharge, v.rechargeLength]]),
+            )
+          : {},
+      );
     }
     h['stats'] = JSON.stringify(p.stats);
     h['weapon'] = JSON.stringify(p.weapon);
@@ -9149,29 +9244,45 @@ export class GameServer {
       h['arena'] = JSON.stringify(this.sim.arenaInfoFor(anchorSession.pid));
     }
     if (this.sim.tickCount - session.lastBgWireTick >= BG_WIRE_INTERVAL_TICKS) {
-      const ladder = realmReadoutObject(this.bgLadderReadout, this.sim.tickCount, () => this.sim.bgLadder());
+      const ladder = realmReadoutObject(this.bgLadderReadout, this.sim.tickCount, () =>
+        this.sim.bgLadder(),
+      );
       h['bg'] = JSON.stringify(this.sim.bgInfoFor(anchorSession.pid, ladder));
     }
     if (vcupDue) {
-      const shared = realmReadoutObject(this.realmReadout, this.sim.tickCount, () => this.sim.cupSharedInfoFor());
+      const shared = realmReadoutObject(this.realmReadout, this.sim.tickCount, () =>
+        this.sim.cupSharedInfoFor(),
+      );
       const full = this.sim.cupInfoFor(anchorSession.pid, shared);
       if (full) {
         const viewerReadout = {
-          standing: full.standing, queued: full.queued, bracket: full.bracket,
-          nation: full.nation, role: full.role, position: full.position,
-          deserterFor: full.deserterFor, match: full.match, spectate: full.spectate,
-          betRecord: full.betRecord, myGuild: full.myGuild, guildStanding: full.guildStanding,
+          standing: full.standing,
+          queued: full.queued,
+          bracket: full.bracket,
+          nation: full.nation,
+          role: full.role,
+          position: full.position,
+          deserterFor: full.deserterFor,
+          match: full.match,
+          spectate: full.spectate,
+          betRecord: full.betRecord,
+          myGuild: full.myGuild,
+          guildStanding: full.guildStanding,
           liveHidden: shared.live !== null && full.live === null,
         };
         h['vcup'] = JSON.stringify(viewerReadout);
-        h['vcupb'] = realmReadoutJson(this.realmReadout, this.sim.tickCount, () => this.sim.cupSharedInfoFor());
+        h['vcupb'] = realmReadoutJson(this.realmReadout, this.sim.tickCount, () =>
+          this.sim.cupSharedInfoFor(),
+        );
       } else {
         h['vcup'] = 'null';
       }
     }
     if (this.sim.tickCount - session.lastDfWireTick >= DF_WIRE_INTERVAL_TICKS) {
       h['df'] = JSON.stringify(this.sim.dungeonFinderInfoFor(anchorSession.pid));
-      h['dfb'] = realmReadoutJson(this.dfBoardReadout, this.sim.tickCount, () => this.sim.dungeonFinderBoardView());
+      h['dfb'] = realmReadoutJson(this.dfBoardReadout, this.sim.tickCount, () =>
+        this.sim.dungeonFinderBoardView(),
+      );
     }
     h['market'] = JSON.stringify(this.sim.marketInfoFor(anchorSession.pid) ?? null);
     h['mktU'] = JSON.stringify(this.sim.marketCollectPendingFor(anchorSession.pid) ? 1 : 0);
@@ -9205,8 +9316,11 @@ export class GameServer {
     h['renown'] = JSON.stringify(meta.renown);
     h['atitle'] = JSON.stringify(meta.activeTitle);
 
-    const heavyDue = !this.heavySelfGate || session.selfHeavyDirty || meta.wireRev !== session.lastWireRev
-      || (this.sim.tickCount + session.pid) % HEAVY_SELF_REFRESH_TICKS === 0;
+    const heavyDue =
+      !this.heavySelfGate ||
+      session.selfHeavyDirty ||
+      meta.wireRev !== session.lastWireRev ||
+      (this.sim.tickCount + session.pid) % HEAVY_SELF_REFRESH_TICKS === 0;
     if (heavyDue) {
       h['inv'] = JSON.stringify(meta.inventory);
       h['bags'] = JSON.stringify(meta.bags);
@@ -9219,8 +9333,17 @@ export class GameServer {
       h['qdone'] = JSON.stringify([...meta.questsDone]);
       h['milestones'] = JSON.stringify([...meta.unlockedMilestones]);
       h['deeds'] = JSON.stringify(Object.fromEntries(meta.deedsEarned));
-      h['dstats'] = JSON.stringify({ counters: meta.deedStats.counters, itemsDiscovered: [...meta.deedStats.itemsDiscovered], visited: [...meta.deedStats.visited], dungeonClears: meta.deedStats.dungeonClears });
-      h['tal'] = JSON.stringify({ alloc: meta.talents, loadouts: meta.loadouts, activeLoadout: meta.activeLoadout });
+      h['dstats'] = JSON.stringify({
+        counters: meta.deedStats.counters,
+        itemsDiscovered: [...meta.deedStats.itemsDiscovered],
+        visited: [...meta.deedStats.visited],
+        dungeonClears: meta.deedStats.dungeonClears,
+      });
+      h['tal'] = JSON.stringify({
+        alloc: meta.talents,
+        loadouts: meta.loadouts,
+        activeLoadout: meta.activeLoadout,
+      });
       h['hbl'] = JSON.stringify(session.initialHotbarLayout);
       h['sport'] = JSON.stringify(meta.sportRole ? { role: meta.sportRole } : null);
     }

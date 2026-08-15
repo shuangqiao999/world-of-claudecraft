@@ -46,6 +46,11 @@ export interface IWorldCombat {
   cancelAura(auraId: string): void;
   startAutoAttack(): void;
   stopAutoAttack(): void;
+  // GTA open-world PvP consent: the deliberate second confirmation that turns a
+  // selected player target into a mutual pvp_fight. moon-server gated by
+  // config.ENABLE_PLAYER_PVP; a player-vs-player auto-attack is never started by
+  // `attack` (that path refuses players). Offline the Sim keeps a no-op stub.
+  pvpAttack(targetId: number): void;
   // Begin the local, server-authoritative geometry recovery countdown. It may
   // only relocate within the current reachable area and can be cancelled by
   // movement or combat.

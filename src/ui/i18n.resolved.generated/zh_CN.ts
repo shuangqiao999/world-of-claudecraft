@@ -7002,6 +7002,7 @@ export const zh_CN: EnTranslations = {
         "invite": "邀请入队",
         "trade": "交易",
         "challengeDuel": "发起决斗",
+        "attack": "攻击",
         "addFriend": "添加好友",
         "removeFriend": "移除好友",
         "inviteGuild": "邀请入会",

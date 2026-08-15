@@ -44,9 +44,10 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 // (bg_queue/bg_leave/bg_flag sends plus the dev-only bg_queue force start),
 // and stopAutoAttackOnTargetSwitch joining as a send + dispatch pair (issue #1358).
 // This branch adds set_helm as a send + dispatch pair (the paperdoll
-// helmet-visibility eye; helmHidden persists per character like weaponStowed).
-const EXPECTED_SEND_COUNT = 191;
-const EXPECTED_DISPATCH_COUNT = 204;
+// helmet-visibility eye; helmHidden persists per character like weaponStowed),
+// and pvp_attack as a send + dispatch pair (GTA open-world PvP consent).
+const EXPECTED_SEND_COUNT = 192;
+const EXPECTED_DISPATCH_COUNT = 205;
 const EXPECTED_DISPATCH_ONLY_COUNT = 13;
 
 // The chat sub-channel routing switch (server/game.ts `switch

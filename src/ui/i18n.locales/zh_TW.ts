@@ -1954,6 +1954,7 @@ export const zh_TW: Partial<Record<TranslationKey, string>> = {
   'hud.chat.context.invite': '邀請入隊',
   'hud.chat.context.trade': '交易',
   'hud.chat.context.challengeDuel': '發起決鬥',
+  'hud.chat.context.attack': '攻擊',
   'hud.chat.context.addFriend': '新增好友',
   'hud.chat.context.removeFriend': '移除好友',
   'hud.chat.context.inviteGuild': '邀請入會',

@@ -2048,6 +2048,7 @@ export const ja_JP: Partial<Record<TranslationKey, string>> = {
   'hud.chat.context.invite': 'パーティに招待',
   'hud.chat.context.trade': '取引',
   'hud.chat.context.challengeDuel': '決闘を申し込む',
+  'hud.chat.context.attack': '攻撃',
   'hud.chat.context.addFriend': 'フレンド追加',
   'hud.chat.context.removeFriend': 'フレンド削除',
   'hud.chat.context.inviteGuild': 'ギルドに招待',

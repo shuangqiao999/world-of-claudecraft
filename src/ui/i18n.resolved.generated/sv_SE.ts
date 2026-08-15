@@ -7002,6 +7002,7 @@ export const sv_SE: EnTranslations = {
         "invite": "Bjud in till grupp",
         "trade": "Byteshandel",
         "challengeDuel": "Utmana till en duell",
+        "attack": "Attack",
         "addFriend": "Lägg till vän",
         "removeFriend": "Ta bort vän",
         "inviteGuild": "Bjud in till gille",

@@ -4,11 +4,11 @@
 //   GATEWAY_PORT=8787 INTERNAL_PORT=9000 DATABASE_URL=... node dist-server/gateway.cjs
 
 import * as http from 'node:http';
-import { WebSocketServer, WebSocket } from 'ws';
-import { Gateway } from './gateway';
-import { accountAndScopeForToken, getCharacter } from './db';
+import { WebSocket, WebSocketServer } from 'ws';
 import { zoneAt } from '../src/sim/data';
 import { ONLINE_WORLD_AUTH_TYPE } from '../src/world_api';
+import { accountAndScopeForToken, getCharacter } from './db';
+import { Gateway } from './gateway';
 
 const gatewayPort = parseInt(process.env.GATEWAY_PORT ?? '8787', 10);
 const internalPort = parseInt(process.env.INTERNAL_PORT ?? '9000', 10);
@@ -46,12 +46,18 @@ httpServer.on('upgrade', (request, socket, head) => {
       buffer = lines.pop() ?? '';
       for (const line of lines) {
         if (authDone) {
-          try { gw.routeToClient(ws, JSON.parse(line)); } catch {}
+          try {
+            gw.routeToClient(ws, JSON.parse(line));
+          } catch {}
           return;
         }
         // ── Auth frame ──
         let msg: any;
-        try { msg = JSON.parse(line); } catch { return; }
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          return;
+        }
         if (msg.t !== ONLINE_WORLD_AUTH_TYPE || !msg.token || !msg.character) {
           ws.send(JSON.stringify({ t: 'error', error: 'bad auth message' }));
           ws.close();
@@ -66,7 +72,7 @@ httpServer.on('upgrade', (request, socket, head) => {
         (async () => {
           try {
             // 1. Verify token → account
-            const account = await accountAndScopeForToken(token, 'online');
+            const account = await accountAndScopeForToken(token);
             if (!account) {
               ws.send(JSON.stringify({ t: 'error', error: 'not authenticated' }));
               ws.close();
@@ -74,7 +80,7 @@ httpServer.on('upgrade', (request, socket, head) => {
             }
 
             // 2. Look up character
-            const row = await getCharacter(account.id, characterId);
+            const row = await getCharacter(account.accountId, characterId);
             if (!row) {
               ws.send(JSON.stringify({ t: 'error', error: 'no such character' }));
               ws.close();
@@ -83,7 +89,9 @@ httpServer.on('upgrade', (request, socket, head) => {
 
             // 3. Determine zone from saved position
             let state: any = {};
-            try { state = typeof row.state === 'string' ? JSON.parse(row.state) : (row.state ?? {}); } catch {}
+            try {
+              state = typeof row.state === 'string' ? JSON.parse(row.state) : (row.state ?? {});
+            } catch {}
             const pos = state?.pos ?? { x: 0, z: 0 };
             const zone = zoneAt(pos.x ?? 0, pos.z ?? 0);
             const zoneId = zone?.id ?? 'eastbrook_vale';
@@ -95,13 +103,15 @@ httpServer.on('upgrade', (request, socket, head) => {
             authDone = true;
             gw.registerClient(ws, playerId, characterId, zoneId);
             log(`player ${playerId} (${row.name}, Lv${row.level} ${row.class}) → zone ${zoneId}`);
-            ws.send(JSON.stringify({
-              t: 'hello',
-              id: playerId,
-              name: row.name,
-              class: row.class,
-              level: row.level,
-            }));
+            ws.send(
+              JSON.stringify({
+                t: 'hello',
+                id: playerId,
+                name: row.name,
+                class: row.class,
+                level: row.level,
+              }),
+            );
 
             // 5. Forward join to zone process
             gw.sendToZone(zoneId, {
@@ -111,7 +121,7 @@ httpServer.on('upgrade', (request, socket, head) => {
                 t: 'join',
                 characterId,
                 token,
-                accountId: account.id,
+                accountId: account.accountId,
                 name: row.name,
                 class: row.class,
                 state: row.state,
@@ -138,5 +148,13 @@ httpServer.listen(gatewayPort, () => {
 
 gw.start().then(() => log('ready'));
 
-process.on('SIGINT', () => { gw.shutdown(); httpServer.close(); process.exit(0); });
-process.on('SIGTERM', () => { gw.shutdown(); httpServer.close(); process.exit(0); });
+process.on('SIGINT', () => {
+  gw.shutdown();
+  httpServer.close();
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  gw.shutdown();
+  httpServer.close();
+  process.exit(0);
+});

@@ -119,6 +119,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'moderátorská akce',
     'world.leaveTimeout': 'vypršel čas',
     'world.left': '{name} opustil(a) svět. ({reason})',
+    'party.sameRegion': 'Hráči musí být ve stejné oblasti, aby mohli založit skupinu.',
   },
   da_DK: {
     'chat.filterMuted': 'Det sprog er ikke tilladt her. Du er gjort tavs i {duration}.',
@@ -239,6 +240,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'moderationshandling',
     'world.leaveTimeout': 'tid udløbet',
     'world.left': '{name} har forladt verdenen. ({reason})',
+    'party.sameRegion': 'Spillere skal være i samme område for at danne en gruppe.',
   },
   id_ID: {
     'chat.filterMuted': 'Bahasa itu tidak diperbolehkan di sini. Kamu dibungkam selama {duration}.',
@@ -364,6 +366,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'tindakan moderasi',
     'world.leaveTimeout': 'kehabisan waktu',
     'world.left': '{name} telah meninggalkan dunia. ({reason})',
+    'party.sameRegion': 'Pemain harus berada di wilayah yang sama untuk membentuk grup.',
   },
   nl_NL: {
     'chat.filterMuted': 'Die taal is hier niet toegestaan. Je bent gedempt voor {duration}.',
@@ -487,6 +490,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'moderatieactie',
     'world.leaveTimeout': 'time-out',
     'world.left': '{name} heeft de wereld verlaten. ({reason})',
+    'party.sameRegion': 'Spelers moeten zich in dezelfde regio bevinden om een groep te vormen.',
   },
   pl_PL: {
     'chat.filterMuted': 'Taki język jest tu niedozwolony. Zostajesz wyciszony na {duration}.',
@@ -613,6 +617,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'działanie moderacji',
     'world.leaveTimeout': 'przekroczono limit czasu',
     'world.left': '{name} opuścił świat. ({reason})',
+    'party.sameRegion': 'Gracze muszą znajdować się w tym samym regionie, aby utworzyć grupę.',
   },
   sv_SE: {
     'chat.filterMuted': 'Det språket är inte tillåtet här. Du är tystad i {duration}.',
@@ -736,6 +741,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'modereringsåtgärd',
     'world.leaveTimeout': 'tidsgräns överskreds',
     'world.left': '{name} har lämnat världen. ({reason})',
+    'party.sameRegion': 'Spelare måste befinna sig i samma region för att bilda en grupp.',
   },
   tr_TR: {
     'chat.filterMuted': 'Bu dil burada yasak. {duration} boyunca susturuldun.',
@@ -857,6 +863,7 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'moderasyon işlemi',
     'world.leaveTimeout': 'zaman aşımı',
     'world.left': '{name} dünyadan ayrıldı. ({reason})',
+    'party.sameRegion': 'Grup kurmak için oyuncuların aynı bölgede olması gerekir.',
   },
   vi_VN: {
     'chat.filterMuted': 'Ngôn ngữ đó không được phép ở đây. Bạn bị cấm chat trong {duration}.',
@@ -980,5 +987,6 @@ export const SERVER_NEW = {
     'world.leaveModeration': 'hành động điều hành',
     'world.leaveTimeout': 'đã hết thời gian chờ',
     'world.left': '{name} đã rời khỏi thế giới. ({reason})',
+    'party.sameRegion': 'Người chơi phải ở cùng khu vực để lập nhóm.',
   },
 };

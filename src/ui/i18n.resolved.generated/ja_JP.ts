@@ -7002,6 +7002,7 @@ export const ja_JP: EnTranslations = {
         "invite": "パーティに招待",
         "trade": "取引",
         "challengeDuel": "決闘を申し込む",
+        "attack": "攻撃",
         "addFriend": "フレンド追加",
         "removeFriend": "フレンド削除",
         "inviteGuild": "ギルドに招待",
