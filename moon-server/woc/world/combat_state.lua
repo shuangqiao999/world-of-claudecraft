@@ -62,6 +62,13 @@ function M.enterPvpFight(e, target)
     return true
 end
 
+--- 被攻击方标记进入 PVP (不改变其目标/自动攻击, 仅标记可互伤)
+function M.flagPvp(e)
+    if not e.dead then
+        e.combatState = M.STATE.PVP_FIGHT
+    end
+end
+
 --- 逃跑 (点地面/主动停手): 停我方输出 + 清目标, 不免伤
 function M.flee(e)
     e.combatState = M.STATE.FLEEING

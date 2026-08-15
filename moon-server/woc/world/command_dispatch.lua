@@ -241,10 +241,10 @@ function H.pvp_attack(ctx, pid, cmd)
         ctx.noteEvents({ { type = "log", text = "Invalid PvP target.", pid = pid } })
         return false
     end
-    -- 双方进入 PVP_FIGHT (跨分片目标需 Phase 5 转发同意, 此处仅本地)
+    -- 攻击方进入 PVP_FIGHT; 被攻击方仅标记 (不改其目标/自动攻击)
     ctx.combatState.enterPvpFight(e, target)
     local tother = ctx.entities[target.id]
-    if tother then ctx.combatState.enterPvpFight(tother, e) end
+    if tother then ctx.combatState.flagPvp(tother) end
     ctx.noteEvents({ { type = "log", text = "PvP combat started.", pid = pid } })
     return true
 end
