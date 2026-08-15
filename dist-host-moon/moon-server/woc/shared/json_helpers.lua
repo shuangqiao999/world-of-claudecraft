@@ -2,6 +2,7 @@
 -- 对应原项目 server/game.ts 中的 round2, wireEntity 等辅助函数
 
 local json = require("json")
+local buffer = require("buffer")
 
 local M = {}
 
@@ -70,18 +71,26 @@ end
 function M.buildSnapFrame(tick, simTime, selfJson, entsArr, keepArr, timerWireVersion)
     if type(selfJson) ~= "string" then selfJson = M.safeEncode(selfJson) end
     if type(entsArr) ~= "table" then entsArr = {} end
-    local parts = {}
-    parts[1] = '{"t":"snap","tick":' .. tick .. ',"time":' .. string.format("%.3f", simTime)
-    if timerWireVersion then
-        parts[#parts + 1] = ',"tw":' .. timerWireVersion
-    end
-    parts[#parts + 1] = ',"self":' .. selfJson
-    parts[#parts + 1] = ',"ents":[' .. table.concat(entsArr, ",") .. ']'
+    -- 用 C++ buffer.concat_string 一次性拼帧 (避免 .. 中间串 + parts 数组 + table.concat 的分配/GC)
+    local time = string.format("%.3f", simTime)
+    local ents = table.concat(entsArr, ",")
     if keepArr and #keepArr > 0 then
-        parts[#parts + 1] = ',"keep":[' .. table.concat(keepArr, ",") .. ']'
+        return buffer.concat_string(
+            '{"t":"snap","tick":', tick, ',"time":', time,
+            timerWireVersion and ',"tw":' .. timerWireVersion or "",
+            ',"self":', selfJson,
+            ',"ents":[', ents, ']',
+            ',"keep":[', table.concat(keepArr, ","), ']',
+            '}'
+        )
     end
-    parts[#parts + 1] = '}'
-    return table.concat(parts)
+    return buffer.concat_string(
+        '{"t":"snap","tick":', tick, ',"time":', time,
+        timerWireVersion and ',"tw":' .. timerWireVersion or "",
+        ',"self":', selfJson,
+        ',"ents":[', ents, ']',
+        '}'
+    )
 end
 
 --- 构建 social 帧 JSON (客户端在线读取顶层 friends/blocks/ignores/guild)

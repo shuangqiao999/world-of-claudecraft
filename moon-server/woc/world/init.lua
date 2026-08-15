@@ -334,11 +334,13 @@ local function nodeTypeFor(nodeId)
     return nil
 end
 
+-- 最近敌人 (空间索引: 只查兴趣半径内实体, 避免攻击/tab/施法命令每次全表 O(n) 扫描)
 local function findNearestEnemy(e)
+    local visible = grid.queryRadius(e.pos.x, e.pos.z, config.INTEREST_QUERY_RADIUS, entities, nil)
     local best, bestDistSq = nil, math.huge
-    for id, other in pairs(entities) do
+    for _, other in ipairs(visible) do
         -- 开放世界全自由互攻: 目标可为 mob/玩家/路人NPC (排除自己/死亡/鬼魂/采集节点)
-        if (other.kind == "mob" or other.kind == "player" or (other.kind == "npc" and other.pedestrian)) and id ~= e.id and not other.dead and not other.ghost then
+        if (other.kind == "mob" or other.kind == "player" or (other.kind == "npc" and other.pedestrian)) and other.id ~= e.id and not other.dead and not other.ghost then
             local dx = e.pos.x - other.pos.x
             local dz = e.pos.z - other.pos.z
             local dsq = dx * dx + dz * dz
@@ -347,10 +349,11 @@ local function findNearestEnemy(e)
             end
         end
     end
+    grid.releaseRadiusResult(visible)
     return best
 end
 
--- 跨分片目标选择: 在本地实体基础上追加相邻分片 ghost (供 attack/tab/显式 target 用)
+-- 跨分片目标选择: 本地实体(空间索引) + 相邻分片 ghost(空间索引)
 local function findNearestTarget(e)
     local best = findNearestEnemy(e)
     local bestDistSq = math.huge
@@ -359,8 +362,9 @@ local function findNearestTarget(e)
         local bdz = best.pos.z - e.pos.z
         bestDistSq = bdx * bdx + bdz * bdz
     end
-    for id, g in pairs(ghostEntities) do
-        if (g.kind == "mob" or g.kind == "player" or (g.kind == "npc" and g.pedestrian)) and id ~= e.id and not g.dead then
+    local ghosts = grid.queryGhosts(e.pos.x, e.pos.z, config.INTEREST_QUERY_RADIUS)
+    for _, g in ipairs(ghosts) do
+        if (g.kind == "mob" or g.kind == "player" or (g.kind == "npc" and g.pedestrian)) and g.id ~= e.id and not g.dead then
             local gdx = g.x - e.pos.x
             local gdz = g.z - e.pos.z
             local gsq = gdx * gdx + gdz * gdz
@@ -370,6 +374,7 @@ local function findNearestTarget(e)
             end
         end
     end
+    grid.releaseGhosts(ghosts)
     return best
 end
 
@@ -711,22 +716,24 @@ end
 local function cleanupPlayerLocal(pid)
     local e = entities[pid]
     if not e then return end
+    local px, pz = e.pos.x, e.pos.z
     grid.remove(e)
     aura.cleanupDRTracker(pid)
     deeds.cleanupPlayer(pid)
-    -- 清理本分片 mob 对此玩家的威胁/仇恨/目标
-    for _, m in pairs(entities) do
-        if m.kind == "mob" then
-            threatMod.removeThreat(m.id, pid)
-            if m.aggroTargetId == pid then m.aggroTargetId = nil end
-            if m.forcedTargetId == pid then m.forcedTargetId = nil; m.forcedTargetTimer = 0 end
-            if m.targetId == pid then m.targetId = nil end
+    -- 只扫描玩家 AOI 内的实体 (引用该玩家的 mob 仇恨/目标、其他玩家 target 都在兴趣半径内),
+    -- 避免每次迁移全表 O(n) 两遍扫描
+    local nearby = grid.queryRadius(px, pz, config.INTEREST_QUERY_RADIUS, entities, nil)
+    for _, other in ipairs(nearby) do
+        if other.kind == "mob" then
+            threatMod.removeThreat(other.id, pid)
+            if other.aggroTargetId == pid then other.aggroTargetId = nil end
+            if other.forcedTargetId == pid then other.forcedTargetId = nil; other.forcedTargetTimer = 0 end
+            if other.targetId == pid then other.targetId = nil end
+        elseif other.targetId == pid then
+            other.targetId = nil
         end
     end
-    -- 清除其他玩家指向此玩家的 target
-    for _, other in pairs(entities) do
-        if other.targetId == pid then other.targetId = nil end
-    end
+    grid.releaseRadiusResult(nearby)
     entities[pid] = nil
     players[pid] = nil
     snapSessions[pid] = nil
