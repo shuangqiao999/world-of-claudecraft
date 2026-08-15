@@ -146,6 +146,8 @@ function Entity.new(id, kind, templateId, name, level, pos)
         swingTimer = 0,
         offhandSwingTimer = 0,
         autoAttack = false,
+        -- 玩家战斗状态机 (GTA: idle/auto_fight/pvp_fight/fleeing/dead)
+        combatState = "idle",
 
         -- 冲锋
         chargeTargetId = nil,

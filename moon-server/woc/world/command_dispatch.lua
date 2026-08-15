@@ -212,17 +212,16 @@ function H.attack(ctx, pid, cmd)
         target = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
     end
     if target then
-        e.targetId = target.id
-        ctx.autoAttack.startAutoAttack(e, target)
+        ctx.combatState.enterAutoFight(e, target)
     else
-        ctx.autoAttack.stopAutoAttack(e)
+        ctx.combatState.idle(e)
     end
     return true
 end
 
 function H.stopattack(ctx, pid, cmd)
     local e = ctx.entities[pid]
-    if e then ctx.autoAttack.stopAutoAttack(e) end
+    if e then ctx.combatState.flee(e) end
     return true
 end
 
@@ -237,8 +236,20 @@ function H.target(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e then return false end
     local id = n(cmd.id)
-    -- 允许以本地实体或跨分片 ghost 为目标 (显式点击 ghost 选取攻击目标)
-    if id and (ctx.entities[id] or (ctx.ghostEntities and ctx.ghostEntities[id])) then e.targetId = id else e.targetId = nil end
+    local t = nil
+    if id then t = ctx.entities[id] or (ctx.ghostEntities and ctx.ghostEntities[id]) end
+    if not t then
+        ctx.combatState.idle(e)
+        return true
+    end
+    if t.kind == "mob" or (t.kind == "npc" and t.pedestrian) then
+        -- 选中怪物/平民NPC → 自动战斗 (GTA: 选怪即开打; 空手只选中不攻击)
+        ctx.combatState.enterAutoFight(e, t)
+    else
+        -- 选中玩家/友好NPC → 只选中 (客户端弹交互菜单, 不自动开战)
+        ctx.combatState.idle(e)
+        ctx.combatState.select(e, t)
+    end
     return true
 end
 

@@ -23,6 +23,7 @@ local healMod = require("world.combat.heal")
 local castSys = require("world.combat.cast")
 local aura = require("world.combat.aura")
 local autoAttack = require("world.combat.auto_attack")
+local combatState = require("world.combat_state")
 local fxDispatch = require("world.combat.effect_dispatch")
 local spirit = require("world.spirit")
 local abilities = require("world.abilities")
@@ -956,6 +957,15 @@ local function combatTick(dt)
                     table.insert(combatEvents, { type = "death", pid = target.id })
                 end
             end
+
+            -- 目标失效校验 (死亡/消失/跨分片迁移 → 回 idle)
+            if e.combatState == "auto_fight" or e.combatState == "pvp_fight" then
+                local ct = e.targetId and (entities[e.targetId] or ghostEntities[e.targetId])
+                if not ct or ct.dead then
+                    combatState.idle(e)
+                end
+            end
+
             processAutoResult(autoAttack.update(e, entities, dt, simTime))
             processAutoResult(autoAttack.updateOffhand(e, entities, dt, simTime))
             processAutoResult(autoAttack.updateRanged(e, entities, dt, simTime))
@@ -1662,6 +1672,9 @@ moon.dispatch("lua", function(sender, session, msg)
         local meta = players[msg.pid]
         if meta then
             meta.linkdeadSince = nil
+            -- 重连清自动战斗状态: 不会上线继续自动打怪 (GTA 异常兜底)
+            local re = entities[msg.pid]
+            if re then combatState.idle(re) end
             print(string.format("[World] Resume: pid=%d name=%s", msg.pid, meta.name))
         end
     elseif t == "playerInput" then
@@ -1943,7 +1956,7 @@ moon.exports.handleCommand = function(pid, cmd)
     local ok = require("world.command_dispatch").dispatch({
         entities = entities, players = players, simTime = simTime, tick = tick,
         grid = grid, config = config,
-        abilities = abilities, autoAttack = autoAttack, castSys = castSys,
+        abilities = abilities, autoAttack = autoAttack, combatState = combatState, castSys = castSys,
         fxDispatch = fxDispatch, spirit = spirit, aura = aura, ccDr = ccDr,
         spellResist = spellResist, rage = rage, setProcs = setProcs,
         empower = empower, regen = regen, playerStats = playerStats,
