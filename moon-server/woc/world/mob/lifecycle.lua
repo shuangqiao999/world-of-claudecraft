@@ -122,19 +122,28 @@ function M.checkRespawn(entities, worldInitFn, gridModule, currentTime)
     return spawned
 end
 
+--- 按模板 ID 扣除营地计数 (返回是否扣除成功)
+local function decrementCamp(templateId)
+    for key, sd in pairs(spawnData) do
+        if sd.templateId == templateId and sd.count > 0 then
+            sd.count = sd.count - 1
+            return true
+        end
+    end
+    return false
+end
+
 --- 记录 mob 死亡 (按模板 ID 匹配, 只减对应营地计数)
 function M.onMobDeath(mobId, entities)
     local mob = entities and entities[mobId]
     if not mob then return end
     deathCount = deathCount + 1
-    local tid = mob.templateId
-    if not tid then return end
-    for key, sd in pairs(spawnData) do
-        if sd.templateId == tid and sd.count > 0 then
-            sd.count = sd.count - 1
-            return
-        end
-    end
+    if mob.templateId then decrementCamp(mob.templateId) end
+end
+
+--- 跨分片迁移来的 mob 死亡回传: 按模板 ID 扣除 home 分片营地计数
+function M.onMobCampDeath(templateId)
+    if templateId then decrementCamp(templateId) end
 end
 
 --- 从 mobs.json minLevel/maxLevel 随机出生等级 (TS camp spawn)

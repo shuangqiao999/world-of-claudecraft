@@ -452,6 +452,34 @@ function M.cleanup(mobId)
     threatMod.clearThreat(mobId)
 end
 
+--- 序列化 AI 状态 (跨分片迁移用; 不含 profile, profile 由 templateId/level 重算)
+function M.serialize(mobId)
+    local d = aiData[mobId]
+    if not d then return nil end
+    return {
+        state = d.state,
+        targetId = d.targetId,
+        spawnPos = d.spawnPos and { x = d.spawnPos.x, y = d.spawnPos.y, z = d.spawnPos.z } or nil,
+        combatTimer = d.combatTimer,
+        cooldowns = d.cooldowns,
+        patrolDir = d.patrolDir,
+        patrolTimer = d.patrolTimer,
+    }
+end
+
+--- 恢复 AI 状态到已有 aiData (跨分片迁移用; 保留 initMob 重算的 profile)
+function M.restore(mobId, data)
+    local d = aiData[mobId]
+    if not d or not data then return end
+    d.state = data.state or d.state
+    d.targetId = data.targetId
+    if data.spawnPos then d.spawnPos = data.spawnPos end
+    d.combatTimer = data.combatTimer or 0
+    d.cooldowns = data.cooldowns or {}
+    d.patrolDir = data.patrolDir or d.patrolDir
+    d.patrolTimer = data.patrolTimer or 0
+end
+
 --- 获取 mob 状态
 function M.getState(mobId)
     local d = aiData[mobId]

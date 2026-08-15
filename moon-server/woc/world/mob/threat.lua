@@ -39,7 +39,8 @@ end
 --- 是否存在非空仇恨表 (供索敌快速短路)
 function M.hasThreat(mobId)
     local t = threats[mobId]
-    return t ~= nil and next(t) ~= nil
+    local r = t ~= nil and next(t) ~= nil
+    return r
 end
 
 --- 设置仇恨值 (嘲讽用)
@@ -122,6 +123,20 @@ end
 --- 清除 mob 的仇恨
 function M.clearThreat(mobId)
     threats[mobId] = nil
+end
+
+--- 序列化 mob 仇恨表 (跨分片迁移用)
+function M.serializeThreat(mobId)
+    local t = threats[mobId]
+    if not t then return nil end
+    local copy = {}
+    for k, v in pairs(t) do copy[k] = v end
+    return copy
+end
+
+--- 恢复 mob 仇恨表 (跨分片迁移用)
+function M.restoreThreat(mobId, data)
+    threats[mobId] = data
 end
 
 --- 清除特定目标对 mob 的仇恨

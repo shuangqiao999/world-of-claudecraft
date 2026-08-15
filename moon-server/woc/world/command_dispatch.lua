@@ -1656,6 +1656,7 @@ function H.dev_target(ctx, pid, cmd)
     -- 允许以任意实体 id (含跨分片 ghost) 为目标, 便于测试跨分片战斗。
     -- 正常玩法中跨分片目标需扩展 findNearestEnemy/target 以覆盖 ghost 实体。
     ctx.autoAttack.startAutoAttack(e, { id = id })
+    e.swingTimer = 3.0  -- 立即挥击 (测试: 规避 mob 巡逻导致首击超出近战范围)
     return true
 end
 function H.dev_ranged(ctx, pid, cmd)

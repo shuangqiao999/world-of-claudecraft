@@ -123,6 +123,7 @@ local ghostTick = 0
 -- 内存泄漏诊断: mob 生成/移除计数 (生成源按 templateId 归组)
 local mobSpawnCount = 0
 local mobRemoveCount = 0
+local mobMigrateCount = 0
 local mobSpawnByTemplate = {}
 
 -- 分片标识: 从服务名 "world_N" 解析 (main.lua 以 world_0..world_N-1 创建)
@@ -215,11 +216,11 @@ local function phaseReport()
     table.sort(top, function(a, b) return a[2] > b[2] end)
     local topStr = {}
     for i = 1, math.min(3, #top) do topStr[#topStr + 1] = top[i][1] .. ":" .. top[i][2] end
-    print(string.format("[PhaseDiag] tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB ent=%d ply=%d snap=%d threat=%d/%d ai=%d grid=%d/%d mobSpawn=%d mobRemove=%d respawn=%d death=%d top=%s %s",
+    print(string.format("[PhaseDiag] tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB ent=%d ply=%d snap=%d threat=%d/%d ai=%d grid=%d/%d mobSpawn=%d mobRemove=%d migrate=%d respawn=%d death=%d top=%s %s",
         tick, gcMs, memAfter, memBefore - memAfter,
         countTbl(entities), countTbl(players), countTbl(snapSessions),
         thrMobs, thrEntries, mobAI.stats(), gs.cells, gs.entities,
-        mobSpawnCount, mobRemoveCount, rsp, deaths, table.concat(topStr, ","),
+        mobSpawnCount, mobRemoveCount, mobMigrateCount, rsp, deaths, table.concat(topStr, ","),
         table.concat(parts, " ")))
     phaseAcc = {}
 end
@@ -403,14 +404,26 @@ local function buildCombatSnapshot(attacker)
     }
 end
 
--- 跨分片击杀: 归属分片内联标记死亡 + 清理 (死亡完整处理随 Phase 3/5 迁移补齐)
+-- mob 死亡营地计数: 本地 mob 直接扣本地营地; 迁移来的 mob 回传 home 分片扣营地
+local function accountMobDeath(mob)
+    if mob.homeShard and mob.homeShard ~= shardId then
+        local hs = moon.queryservice("world_" .. mob.homeShard)
+        if hs then
+            moon.send("lua", hs, { t = "mobCampDeath", templateId = mob.templateId })
+        end
+    else
+        mobLifecycle.onMobDeath(mob.id, entities)
+    end
+end
+
+-- 跨分片击杀: 归属分片内联标记死亡 + 清理
 local function applyForwardedKill(target)
     target.dead = true
     target.aiState = "dead"
     target.corpseTimer = 60
     if target.kind == "mob" then
         mobAI.cleanup(target.id)
-        mobLifecycle.onMobDeath(target.id, entities)
+        accountMobDeath(target)
     end
 end
 
@@ -499,8 +512,45 @@ local function createMobEntity(templateId, name, level, pos, opts)
     local e = Entity.new(id, "mob", templateId, name, level, pos)
     e.hostile = true
     e.spawnPos = { x = pos.x, y = pos.y, z = pos.z }
+    e.homeShard = shardId
     mobAI.initMob(e, templateId, pos, opts)
     return e
+end
+
+-- 跨分片 mob 迁移: mob 追到相邻 region 且该 region 映射到其他分片时, 迁到归属分片。
+-- 完整状态迁移: 保留 AI 状态/仇恨/目标/出生点, 目标分片重建后继续追击。
+local function migrateMobOut(e)
+    local rx, rz = config.regionOf(e.pos.x, e.pos.z)
+    local ns = config.regionToShard(rx, rz)
+    if ns == shardId then return false end
+    local svc = moon.queryservice("world_" .. ns)
+    if not svc then return false end
+
+    moon.send("lua", svc, {
+        t = "entityMigrate",
+        entity = {
+            id = e.id, kind = e.kind, templateId = e.templateId, name = e.name,
+            level = e.level,
+            pos = { x = e.pos.x, y = e.pos.y, z = e.pos.z },
+            facing = e.facing,
+            hp = e.hp, maxHp = e.maxHp,
+            auras = e.auras,
+            hostile = e.hostile,
+            aggroTargetId = e.aggroTargetId,
+            combatTimer = e.combatTimer,
+            ai = mobAI.serialize(e.id),
+            threat = threatMod.serializeThreat(e.id),
+            homeShard = e.homeShard or shardId,
+            migrateCooldown = simTime + 5,
+        },
+    })
+
+    mobAI.cleanup(e.id)
+    grid.remove(e)
+    entities[e.id] = nil
+    mobMigrateCount = mobMigrateCount + 1
+    print(string.format("[Mob] Migrate out: id=%d %s shard %d -> %d", e.id, e.templateId, shardId, ns))
+    return true
 end
 
 local function joinPlayer(pid, characterId, accountId, name, cls, level, state, leaseNonce)
@@ -858,6 +908,7 @@ local function combatTick(dt)
         end
     end
     if next(playerCells) ~= nil then
+        local migrateOut = {}
         for _, e in pairs(entities) do
             if e.kind == "mob" and not e.dead then
                 local cx = math.floor(e.pos.x / 32)
@@ -875,8 +926,22 @@ local function combatTick(dt)
                 if nearPlayer then
                     local mobEvents = mobAI.updateMob(e, entities, players, dt)
                     for _, ev in ipairs(mobEvents) do table.insert(combatEvents, ev) end
+                    -- 跨分片迁移检测: 追击中的 mob 跨到相邻 region 且该 region 映射到其他分片。
+                    -- 仅迁移追击/战斗/逃跑态 (排除巡逻/返回, 避免营地贴近边界时来回振荡)。
+                    local rx, rz = config.regionOf(e.pos.x, e.pos.z)
+                    if config.regionToShard(rx, rz) ~= shardId then
+                        local st = mobAI.getState(e.id)
+                        local canMigrate = (st == "chasing" or st == "combat" or st == "flee")
+                            and (not e.migrateCooldown or e.migrateCooldown <= simTime)
+                        if canMigrate then
+                            table.insert(migrateOut, e)
+                        end
+                    end
                 end
             end
+        end
+        for _, e in ipairs(migrateOut) do
+            migrateMobOut(e)
         end
     end
 
@@ -940,7 +1005,7 @@ local function combatTick(dt)
 
             if e.kind == "mob" then
                 mobAI.cleanup(e.id)
-                mobLifecycle.onMobDeath(e.id, entities)
+                accountMobDeath(e)
                 local loot = mobLifecycle.getLoot(e)
                 if loot and #loot > 0 then
                     for _, item in ipairs(loot) do
@@ -1541,7 +1606,10 @@ moon.dispatch("lua", function(sender, session, msg)
         end
         ghostByShard[src] = msg.ghosts or {}
         for _, g in ipairs(ghostByShard[src]) do
-            ghostEntities[g.id] = g
+            -- 跳过已变成本地实体的 id (如刚迁移入站的 mob), 避免快照重复下发
+            if not entities[g.id] then
+                ghostEntities[g.id] = g
+            end
         end
     elseif t == "combatForward" then
         -- 跨分片战斗: 归属分片用重建的攻击者快照结算伤害, 结果回传攻击者分片
@@ -1638,6 +1706,36 @@ moon.dispatch("lua", function(sender, session, msg)
             if gs then
                 moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(msg.events) })
             end
+        end
+    elseif t == "entityMigrate" then
+        -- 跨分片 mob 迁移入站: 以原 id 重建实体 + 恢复 AI/仇恨 (完整状态迁移)
+        local ser = msg.entity
+        if ser and ser.id and ser.kind == "mob" and not entities[ser.id] then
+            local pos = ser.pos or { x = 0, y = 0, z = 0 }
+            local homePos = (ser.ai and ser.ai.spawnPos) or pos
+            local e = Entity.new(ser.id, "mob", ser.templateId, ser.name, ser.level, pos)
+            e.facing = ser.facing or 0
+            e.hostile = ser.hostile ~= false
+            e.spawnPos = { x = homePos.x, y = homePos.y, z = homePos.z }
+            e.homeShard = ser.homeShard or shardId
+            mobAI.initMob(e, ser.templateId, e.spawnPos)
+            e.hp = ser.hp or e.hp
+            e.maxHp = ser.maxHp or e.maxHp
+            e.auras = ser.auras or {}
+            e.aggroTargetId = ser.aggroTargetId
+            e.combatTimer = ser.combatTimer
+            e.migrateCooldown = ser.migrateCooldown
+            if ser.ai then mobAI.restore(e.id, ser.ai) end
+            if ser.threat then threatMod.restoreThreat(e.id, ser.threat) end
+            entities[e.id] = e
+            ghostEntities[e.id] = nil  -- 清除迁移前的残留 ghost (避免快照重复)
+            grid.insert(e)
+            print(string.format("[Mob] Migrate in: id=%d %s shard %d", e.id, ser.templateId, shardId))
+        end
+    elseif t == "mobCampDeath" then
+        -- 迁移走的 mob 在目标分片死亡, 回传 home 分片扣除营地计数
+        if msg.templateId then
+            mobLifecycle.onMobCampDeath(msg.templateId)
         end
     end
 end)
