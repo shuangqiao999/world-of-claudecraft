@@ -705,6 +705,68 @@ serializeCharacter = function(pid)
     }
 end
 
+-- 跨分片玩家迁移 (Phase 5 MVP): 玩家走到相邻 region 且该 region 映射到其他分片时迁到归属分片。
+-- 复用 serializeCharacter/joinPlayer 做全量状态迁移; 源分片做轻量清理 (不保存/不释放 lease/不退出社交),
+-- 目标分片重建后 snapSessions 缺失会触发全量快照重发 (MVP 要求)。
+local function cleanupPlayerLocal(pid)
+    local e = entities[pid]
+    if not e then return end
+    grid.remove(e)
+    aura.cleanupDRTracker(pid)
+    deeds.cleanupPlayer(pid)
+    -- 清理本分片 mob 对此玩家的威胁/仇恨/目标
+    for _, m in pairs(entities) do
+        if m.kind == "mob" then
+            threatMod.removeThreat(m.id, pid)
+            if m.aggroTargetId == pid then m.aggroTargetId = nil end
+            if m.forcedTargetId == pid then m.forcedTargetId = nil; m.forcedTargetTimer = 0 end
+            if m.targetId == pid then m.targetId = nil end
+        end
+    end
+    -- 清除其他玩家指向此玩家的 target
+    for _, other in pairs(entities) do
+        if other.targetId == pid then other.targetId = nil end
+    end
+    entities[pid] = nil
+    players[pid] = nil
+    snapSessions[pid] = nil
+end
+
+local function migratePlayerOut(pid)
+    local e = entities[pid]
+    local meta = players[pid]
+    if not e or not meta then return false end
+    -- 迁移冷却 (防边界来回振荡); simTime 为分片内时钟, 冷却只在当前分片生效
+    if meta._migrateCooldown and meta._migrateCooldown > simTime then return false end
+    local rx, rz = config.regionOf(e.pos.x, e.pos.z)
+    local ns = config.regionToShard(rx, rz)
+    if ns == shardId then return false end
+    local svc = moon.queryservice("world_" .. ns)
+    if not svc then return false end
+    local st = serializeCharacter(pid)
+    if not st then return false end
+
+    moon.send("lua", svc, {
+        t = "playerMigrate",
+        pid = pid,
+        characterId = meta.characterId,
+        accountId = meta.accountId,
+        name = meta.name,
+        cls = meta.class,
+        level = meta.level,
+        state = st,
+        leaseNonce = meta.leaseNonce,
+    })
+
+    -- 通知 gate 更新会话路由
+    local gs = gateSvc()
+    if gs then moon.send("lua", gs, { t = "playerMigrated", pid = pid, shard = ns }) end
+
+    cleanupPlayerLocal(pid)
+    print(string.format("[World] Player migrate out: pid=%d %s shard %d -> %d", pid, meta.name, shardId, ns))
+    return true
+end
+
 ----------------------------------------------
 -- 战斗 Tick (Phase 3-4: 确定性 RNG 驱动)
 ----------------------------------------------
@@ -1301,6 +1363,21 @@ local function doGameTick()
     if hasPlayers then
     processInputs()  -- TS: movement applied inside per-player loop, after prologue
 
+    -- 跨分片玩家迁移检测: 玩家走到相邻 region 且该 region 映射到其他分片
+    local migratePlayers = {}
+    for pid, meta in pairs(players) do
+        local pe = entities[pid]
+        if pe and not pe.dead and not meta.linkdeadSince then
+            local prx, prz = config.regionOf(pe.pos.x, pe.pos.z)
+            if config.regionToShard(prx, prz) ~= shardId then
+                table.insert(migratePlayers, pid)
+            end
+        end
+    end
+    for _, pid in ipairs(migratePlayers) do
+        migratePlayerOut(pid)
+    end
+
     for pid, e in pairs(entities) do
         local meta = players[pid]
         if meta then
@@ -1736,6 +1813,15 @@ moon.dispatch("lua", function(sender, session, msg)
         -- 迁移走的 mob 在目标分片死亡, 回传 home 分片扣除营地计数
         if msg.templateId then
             mobLifecycle.onMobCampDeath(msg.templateId)
+        end
+    elseif t == "playerMigrate" then
+        -- 跨分片玩家迁移入站: 以原 pid 重建玩家 (复用 joinPlayer 全量重建)
+        if msg.pid and msg.state and not entities[msg.pid] then
+            joinPlayer(msg.pid, msg.characterId, msg.accountId, msg.name, msg.cls, msg.level, msg.state, msg.leaseNonce)
+            -- 迁移冷却: 目标分片用本地 simTime 重新计时, 防边界振荡
+            local meta = players[msg.pid]
+            if meta then meta._migrateCooldown = simTime + 5 end
+            print(string.format("[World] Player migrate in: pid=%d %s shard %d", msg.pid, msg.name, shardId))
         end
     end
 end)

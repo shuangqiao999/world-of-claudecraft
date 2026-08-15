@@ -19,18 +19,20 @@ local sessionsByChar = {}
 local sessionsByShard = {}
 local nextEntityId = 1000
 
--- 世界分片路由: pid % shardCount 决定玩家落在哪个 world_N 服务
+-- 世界分片路由: pid % shardCount 决定玩家初始落在哪个 world_N 服务 (迁移后按会话 shard 路由)
 local worldShardCount = config.getWorldShards()
 local worldSvcCache = {}
-local function worldSvc(pid)
-    local idx = pid % worldShardCount
-    local svc = worldSvcCache[idx]
+local function worldSvcByShard(shard)
+    local svc = worldSvcCache[shard]
     -- 世界分片可能在 gate 之后才创建完成, 缓存为空时重查
     if not svc then
-        svc = moon.queryservice("world_" .. idx)
-        if svc then worldSvcCache[idx] = svc end
+        svc = moon.queryservice("world_" .. shard)
+        if svc then worldSvcCache[shard] = svc end
     end
     return svc
+end
+local function worldSvc(pid)
+    return worldSvcByShard(pid % worldShardCount)
 end
 
 -- 会话归属分片
@@ -272,7 +274,7 @@ local function handleAuth(fd, msg)
         -- (对应原 linkdead.ts planJoin resume 分支)
         local existing = sessionsByChar[characterId]
         if existing and existing.linkdead and existing.fd ~= fd then
-            local world = worldSvc(existing.pid)
+            local world = worldSvcByShard(existing.shard)
             local oldFd = existing.fd
             -- 旧 socket 已死, 从索引中摘除, 但保留实体在 world 中
             sessions[oldFd] = nil
@@ -310,7 +312,7 @@ local function handleAuth(fd, msg)
         -- 服务器 terrain.lua 也用同一常量, 二者必须一致
         wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
         print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s shard=%d", fd, pid, cr.name, cr.class, shard))
-        local world = worldSvc(pid)
+        local world = worldSvcByShard(shard)
         if world then
             local sd = cr.state; if type(sd)=="string" then local ok, d = pcall(json.decode, sd); if ok then sd = d end end
             moon.send("lua", world, { t = "joinPlayer", pid = pid, characterId = characterId, accountId = accountId, name = cr.name, cls = cr.class, level = cr.level or 1, state = sd, leaseNonce = nonce })
@@ -335,7 +337,7 @@ local function wsMessage(fd, text)
             end
             return
         end
-        local world = worldSvc(sess.pid); if not world then return end
+        local world = worldSvcByShard(sess.shard); if not world then return end
         if t == "input" then
             moon.send("lua", world, { t = "playerInput", pid = sess.pid, seq = msg.seq, mi = msg.mi, facing = msg.facing })
         else moon.send("lua", world, { t = "playerCommand", pid = sess.pid, msg = msg }) end
@@ -344,7 +346,7 @@ local function wsMessage(fd, text)
         print(string.format("[Gate] Logout fd=%d pid=%d", fd, sess.pid))
         rateLimit.cleanup(sess.pid)
         if dbUp() and sess.leaseNonce then moon.async(function() dbCall("releaseLease", sess.characterId, sess.leaseNonce) end) end
-        local world = worldSvc(sess.pid)
+        local world = worldSvcByShard(sess.shard)
         if world then moon.send("lua", world, { t = "playerLeave", pid = sess.pid, characterId = sess.characterId, leaseNonce = sess.leaseNonce }) end
         pids[sess.pid] = nil; sessions[fd] = nil
         local sh = sessionsByShard[sess.shard]
@@ -374,7 +376,7 @@ local function handleConnection(fd)
                             sess.linkdead = true
                             print(string.format("[Gate] Linkdead fd=%d pid=%d name=%s (grace=%ds)",
                                 fd, sess.pid, sess.name, config.LINKDEAD_GRACE_MS / 1000))
-                            local world = worldSvc(sess.pid)
+                            local world = worldSvcByShard(sess.shard)
                             if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
                         end
                         socket.close(fd); return
@@ -458,6 +460,20 @@ moon.dispatch("lua", function(sender, session, msg)
         local fd = pids[msg.pid]
         if fd and sessions[fd] and not sessions[fd].linkdead and msg.frame then
             wsWrite(fd, msg.frame)
+        end
+    elseif msg.t == "playerMigrated" then
+        -- 跨分片玩家会话迁移: 更新会话归属分片, 后续 input/cmd/snapshot 按新分片路由
+        local fd = pids[msg.pid]
+        local sess = fd and sessions[fd]
+        if sess and msg.shard and msg.shard ~= sess.shard then
+            local oldShard = sess.shard
+            local oldSh = sessionsByShard[oldShard]
+            if oldSh then oldSh[fd] = nil end
+            sess.shard = msg.shard
+            local sh = sessionsByShard[msg.shard]
+            if not sh then sh = {}; sessionsByShard[msg.shard] = sh end
+            sh[fd] = true
+            print(string.format("[Gate] Player migrated: pid=%d shard %d -> %d", msg.pid, oldShard, msg.shard))
         end
     end
 end)
