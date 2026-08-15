@@ -4,6 +4,12 @@
 
 local config = require("config")
 
+-- 灰度门控: 设置 WOC_AOI_GRID=1 时委托给 C++ aoi 空间索引 (world.aoi_grid)
+-- 所有模块经 require("world.grid") 共享同一索引, 保证 insert/query 状态一致
+if config.USE_AOI_GRID then
+    return require("world.aoi_grid")
+end
+
 local M = {}
 
 local CELL_SIZE = 32  -- 每个 cell 32 yards (TS spatial.ts:14)
