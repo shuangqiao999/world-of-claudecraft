@@ -3,6 +3,7 @@
 -- 冰冻球: 直线飞行/停止脉冲/过期清除
 
 local config = require("config")
+local grid = require("world.grid")
 local M = {}
 
 local FROZEN_ORB_SPEED = 12  -- yards/sec
@@ -50,17 +51,15 @@ function M.tick(entities, dt, simrng)
         if orb.pulseTimer <= 0 then
             orb.pulseTimer = orb.pulseTimer + orb.interval
             -- 脉冲: 对范围内的敌对实体造成伤害
-            for _, e in pairs(entities) do
+            local cand = grid.queryRadius(orb.x, orb.z, orb.radius, entities)
+            for _, e in ipairs(cand) do
                 if e.id ~= orb.sourceId and not e.dead then
-                    local dx = e.pos.x - orb.x
-                    local dz = e.pos.z - orb.z
-                    if dx * dx + dz * dz <= orb.radius * orb.radius then
-                        local dmg = (source.spellPower or 0) * 0.1 + 5
-                        e.hp = math.max(0, e.hp - math.floor(dmg + 0.5))
-                        table.insert(events, { type = "frozen_orb_pulse", sourceId = orb.sourceId, targetId = e.id, dmg = math.floor(dmg + 0.5) })
-                    end
+                    local dmg = (source.spellPower or 0) * 0.1 + 5
+                    e.hp = math.max(0, e.hp - math.floor(dmg + 0.5))
+                    table.insert(events, { type = "frozen_orb_pulse", sourceId = orb.sourceId, targetId = e.id, dmg = math.floor(dmg + 0.5) })
                 end
             end
+            grid.releaseRadiusResult(cand)
         end
 
         if orb.remaining > 0 then

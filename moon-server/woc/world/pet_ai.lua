@@ -5,6 +5,7 @@
 local config = require("config")
 local m3d = require("world.math3d")
 local simrng = require("world.simrng")
+local grid = require("world.grid")
 local M = {}
 
 local FOLLOW_DISTANCE = 8     -- 跟随距离
@@ -87,18 +88,16 @@ function M.updatePet(owner, entities, dt)
 
     -- 自动目标选择 (aggressive 模式)
     if mode == MODE.AGGRESSIVE and not target then
-        for _, e in pairs(entities) do
+        local cand = grid.queryRadius(pet.pos.x, pet.pos.z, 20, entities)
+        for _, e in ipairs(cand) do
             if e.kind == "mob" and not e.dead and e.hostile then
-                local dx = pet.pos.x - e.pos.x
-                local dz = pet.pos.z - e.pos.z
-                if dx * dx + dz * dz < 400 then  -- 20yd
-                    target = e
-                    pet.targetId = e.id
-                    pet.autoAttack = true
-                    break
-                end
+                target = e
+                pet.targetId = e.id
+                pet.autoAttack = true
+                break
             end
         end
+        grid.releaseRadiusResult(cand)
     end
 
     -- Defensive: 保护主人

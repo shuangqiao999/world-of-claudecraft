@@ -3,6 +3,7 @@
 -- 对应原项目 src/sim/mob/combat_profile.ts
 
 local simrng = require("world.simrng")
+local grid = require("world.grid")
 local M = {}
 
 -- 对应 src/sim/mob/yells.ts: YELL_RANGE = 100
@@ -11,22 +12,19 @@ local YELL_RANGE = 100
 --- 广播 mob 喊话 (TS emitMobYell)
 function M.emitMobYell(mob, text, entities)
     local events = {}
-    local rangeSq = YELL_RANGE * YELL_RANGE
-    for _, e in pairs(entities) do
+    local cand = grid.queryRadius(mob.pos.x, mob.pos.z, YELL_RANGE, entities)
+    for _, e in ipairs(cand) do
         if e.kind == "player" and not e.dead then
-            local dx = e.pos.x - mob.pos.x
-            local dz = e.pos.z - mob.pos.z
-            if dx * dx + dz * dz <= rangeSq then
-                table.insert(events, {
-                    type = "mob_yell",
-                    pid = e.id,
-                    mobId = mob.id,
-                    text = text,
-                    color = "#ff9933",
-                })
-            end
+            table.insert(events, {
+                type = "mob_yell",
+                pid = e.id,
+                mobId = mob.id,
+                text = text,
+                color = "#ff9933",
+            })
         end
     end
+    grid.releaseRadiusResult(cand)
     return events
 end
 

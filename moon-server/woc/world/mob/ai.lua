@@ -9,6 +9,7 @@ local combatProfile = require("world.mob.combat_profile")
 local threatMod = require("world.mob.threat")
 local moveModule = require("world.movement")
 local spiritMod = require("world.spirit")
+local grid = require("world.grid")
 
 local M = {}
 
@@ -146,18 +147,16 @@ function M.updateMob(mob, entities, players, dt)
             local okp, proto = pcall(function() return require("proto.load") end)
             if okp then tpl = proto.getMob(mob.templateId) end
             if tpl and tpl.packFrenzy then
-                for _, other in pairs(entities) do
+                local r = tpl.packFrenzy.radius or 12
+                local cand = grid.queryRadius(mob.pos.x, mob.pos.z, r, entities)
+                for _, other in ipairs(cand) do
                     if other.kind == "mob" and not other.dead and other.id ~= mob.id
                        and other.templateId == mob.templateId then
-                        local dx = mob.pos.x - other.pos.x
-                        local dz = mob.pos.z - other.pos.z
-                        local r = tpl.packFrenzy.radius or 12
-                        if dx * dx + dz * dz <= r * r then
-                            other.weapon = other.weapon or { min = 2, max = 4, speed = 2 }
-                            other.weapon.speed = other.weapon.speed / (tpl.packFrenzy.hasteMult or 1.5)
-                        end
+                        other.weapon = other.weapon or { min = 2, max = 4, speed = 2 }
+                        other.weapon.speed = other.weapon.speed / (tpl.packFrenzy.hasteMult or 1.5)
                     end
                 end
+                grid.releaseRadiusResult(cand)
             end
         end
         -- Corpse tick (TS locomotion corpse branch): 尸体倒计时 + 尸体爆炸 + 召唤物 unravel
@@ -168,17 +167,15 @@ function M.updateMob(mob, entities, players, dt)
             if mob.detonateTimer and mob.detonateTimer < 9999 then
                 mob.detonateTimer = mob.detonateTimer - dt
                 if mob.detonateTimer <= 0 then
-                    for _, e in pairs(entities) do
+                    local cand = grid.queryRadius(mob.pos.x, mob.pos.z, 12, entities)
+                    for _, e in ipairs(cand) do
                         if e.kind == "player" and not e.dead then
-                            local dx = e.pos.x - mob.pos.x
-                            local dz = e.pos.z - mob.pos.z
-                            if dx * dx + dz * dz <= 144 then
-                                local dmg = 15 + mob.level * 2
-                                e.hp = math.max(0, e.hp - dmg)
-                                table.insert(events, { type = "corpse_detonate", pid = e.id, mobId = mob.id, dmg = dmg })
-                            end
+                            local dmg = 15 + mob.level * 2
+                            e.hp = math.max(0, e.hp - dmg)
+                            table.insert(events, { type = "corpse_detonate", pid = e.id, mobId = mob.id, dmg = dmg })
                         end
                     end
+                    grid.releaseRadiusResult(cand)
                     mob.detonateTimer = 9999
                 end
             end
@@ -585,24 +582,22 @@ end
 --- 逃跑召集盟友 (TS rallyFleeingAllies: 附近的盟友被拉入战斗)
 function M._rallyFleeingAllies(mob, entities)
     local events = {}
-    for _, other in pairs(entities) do
+    local cand = grid.queryRadius(mob.pos.x, mob.pos.z, FLEE_HELP_RADIUS, entities)
+    for _, other in ipairs(cand) do
         if other.kind == "mob" and not other.dead and other.id ~= mob.id
            and other.templateId == mob.templateId then
-            local dx = mob.pos.x - other.pos.x
-            local dz = mob.pos.z - other.pos.z
-            if dx * dx + dz * dz <= FLEE_HELP_RADIUS * FLEE_HELP_RADIUS then
-                local otherData = aiData[other.id]
-                if otherData and (otherData.state == AI_STATE.IDLE or otherData.state == AI_STATE.PATROL) then
-                    otherData.targetId = mob.aggroTargetId
-                    otherData.state = AI_STATE.CHASING
-                    if other.aggroTargetId ~= mob.aggroTargetId then
-                        other.aggroTargetId = mob.aggroTargetId
-                        table.insert(events, { type = "mob_rally", mobId = other.id, pid = mob.aggroTargetId })
-                    end
+            local otherData = aiData[other.id]
+            if otherData and (otherData.state == AI_STATE.IDLE or otherData.state == AI_STATE.PATROL) then
+                otherData.targetId = mob.aggroTargetId
+                otherData.state = AI_STATE.CHASING
+                if other.aggroTargetId ~= mob.aggroTargetId then
+                    other.aggroTargetId = mob.aggroTargetId
+                    table.insert(events, { type = "mob_rally", mobId = other.id, pid = mob.aggroTargetId })
                 end
             end
         end
     end
+    grid.releaseRadiusResult(cand)
     return events
 end
 
@@ -693,20 +688,18 @@ function M._useAbility(mob, target, ability, entities)
         elseif effect.type == "aoe" then
             local radius = effect.radius or 5
             local events = {}
-            for _, e in pairs(entities) do
+            local cand = grid.queryRadius(mob.pos.x, mob.pos.z, radius, entities)
+            for _, e in ipairs(cand) do
                 if e.kind == "player" and not e.dead then
-                    local dx = mob.pos.x - e.pos.x
-                    local dz = mob.pos.z - e.pos.z
-                    if dx * dx + dz * dz <= radius * radius then
-                        local dmg = (ability.damage or 8) + (mob.attackPower or 0) * 0.1
-                        dmg = math.max(1, math.floor(dmg + 0.5))
-                        e.hp = math.max(0, e.hp - dmg)
-                        if #events < (effect.maxTargets or 3) then
-                            table.insert(events, { type = "mob_ability", mobId = mob.id, ability = ability.name, pid = e.id, dmg = dmg })
-                        end
+                    local dmg = (ability.damage or 8) + (mob.attackPower or 0) * 0.1
+                    dmg = math.max(1, math.floor(dmg + 0.5))
+                    e.hp = math.max(0, e.hp - dmg)
+                    if #events < (effect.maxTargets or 3) then
+                        table.insert(events, { type = "mob_ability", mobId = mob.id, ability = ability.name, pid = e.id, dmg = dmg })
                     end
                 end
             end
+            grid.releaseRadiusResult(cand)
             return events[1]
 
         elseif effect.type == "debuff" or effect.type == "dot" then
@@ -738,16 +731,15 @@ function M._tickBossMechanics(mob, entities, data, dt)
     mob.stompTimer = (mob.stompTimer or 15) - dt
     if mob.stompTimer <= 0 then
         mob.stompTimer = 15
-        for _, e in pairs(entities) do
+        local cand = grid.queryRadius(mob.pos.x, mob.pos.z, 12, entities)
+        for _, e in ipairs(cand) do
             if e.kind == "player" and not e.dead then
-                local dx = e.pos.x - mob.pos.x; local dz = e.pos.z - mob.pos.z
-                if dx * dx + dz * dz <= 144 then
-                    local dmg = 20 + mob.level * 3
-                    e.hp = math.max(0, e.hp - dmg)
-                    table.insert(events, { type = "boss_stomp", pid = e.id, mobId = mob.id, dmg = dmg })
-                end
+                local dmg = 20 + mob.level * 3
+                e.hp = math.max(0, e.hp - dmg)
+                table.insert(events, { type = "boss_stomp", pid = e.id, mobId = mob.id, dmg = dmg })
             end
         end
+        grid.releaseRadiusResult(cand)
     end
 
     -- Death Zone (10秒CD)
@@ -766,14 +758,13 @@ function M._tickBossMechanics(mob, entities, data, dt)
     mob.terrifyTimer = (mob.terrifyTimer or 25) - dt
     if mob.terrifyTimer <= 0 then
         mob.terrifyTimer = 25
-        for _, e in pairs(entities) do
+        local cand = grid.queryRadius(mob.pos.x, mob.pos.z, 20, entities)
+        for _, e in ipairs(cand) do
             if e.kind == "player" and not e.dead then
-                local dx = e.pos.x - mob.pos.x; local dz = e.pos.z - mob.pos.z
-                if dx * dx + dz * dz <= 400 then
-                    table.insert(events, { type = "boss_terrify", pid = e.id, mobId = mob.id, duration = 3 })
-                end
+                table.insert(events, { type = "boss_terrify", pid = e.id, mobId = mob.id, duration = 3 })
             end
         end
+        grid.releaseRadiusResult(cand)
     end
 
     return events
