@@ -47,12 +47,12 @@ M.BG_MATCH_DROP_RADIUS = 320
 M.INTEREST_QUERY_RADIUS = 135
 -- AOI 上限: 每玩家每 tick 最多广播的可见实体数 (按距离升序保留最近 N 个),
 -- 掐死 O(n²) 聚集场景 (城镇枢纽/世界Boss/PvP活动)
-M.MAX_VISIBLE_ENTITIES = 40
+M.MAX_VISIBLE_ENTITIES = 30
 
 -- 距离分级更新频率 (仿 TS game.ts FULL/HALF/QUARTER_RATE):
--- 名称牌范围(55yd)内全速, 80yd 内半速, 更远 1/4 速, 降低远处实体广播成本。
+-- 名称牌范围(45yd)内全速, 80yd 内半速, 更远 1/4 速, 降低远处实体广播成本。
 -- 观察者的目标 + 正在攻击观察者的实体始终全速 (战斗反馈不能降频)。
-M.FULL_RATE_RADIUS_SQ = 55 * 55
+M.FULL_RATE_RADIUS_SQ = 45 * 45
 M.HALF_RATE_RADIUS_SQ = 80 * 80
 M.HALF_RATE_DIVISOR = 2
 M.QUARTER_RATE_DIVISOR = 4
