@@ -160,6 +160,7 @@ local function buildSelfJson(e, meta, session)
     self.target = e.targetId
     self.auto = e.autoAttack or false
     self.cst = e.combatState or "idle"
+    self.wanted = meta.wantedLevel or 0
     self.queued = e.queuedOnSwing or false
 
     -- 属性

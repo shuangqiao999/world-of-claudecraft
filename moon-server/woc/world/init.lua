@@ -24,6 +24,7 @@ local castSys = require("world.combat.cast")
 local aura = require("world.combat.aura")
 local autoAttack = require("world.combat.auto_attack")
 local combatState = require("world.combat_state")
+local wanted = require("world.wanted")
 local fxDispatch = require("world.combat.effect_dispatch")
 local spirit = require("world.spirit")
 local abilities = require("world.abilities")
@@ -456,6 +457,16 @@ local function forwardCast(attacker, targetId, ability, delayMs)
         abilityId = ability.id,
         delayMs = delayMs or 0,
     })
+    return true
+end
+
+--- 跨分片 PVP 同意转发: 攻击方 pvp_attack 指向 ghost 玩家时, 通知归属分片标记被攻击方
+local function forwardPvpConsent(attackerId, targetId)
+    local g = ghostEntities[targetId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, { t = "pvpConsent", attackerId = attackerId, targetId = targetId })
     return true
 end
 
@@ -1134,6 +1145,11 @@ local function combatTick(dt)
             elseif e.kind == "npc" and e.pedestrian then
                 -- 路人 NPC 死亡: 掉落铜币 + 物品 (尸体可拾取)
                 mobAI.cleanup(e.id)
+                -- 击杀平民 → 通缉 (GTA: 全城 NPC 敌视)
+                local pedKiller = e.aggroTargetId or e.lastAttackerId
+                if pedKiller and players[pedKiller] then
+                    wanted.addWanted(players[pedKiller], 1)
+                end
                 local pedLoot = {}
                 local coinCount = simrng.randint(2, 5)
                 for i = 1, coinCount do
@@ -1157,6 +1173,8 @@ local function combatTick(dt)
                         kMeta.lifetimeHonor = (kMeta.lifetimeHonor or 0) + honorGain
                         kMeta.warfare = (kMeta.warfare or 0) + math.floor(honorGain * 0.5 + 0.5)
                     end
+                    -- 击杀玩家 → 通缉 (GTA)
+                    wanted.addWanted(players[killerPid], 1)
                 end
                 e.lastAttackerId = nil
             end
@@ -1400,6 +1418,7 @@ local function doGameTick()
     for pid, meta in pairs(players) do
         local e = entities[pid]
         if e then
+            wanted.decayWanted(meta, config.DT)
             pcall(function()
                 if not e.dead then
                     warriorStance.ensureWarriorStance(e, meta)
@@ -1808,6 +1827,12 @@ moon.dispatch("lua", function(sender, session, msg)
                 moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(msg.events) })
             end
         end
+    elseif t == "pvpConsent" then
+        -- 跨分片 PVP 同意: 被攻击方标记进入 PVP_FIGHT (不改其目标/自动攻击)
+        local target = entities[msg.targetId]
+        if target and target.kind == "player" and not target.dead then
+            combatState.flagPvp(target)
+        end
     elseif t == "entityMigrate" then
         -- 跨分片 mob 迁移入站: 以原 id 重建实体 + 恢复 AI/仇恨 (完整状态迁移)
         local ser = msg.entity
@@ -1973,6 +1998,7 @@ moon.exports.handleCommand = function(pid, cmd)
         findNearestEnemy = findNearestEnemy,
         findNearestTarget = findNearestTarget, ghostEntities = ghostEntities,
         forwardCast = forwardCast,
+        forwardPvpConsent = forwardPvpConsent,
         createMobEntity = createMobEntity, allocId = allocId,
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
         protoGet = protoGet, nodeTypeFor = nodeTypeFor,

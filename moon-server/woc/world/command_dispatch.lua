@@ -244,7 +244,12 @@ function H.pvp_attack(ctx, pid, cmd)
     -- 攻击方进入 PVP_FIGHT; 被攻击方仅标记 (不改其目标/自动攻击)
     ctx.combatState.enterPvpFight(e, target)
     local tother = ctx.entities[target.id]
-    if tother then ctx.combatState.flagPvp(tother) end
+    if tother then
+        ctx.combatState.flagPvp(tother)
+    elseif ctx.ghostEntities and ctx.ghostEntities[target.id] then
+        -- 跨分片 ghost 目标: 转发同意给归属分片标记被攻击方
+        if ctx.forwardPvpConsent then ctx.forwardPvpConsent(pid, target.id) end
+    end
     ctx.noteEvents({ { type = "log", text = "PvP combat started.", pid = pid } })
     return true
 end
