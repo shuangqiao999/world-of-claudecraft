@@ -40,6 +40,25 @@ local function shardOf(pid)
     return pid % worldShardCount
 end
 
+-- 连接限流 (令牌桶): 防止 login 风暴瞬间压垮 world 快照广播 + DB 连接池
+local joinTokens = config.JOIN_RATE_LIMIT
+local joinLastRefill = os.time()
+local function joinGate()
+    if config.JOIN_RATE_LIMIT <= 0 then return end
+    while true do
+        local now = os.time()
+        if now > joinLastRefill then
+            joinTokens = config.JOIN_RATE_LIMIT
+            joinLastRefill = now
+        end
+        if joinTokens > 0 then
+            joinTokens = joinTokens - 1
+            return
+        end
+        moon.sleep(10)
+    end
+end
+
 local WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 ------------------------------------------------------------
@@ -258,6 +277,7 @@ local function handleAuth(fd, msg)
     if not characterId or characterId ~= characterId then wsWrite(fd, jh.buildErrorFrame("bad auth message")); socket.close(fd); return end
     print(string.format("[Gate] Auth fd=%d char=%d", fd, characterId))
     moon.async(function()
+        joinGate()
         if not dbUp() then wsWrite(fd, jh.buildErrorFrame("not authenticated")); socket.close(fd); return end
         local auth = dbCall("accountAndScopeForToken", token)
         if not auth then wsWrite(fd, jh.buildErrorFrame("not authenticated")); socket.close(fd); return end
