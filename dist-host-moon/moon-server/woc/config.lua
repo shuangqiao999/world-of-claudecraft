@@ -118,10 +118,16 @@ M.MSG_RATE_REFILL_PER_SECOND = 120
 M.MSG_RATE_BURST = 180
 
 ----------------------------------------
--- Leash
+-- Leash / 追击
 ----------------------------------------
 M.LEASH_DISTANCE = 45
 M.LEASH_DISTANCE_SQ = 2025
+-- GTA 追击: 怪物基准最大追击距离 (距仇恨原点/spawn 超过即放弃追杀回巡逻)
+M.MONSTER_MAX_CHASE_DIST = 120
+-- 随机提前放弃系数下限: 单场追击上限在 [0.7, 1.0] * MAX 区间随机判定 (逃不逃得掉看运气)
+M.MONSTER_CHASE_RANDOM_MIN = 0.7
+-- PVP 总开关 (全局关闭用于测试)
+M.ENABLE_PLAYER_PVP = true
 
 ----------------------------------------
 -- 等级

@@ -159,6 +159,8 @@ local function buildSelfJson(e, meta, session)
     self.combo = e.comboPoints or 0
     self.target = e.targetId
     self.auto = e.autoAttack or false
+    self.cst = e.combatState or "idle"
+    self.wanted = meta.wantedLevel or 0
     self.queued = e.queuedOnSwing or false
 
     -- 属性

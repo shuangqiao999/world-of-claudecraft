@@ -23,6 +23,8 @@ local healMod = require("world.combat.heal")
 local castSys = require("world.combat.cast")
 local aura = require("world.combat.aura")
 local autoAttack = require("world.combat.auto_attack")
+local combatState = require("world.combat_state")
+local wanted = require("world.wanted")
 local fxDispatch = require("world.combat.effect_dispatch")
 local spirit = require("world.spirit")
 local abilities = require("world.abilities")
@@ -406,6 +408,10 @@ local function buildCombatSnapshot(attacker)
         maxResource = attacker.maxResource,
         resource = attacker.resource,
         stats = attacker.stats,
+        -- PVP 门控 (damage.lua dealDamage) 需要: 跨分片转发时快照携带战斗状态与决斗对象,
+        -- 否则归属分片判 consented 失败, 玩家对玩家伤害被压成 0
+        combatState = attacker.combatState,
+        duelPartnerId = attacker.duelPartnerId,
     }
 end
 
@@ -455,6 +461,16 @@ local function forwardCast(attacker, targetId, ability, delayMs)
         abilityId = ability.id,
         delayMs = delayMs or 0,
     })
+    return true
+end
+
+--- 跨分片 PVP 同意转发: 攻击方 pvp_attack 指向 ghost 玩家时, 通知归属分片标记被攻击方
+local function forwardPvpConsent(attackerId, targetId)
+    local g = ghostEntities[targetId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, { t = "pvpConsent", attackerId = attackerId, targetId = targetId })
     return true
 end
 
@@ -763,6 +779,9 @@ local function migratePlayerOut(pid)
         level = meta.level,
         state = st,
         leaseNonce = meta.leaseNonce,
+        -- 迁移保留瞬态战斗状态 (PvP 同意/决斗对象), 否则跨片 PvP 同意会被 joinPlayer 重置回 idle
+        combatState = e.combatState,
+        duelPartnerId = e.duelPartnerId,
     })
 
     -- 通知 gate 更新会话路由
@@ -956,6 +975,18 @@ local function combatTick(dt)
                     table.insert(combatEvents, { type = "death", pid = target.id })
                 end
             end
+
+            -- 目标失效校验 (死亡/消失/跨分片迁移 → 回 idle)
+            -- 仅当玩家有显式目标时才校验: pvp_fight 的被攻击方 (flagPvp) 无目标, 不应被误清回 idle
+            if e.combatState == "auto_fight" or e.combatState == "pvp_fight" then
+                if e.targetId then
+                    local ct = entities[e.targetId] or ghostEntities[e.targetId]
+                    if not ct or ct.dead then
+                        combatState.idle(e)
+                    end
+                end
+            end
+
             processAutoResult(autoAttack.update(e, entities, dt, simTime))
             processAutoResult(autoAttack.updateOffhand(e, entities, dt, simTime))
             processAutoResult(autoAttack.updateRanged(e, entities, dt, simTime))
@@ -1124,6 +1155,11 @@ local function combatTick(dt)
             elseif e.kind == "npc" and e.pedestrian then
                 -- 路人 NPC 死亡: 掉落铜币 + 物品 (尸体可拾取)
                 mobAI.cleanup(e.id)
+                -- 击杀平民 → 通缉 (GTA: 全城 NPC 敌视)
+                local pedKiller = e.aggroTargetId or e.lastAttackerId
+                if pedKiller and players[pedKiller] then
+                    wanted.addWanted(players[pedKiller], 1)
+                end
                 local pedLoot = {}
                 local coinCount = simrng.randint(2, 5)
                 for i = 1, coinCount do
@@ -1147,6 +1183,8 @@ local function combatTick(dt)
                         kMeta.lifetimeHonor = (kMeta.lifetimeHonor or 0) + honorGain
                         kMeta.warfare = (kMeta.warfare or 0) + math.floor(honorGain * 0.5 + 0.5)
                     end
+                    -- 击杀玩家 → 通缉 (GTA)
+                    wanted.addWanted(players[killerPid], 1)
                 end
                 e.lastAttackerId = nil
             end
@@ -1390,6 +1428,7 @@ local function doGameTick()
     for pid, meta in pairs(players) do
         local e = entities[pid]
         if e then
+            wanted.decayWanted(meta, config.DT)
             pcall(function()
                 if not e.dead then
                     warriorStance.ensureWarriorStance(e, meta)
@@ -1662,6 +1701,9 @@ moon.dispatch("lua", function(sender, session, msg)
         local meta = players[msg.pid]
         if meta then
             meta.linkdeadSince = nil
+            -- 重连清自动战斗状态: 不会上线继续自动打怪 (GTA 异常兜底)
+            local re = entities[msg.pid]
+            if re then combatState.idle(re) end
             print(string.format("[World] Resume: pid=%d name=%s", msg.pid, meta.name))
         end
     elseif t == "playerInput" then
@@ -1795,6 +1837,12 @@ moon.dispatch("lua", function(sender, session, msg)
                 moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(msg.events) })
             end
         end
+    elseif t == "pvpConsent" then
+        -- 跨分片 PVP 同意: 被攻击方标记进入 PVP_FIGHT (不改其目标/自动攻击)
+        local target = entities[msg.targetId]
+        if target and target.kind == "player" and not target.dead then
+            combatState.flagPvp(target)
+        end
     elseif t == "entityMigrate" then
         -- 跨分片 mob 迁移入站: 以原 id 重建实体 + 恢复 AI/仇恨 (完整状态迁移)
         local ser = msg.entity
@@ -1832,6 +1880,12 @@ moon.dispatch("lua", function(sender, session, msg)
             -- 迁移冷却: 目标分片用本地 simTime 重新计时, 防边界振荡
             local meta = players[msg.pid]
             if meta then meta._migrateCooldown = simTime + 5 end
+            -- 恢复瞬态战斗状态 (PvP 同意/决斗对象), 避免跨片迁移把 pvp_fight 重置回 idle
+            local ne = entities[msg.pid]
+            if ne then
+                if msg.combatState then ne.combatState = msg.combatState end
+                if msg.duelPartnerId then ne.duelPartnerId = msg.duelPartnerId end
+            end
             print(string.format("[World] Player migrate in: pid=%d %s shard %d", msg.pid, msg.name, shardId))
         end
     end
@@ -1943,7 +1997,7 @@ moon.exports.handleCommand = function(pid, cmd)
     local ok = require("world.command_dispatch").dispatch({
         entities = entities, players = players, simTime = simTime, tick = tick,
         grid = grid, config = config,
-        abilities = abilities, autoAttack = autoAttack, castSys = castSys,
+        abilities = abilities, autoAttack = autoAttack, combatState = combatState, castSys = castSys,
         fxDispatch = fxDispatch, spirit = spirit, aura = aura, ccDr = ccDr,
         spellResist = spellResist, rage = rage, setProcs = setProcs,
         empower = empower, regen = regen, playerStats = playerStats,
@@ -1960,6 +2014,7 @@ moon.exports.handleCommand = function(pid, cmd)
         findNearestEnemy = findNearestEnemy,
         findNearestTarget = findNearestTarget, ghostEntities = ghostEntities,
         forwardCast = forwardCast,
+        forwardPvpConsent = forwardPvpConsent,
         createMobEntity = createMobEntity, allocId = allocId,
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
         protoGet = protoGet, nodeTypeFor = nodeTypeFor,

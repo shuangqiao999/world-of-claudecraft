@@ -172,6 +172,20 @@ function M.dealDamage(ctx, source, target, rawAmount, crit, school, abilityId, o
         return 0
     end
 
+    -- PVP 门控 (GTA 开放世界): 玩家对玩家伤害需双方同意进入 PVP_FIGHT 或决斗。
+    -- 自由世界不再默认互攻; 竞技场/战场等独立 PVP 场景若走此管道需自行标记豁免 (暂未接入)。
+    if source and target and source.kind == "player" and target.kind == "player" and source.id ~= target.id then
+        if not config.ENABLE_PLAYER_PVP then
+            return 0
+        end
+        local consented = (source.combatState == "pvp_fight" and target.combatState == "pvp_fight")
+            or (source.duelPartnerId and source.duelPartnerId == target.id)
+            or (target.duelPartnerId and target.duelPartnerId == source.id)
+        if not consented then
+            return 0
+        end
+    end
+
     -- 0. Stasis / Ice Block / 免疫: 无敌目标免疫伤害 (TS:168)
     if target.auras then
         local immune = false

@@ -408,6 +408,10 @@ local function buildCombatSnapshot(attacker)
         maxResource = attacker.maxResource,
         resource = attacker.resource,
         stats = attacker.stats,
+        -- PVP 门控 (damage.lua dealDamage) 需要: 跨分片转发时快照携带战斗状态与决斗对象,
+        -- 否则归属分片判 consented 失败, 玩家对玩家伤害被压成 0
+        combatState = attacker.combatState,
+        duelPartnerId = attacker.duelPartnerId,
     }
 end
 
@@ -775,6 +779,9 @@ local function migratePlayerOut(pid)
         level = meta.level,
         state = st,
         leaseNonce = meta.leaseNonce,
+        -- 迁移保留瞬态战斗状态 (PvP 同意/决斗对象), 否则跨片 PvP 同意会被 joinPlayer 重置回 idle
+        combatState = e.combatState,
+        duelPartnerId = e.duelPartnerId,
     })
 
     -- 通知 gate 更新会话路由
@@ -970,10 +977,13 @@ local function combatTick(dt)
             end
 
             -- 目标失效校验 (死亡/消失/跨分片迁移 → 回 idle)
+            -- 仅当玩家有显式目标时才校验: pvp_fight 的被攻击方 (flagPvp) 无目标, 不应被误清回 idle
             if e.combatState == "auto_fight" or e.combatState == "pvp_fight" then
-                local ct = e.targetId and (entities[e.targetId] or ghostEntities[e.targetId])
-                if not ct or ct.dead then
-                    combatState.idle(e)
+                if e.targetId then
+                    local ct = entities[e.targetId] or ghostEntities[e.targetId]
+                    if not ct or ct.dead then
+                        combatState.idle(e)
+                    end
                 end
             end
 
@@ -1870,6 +1880,12 @@ moon.dispatch("lua", function(sender, session, msg)
             -- 迁移冷却: 目标分片用本地 simTime 重新计时, 防边界振荡
             local meta = players[msg.pid]
             if meta then meta._migrateCooldown = simTime + 5 end
+            -- 恢复瞬态战斗状态 (PvP 同意/决斗对象), 避免跨片迁移把 pvp_fight 重置回 idle
+            local ne = entities[msg.pid]
+            if ne then
+                if msg.combatState then ne.combatState = msg.combatState end
+                if msg.duelPartnerId then ne.duelPartnerId = msg.duelPartnerId end
+            end
             print(string.format("[World] Player migrate in: pid=%d %s shard %d", msg.pid, msg.name, shardId))
         end
     end

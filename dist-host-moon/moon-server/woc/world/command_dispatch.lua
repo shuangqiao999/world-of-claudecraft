@@ -198,15 +198,59 @@ end
 function H.attack(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e or e.dead then return false end
-    local nearest = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
-    if nearest then e.targetId = nearest.id end
-    ctx.autoAttack.startAutoAttack(e, nearest)
+    -- 目标解析优先级: 显式 id > 当前选中目标 > 最近敌人。
+    -- 之前只取最近敌人, 忽略了 target(id) 选中的目标, 导致"攻击无反馈"(打错目标)。
+    local target = nil
+    local tid = targetIdOf(cmd)
+    if tid then
+        target = ctx.entities[tid] or (ctx.ghostEntities and ctx.ghostEntities[tid])
+    end
+    if not target and e.targetId then
+        target = ctx.entities[e.targetId] or (ctx.ghostEntities and ctx.ghostEntities[e.targetId])
+    end
+    if not target then
+        target = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
+    end
+    if target then
+        ctx.combatState.enterAutoFight(e, target)
+    else
+        ctx.combatState.idle(e)
+    end
     return true
 end
 
 function H.stopattack(ctx, pid, cmd)
     local e = ctx.entities[pid]
-    if e then ctx.autoAttack.stopAutoAttack(e) end
+    if e then ctx.combatState.flee(e) end
+    return true
+end
+
+function H.pvp_attack(ctx, pid, cmd)
+    local e = ctx.entities[pid]
+    if not e or e.dead then return false end
+    if not ctx.config.ENABLE_PLAYER_PVP then
+        ctx.noteEvents({ { type = "log", text = "Player PvP is disabled.", pid = pid } })
+        return false
+    end
+    -- 目标解析: 显式 id > 当前选中; 仅玩家目标
+    local target = nil
+    local tid = targetIdOf(cmd)
+    if tid then target = ctx.entities[tid] or (ctx.ghostEntities and ctx.ghostEntities[tid]) end
+    if not target and e.targetId then target = ctx.entities[e.targetId] or (ctx.ghostEntities and ctx.ghostEntities[e.targetId]) end
+    if not target or target.kind ~= "player" or target.id == pid then
+        ctx.noteEvents({ { type = "log", text = "Invalid PvP target.", pid = pid } })
+        return false
+    end
+    -- 攻击方进入 PVP_FIGHT; 被攻击方仅标记 (不改其目标/自动攻击)
+    ctx.combatState.enterPvpFight(e, target)
+    local tother = ctx.entities[target.id]
+    if tother then
+        ctx.combatState.flagPvp(tother)
+    elseif ctx.ghostEntities and ctx.ghostEntities[target.id] then
+        -- 跨分片 ghost 目标: 转发同意给归属分片标记被攻击方
+        if ctx.forwardPvpConsent then ctx.forwardPvpConsent(pid, target.id) end
+    end
+    ctx.noteEvents({ { type = "log", text = "PvP combat started.", pid = pid } })
     return true
 end
 
@@ -221,8 +265,20 @@ function H.target(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e then return false end
     local id = n(cmd.id)
-    -- 允许以本地实体或跨分片 ghost 为目标 (显式点击 ghost 选取攻击目标)
-    if id and (ctx.entities[id] or (ctx.ghostEntities and ctx.ghostEntities[id])) then e.targetId = id else e.targetId = nil end
+    local t = nil
+    if id then t = ctx.entities[id] or (ctx.ghostEntities and ctx.ghostEntities[id]) end
+    if not t then
+        ctx.combatState.idle(e)
+        return true
+    end
+    if t.kind == "mob" or (t.kind == "npc" and t.pedestrian) then
+        -- 选中怪物/平民NPC → 自动战斗 (GTA: 选怪即开打; 空手只选中不攻击)
+        ctx.combatState.enterAutoFight(e, t)
+    else
+        -- 选中玩家/友好NPC → 只选中 (客户端弹交互菜单, 不自动开战)
+        ctx.combatState.idle(e)
+        ctx.combatState.select(e, t)
+    end
     return true
 end
 

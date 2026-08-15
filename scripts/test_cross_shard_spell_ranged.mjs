@@ -135,13 +135,16 @@ function logout(ws) {
 function asObj(r) { return typeof r === 'string' ? JSON.parse(r) : r; }
 
 function attachObserver(sock, label) {
-  const state = { ents: new Map(), selfHp: null, mhp: null, events: [] };
+  const state = { ents: new Map(), selfHp: null, mhp: null, minHp: null, events: [] };
   sock.ws.on('message', (d) => {
     let m; try { m = JSON.parse(d.toString()); } catch { return; }
     if (m.t === 'snap') {
       if (m.self !== undefined) {
         const s = asObj(m.self);
-        if (s.hp !== undefined) state.selfHp = s.hp;
+        if (s.hp !== undefined) {
+          state.selfHp = s.hp;
+          if (state.minHp === null || s.hp < state.minHp) state.minHp = s.hp;
+        }
         if (s.mhp !== undefined) state.mhp = s.mhp;
       }
       if (Array.isArray(m.ents)) {
@@ -205,23 +208,33 @@ async function main() {
     const bState = attachObserver(botB, 'B');
 
     // ---- Ranged test ----
-    cmd(botA.ws, 'dev_ranged');
     cmd(botA.ws, 'dev_teleport', { x: posA.x, z: posA.z });
     cmd(botB.ws, 'dev_teleport', { x: posB.x, z: posB.z });
-    await sleep(2000); // ghost sync
+    await sleep(6000); // let the spawn->region migration settle (5s cooldown) before dev_ranged/pvp_attack
 
     const rangedGhostSeen = aState.ents.has(botB.pid);
     check(`attacker sees defender as ghost (ranged)`, rangedGhostSeen, '');
+
+    // Issue the ranged weapon AFTER migration: dev_ranged injects e.weapon in-session,
+    // which migration rebuilds away from equipment. Must run in the settled shard.
+    cmd(botA.ws, 'dev_ranged');
+
+    // Establish PvP consent (player-vs-player damage is gated unless both sides are
+    // pvp_fight). Covers both the ranged and spell phases below.
+    cmd(botA.ws, 'pvp_attack', { id: botB.pid });
+    await sleep(800); // wait for cross-shard pvpConsent forwarding to flag the defender
 
     const bHpRanged = bState.selfHp;
     cmd(botA.ws, 'dev_target', { id: botB.pid });
     await sleep(6000); // ~2 shots at 2.5s weapon speed
 
     const rangedHits = aState.events.filter((ev) => ev.type === 'auto_attack' && ev.targetId === botB.pid && ev.dmg > 0);
-    const rangedHpDrop = bHpRanged != null && bState.selfHp != null && bState.selfHp < bHpRanged;
+    // Ranged has no DoT, so the small damage can regen before the final read; track the
+    // minimum hp seen during the phase instead of the final value.
+    const rangedHpDrop = bHpRanged != null && bState.minHp != null && bState.minHp < bHpRanged;
     check('ranged auto_attack event received for ghost', rangedHits.length > 0,
       rangedHits.length > 0 ? `dmg=[${rangedHits.map((e) => e.dmg).join(',')}]` : '');
-    check(`ranged damage applied to defender (${bHpRanged} -> ${bState.selfHp})`, rangedHpDrop, '');
+    check(`ranged damage applied to defender (${bHpRanged} -> min ${bState.minHp})`, rangedHpDrop, '');
 
     // ---- Spell test (fireball: 2s cast + projectile) ----
     const bHpSpell = bState.selfHp;

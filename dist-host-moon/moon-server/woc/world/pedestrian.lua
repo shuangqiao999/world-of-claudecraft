@@ -9,6 +9,7 @@ local mobAI = require("world.mob.ai")
 local terrain = require("world.terrain")
 local grid = require("world.grid")
 local config = require("config")
+local wanted = require("world.wanted")
 
 -- 路人名字池
 local NAMES = {
@@ -73,18 +74,32 @@ end
 
 --- 路人 AI 更新 (委托给 mob AI 行为树, 空间裁剪: 只更新玩家 200yd 内的路人)
 function M.update(entities, players, dt, simTime)
-    -- 玩家 cell 集合 (避免 O(npc×players) 距离检查)
+    -- 玩家 cell 集合 (避免 O(npc×players) 距离检查) + 通缉玩家 (城市 NPC 敌视)
     local playerCells = {}
-    for pid, _ in pairs(players) do
+    local wantedPlayers = {}
+    for pid, meta in pairs(players) do
         local pe = entities[pid]
         if pe and not pe.dead then
             playerCells[grid.cellKey(pe.pos.x, pe.pos.z)] = true
+            if meta.wantedLevel and meta.wantedLevel > 0 then
+                wantedPlayers[pid] = pe
+            end
         end
     end
     if next(playerCells) == nil then return end
+    local wantedAggroSq = wanted.aggroRadiusSq()
 
     for _, e in pairs(entities) do
         if e.kind == "npc" and e.pedestrian and not e.dead then
+            -- 通缉围殴: 附近通缉玩家 → 路人变敌对攻击 (GTA 被全城敌视)
+            for wpid, wpe in pairs(wantedPlayers) do
+                local wdx = e.pos.x - wpe.pos.x
+                local wdz = e.pos.z - wpe.pos.z
+                if wdx * wdx + wdz * wdz <= wantedAggroSq then
+                    mobAI.setSocialAggro(e.id, wpid)
+                    break
+                end
+            end
             local cx = math.floor(e.pos.x / 32)
             local cz = math.floor(e.pos.z / 32)
             local nearPlayer = false

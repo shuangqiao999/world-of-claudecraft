@@ -2,6 +2,8 @@
 -- 对应原项目 src/sim/spirit.ts
 -- 死亡、鬼魂、复活、灵魂医者、复活虚弱
 
+local combatState = require("world.combat_state")
+
 local M = {}
 
 -- 常量 (对齐 TS)
@@ -41,6 +43,7 @@ local function clearDeathState(e, meta)
     -- 战斗状态重置
     e.targetId = nil
     e.autoAttack = false
+    e.combatState = "idle"
     e.queuedOnSwing = nil
     e.queuedCastAbility = nil
     e.queuedCastAim = nil
@@ -71,6 +74,7 @@ function M.checkDeath(e)
     if not e.dead and e.hp <= 0 then
         e.dead = true
         e.hp = 0
+        if e.kind == "player" then combatState.die(e) end
         return true
     end
     return false

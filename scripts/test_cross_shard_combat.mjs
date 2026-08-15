@@ -149,13 +149,16 @@ function logout(ws) {
 function asObj(r) { return typeof r === 'string' ? JSON.parse(r) : r; }
 
 function attachObserver(sock, label) {
-  const state = { ents: new Map(), selfHp: null, mhp: null, selfTarget: null, events: [] };
+  const state = { ents: new Map(), selfHp: null, mhp: null, minHp: null, selfTarget: null, events: [] };
   sock.ws.on('message', (d) => {
     let m; try { m = JSON.parse(d.toString()); } catch { return; }
     if (m.t === 'snap') {
       if (m.self !== undefined) {
         const s = asObj(m.self);
-        if (s.hp !== undefined) state.selfHp = s.hp;
+        if (s.hp !== undefined) {
+          state.selfHp = s.hp;
+          if (state.minHp === null || s.hp < state.minHp) state.minHp = s.hp;
+        }
         if (s.mhp !== undefined) state.mhp = s.mhp;
         if (s.target !== undefined) state.selfTarget = s.target;
       }
@@ -235,10 +238,16 @@ async function main() {
     check('target command accepts cross-shard ghost id', aState.selfTarget === botB.pid,
       aState.selfTarget !== null ? `self.target=${aState.selfTarget}` : '');
 
+    // Establish PvP consent (combat redesign: player-vs-player damage is gated unless both
+    // sides are pvp_fight). pvp_attack flags the attacker locally and forwards pvpConsent
+    // across the shard boundary to flag the defender.
+    cmd(botA.ws, 'pvp_attack', { id: botB.pid });
+    await sleep(800); // wait for cross-shard pvpConsent forwarding to flag the defender
+
     const bHpBefore = bState.selfHp;
     console.log(`[xshard] defender hp before=${bHpBefore}/${bState.mhp}`);
 
-    // Force-target the ghost and start auto-attack.
+    // Force-target the ghost and start auto-attack (now consented → full damage).
     cmd(botA.ws, 'dev_target', { id: botB.pid });
     await sleep(10000); // several swings (~2.6s weapon speed), watch the round-trip
 
@@ -249,9 +258,10 @@ async function main() {
     check('cross-shard hit landed (dmg > 0)', hits.length > 0,
       hits.length > 0 ? `total=${hits.reduce((a, e) => a + e.dmg, 0)}` : '');
 
-    const bHpAfter = bState.selfHp;
-    const bDamaged = bHpBefore != null && bHpAfter != null && bHpAfter < bHpBefore;
-    check(`defender hp dropped (${bHpBefore} -> ${bHpAfter})`, bDamaged, '');
+    // Track the minimum hp seen (PvP has no DoT, so the defender out-of-combat regen
+    // can restore the damage before the final read; the transient drop is what proves it).
+    const bDamaged = bHpBefore != null && bState.minHp != null && bState.minHp < bHpBefore;
+    check(`defender hp dropped (${bHpBefore} -> min ${bState.minHp})`, bDamaged, '');
 
     console.log(`\n[xshard] done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${failures === 0 ? 'RESULT: PASS' : 'RESULT: FAIL'}`);
 
