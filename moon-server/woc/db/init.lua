@@ -17,16 +17,11 @@ local poolCursor = 1
 local connecting = false         -- 防止并发重连
 local poolReady = false
 
---- 安全 SQL 构建: gsub 令牌替换 (数据含 % 不破坏 SQL, 无注入)
+--- 参数化 SQL 查询: %s/%d/%f → $1/$2/... 走 C 层 json.pq_query 编码 (真参数化, 无注入)
 function M.query(fmt, ...)
     if not poolReady then return { code = -1, message = "Not connected" } end
-    local args = { ... }
-    local sqlText
-    if #args > 0 then
-        sqlText = sql.fmt(fmt, table.unpack(args))
-    else
-        sqlText = fmt
-    end
+    local paramSql, params = sql.toParams(fmt, ...)
+    local hasParams = #params > 0
 
     -- 从池中取健康空闲连接; 全忙则让出协程短暂重试 (异步连接池, 最多等 ~400ms)
     for wait = 1, 200 do
@@ -45,7 +40,12 @@ function M.query(fmt, ...)
                 if not entry.busy then
                     entry.busy = true
                     entry.busySince = os.time() * 1000
-                    local res = entry.conn:query(sqlText)
+                    local res
+                    if hasParams then
+                        res = entry.conn:query_params(paramSql, table.unpack(params))
+                    else
+                        res = entry.conn:query(paramSql)
+                    end
                     entry.busy = false; entry.busySince = nil
                     if res.code == "SOCKET" or res.code == "CONNECTION" or res.code == "CONNECTION_NOT_OPEN" then
                         entry.healthy = false
@@ -82,9 +82,13 @@ function M.withTransaction(fn)
     -- Lua local 在其自身初始化表达式内不可见 → tx 解析为全局 nil.
     local tx = {}
     tx.query = function(fmt, ...)
-        local args = { ... }
-        local s = #args > 0 and sql.fmt(fmt, table.unpack(args)) or fmt
-        local res = entry.conn:query(s)
+        local paramSql, params = sql.toParams(fmt, ...)
+        local res
+        if #params > 0 then
+            res = entry.conn:query_params(paramSql, table.unpack(params))
+        else
+            res = entry.conn:query(paramSql)
+        end
         if res.code == "SOCKET" or res.code == "CONNECTION" then
             entry.healthy = false
         end

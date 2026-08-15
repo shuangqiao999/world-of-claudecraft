@@ -47,4 +47,39 @@ function M.esc(v)
     return esc(v)
 end
 
+--- 将 %s/%d/%f 占位符翻译为 $1/$2/... 参数化 SQL (供 pg.query_params 走 C 层 json.pq_query 编码)
+--- %s: 原样绑定 (string→text, number→int/float); nil 保持旧 sql.fmt 语义 → 字面量 NULL
+--- %d/%f: tonumber 严格校验后绑定数字 (保持旧报错行为)
+--- @return string paramSql, table params
+function M.toParams(fmt, ...)
+    local nargs = select("#", ...)
+    if nargs == 0 then
+        return fmt, {}
+    end
+    local args = { ... }
+    local i = 0
+    local p = 0
+    local params = {}
+    local sql = string.gsub(fmt, "%%[sdf]", function(m)
+        i = i + 1
+        local v = args[i]
+        if m == "%d" or m == "%f" then
+            local n = tonumber(v)
+            if n == nil then
+                error(string.format("SQL %%%s: non-numeric value: %s", m, tostring(v)))
+            end
+            p = p + 1
+            params[p] = n
+            return "$" .. p
+        end
+        if v == nil then
+            return "NULL"
+        end
+        p = p + 1
+        params[p] = v
+        return "$" .. p
+    end)
+    return sql, params
+end
+
 return M
