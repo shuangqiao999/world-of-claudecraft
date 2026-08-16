@@ -39,13 +39,6 @@
 // Kept free of child_process/fs so tests/electron_builder_config.test.ts can pin
 // the channel differences directly.
 
-import {
-  apiOriginKey,
-  isProductionApiOrigin,
-  PRODUCTION_API_ORIGIN,
-  updateChannelForOrigin,
-} from '../electron/update_guard.cjs';
-
 const UPDATE_CHANNELS = new Set(['latest', 'dev']);
 
 export function azureSignOptionsFromEnv(env = {}) {
@@ -111,7 +104,6 @@ export function desktopBuilderConfig({
   crashSubmitUrl = '',
   azureSign = null,
   keyVaultSign = null,
-  updateChannel = null,
   steamAppId = '',
   steamworksInstalled = null,
   epicProductId = '',
@@ -140,38 +132,11 @@ export function desktopBuilderConfig({
       ...(distribution === 'epic' ? { epicProductId, epicDeploymentId, epicClientId } : {}),
     },
   };
-  if (distribution === 'website' && config.publish) {
-    // A non-empty origin that does not parse would strand the install it
-    // bakes: the channel would fail safe to 'dev' while the runtime guard
-    // normalizes its own side to production, refusing every stamped update on
-    // that install's track forever. That mistake dies here instead (a missing
-    // origin stays fail-safe: it only happens on direct calls, never through
-    // scripts/electron-build.mjs, which always resolves one).
-    if (apiOrigin !== '' && apiOriginKey(apiOrigin) === null) {
-      throw new Error(
-        `desktop website builds need a parseable http(s) VITE_DESKTOP_API_ORIGIN ` +
-          `to pick an update track; got "${apiOrigin}"`,
-      );
-    }
-    // The update-track split: default the channel from the baked origin, and
-    // hard-fail the one dangerous combination (production feed files for an
-    // artifact not baked with the production origin). The reverse cross,
-    // updateChannel 'dev' with a production origin, is allowed on purpose: it
-    // stages a production artifact on the dev track for update-pipeline tests.
-    // An empty updateChannel means "not requested" (set-but-empty env vars are
-    // common in CI matrices), so it derives like null does.
-    const channel = updateChannel || updateChannelForOrigin(apiOrigin);
-    if (!UPDATE_CHANNELS.has(channel)) {
-      throw new Error(`unknown desktop update channel: ${channel}`);
-    }
-    if (channel === 'latest' && !isProductionApiOrigin(apiOrigin)) {
-      throw new Error(
-        `refusing to emit production update-feed files: baked API origin "${apiOrigin}" ` +
-          `is not ${PRODUCTION_API_ORIGIN}`,
-      );
-    }
-    config.publish = { ...config.publish, channel };
-  }
+  // Auto-update is permanently removed (electron/desktop_config.cjs updaterAllowed
+  // is always false), so no channel emits an update feed: electron-updater would
+  // have nothing to read even if it were reached. This also stops the packaged
+  // client from shipping any app-update.yml pointing at the official host.
+  config.publish = null;
   // Windows signing routes, mutually exclusive with Trusted Signing first:
   // both resolvers require a complete env set, so at most one is normally
   // non-null, and if an operator ever configures both, the native Trusted

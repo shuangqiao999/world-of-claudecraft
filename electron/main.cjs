@@ -162,7 +162,12 @@ protocol.registerSchemesAsPrivileged([
     scheme: 'app',
     privileges: {
       standard: true,
-      secure: true,
+      // Insecure on purpose: production connects over https/wss, but a self-hosted
+      // Moon server speaks plain http/ws. Marking app:// secure would make Chromium
+      // treat http:// + ws:// as mixed content and silently drop the renderer's
+      // REST/WebSocket requests (login shows "connection lost"). An insecure page
+      // loading a secure resource is a permitted upgrade, so https/wss still works.
+      secure: false,
       supportFetchAPI: true,
       corsEnabled: true,
     },

@@ -27,100 +27,27 @@ const base = {
 const prodOrigin = 'https://worldofclaudecraft.com';
 
 describe('desktopBuilderConfig', () => {
-  it('stamps the website channel into extraMetadata and keeps the publish feed', () => {
+  it('stamps the website channel into extraMetadata and nulls the publish feed (auto-update removed)', () => {
     const config = desktopBuilderConfig({ base, distribution: 'website', apiOrigin: prodOrigin });
     expect(config.extraMetadata.wocDesktop).toEqual({
       distribution: 'website',
       apiOrigin: prodOrigin,
     });
-    expect(config.publish).toEqual({ ...base.publish, channel: 'latest' });
+    expect(config.publish).toBeNull();
     expect(config.appId).toBe(base.appId);
     expect(config.mac.hardenedRuntime).toBe(true);
   });
 
-  it('routes the production origin to the latest update channel', () => {
-    const config = desktopBuilderConfig({ base, distribution: 'website', apiOrigin: prodOrigin });
-    expect(config.publish?.channel).toBe('latest');
-  });
-
-  it('routes every non-production origin to the dev update channel (issue 1537)', () => {
+  it('never emits an update feed on any origin (auto-update removed)', () => {
     for (const apiOrigin of [
+      prodOrigin,
       'https://dev.worldofclaudecraft.com',
       'http://localhost:8787',
       undefined,
     ]) {
       const config = desktopBuilderConfig({ base, distribution: 'website', apiOrigin });
-      expect(config.publish?.channel).toBe('dev');
+      expect(config.publish).toBeNull();
     }
-  });
-
-  it('refuses to emit production feed files for a non-production origin', () => {
-    expect(() =>
-      desktopBuilderConfig({
-        base,
-        distribution: 'website',
-        apiOrigin: 'http://localhost:8787',
-        updateChannel: 'latest',
-      }),
-    ).toThrow(/refusing to emit production update-feed files/);
-    expect(() =>
-      desktopBuilderConfig({ base, distribution: 'website', updateChannel: 'latest' }),
-    ).toThrow(/refusing to emit production update-feed files/);
-  });
-
-  it('allows staging a production-origin artifact on the dev track, but no other override', () => {
-    const staged = desktopBuilderConfig({
-      base,
-      distribution: 'website',
-      apiOrigin: prodOrigin,
-      updateChannel: 'dev',
-    });
-    expect(staged.publish?.channel).toBe('dev');
-    expect(() =>
-      desktopBuilderConfig({
-        base,
-        distribution: 'website',
-        apiOrigin: prodOrigin,
-        updateChannel: 'beta',
-      }),
-    ).toThrow(/unknown desktop update channel/);
-  });
-
-  it('treats a set-but-empty WOC_UPDATE_CHANNEL as unset and derives from the origin', () => {
-    const prod = desktopBuilderConfig({
-      base,
-      distribution: 'website',
-      apiOrigin: prodOrigin,
-      updateChannel: '',
-    });
-    expect(prod.publish?.channel).toBe('latest');
-    const dev = desktopBuilderConfig({
-      base,
-      distribution: 'website',
-      apiOrigin: 'http://localhost:8787',
-      updateChannel: '',
-    });
-    expect(dev.publish?.channel).toBe('dev');
-  });
-
-  it('rejects an unparseable non-empty origin at build time (would strand the install)', () => {
-    // A schemeless origin derives the dev channel at build time but normalizes
-    // to production in the runtime guard, refusing every stamped update on its
-    // own track forever; that mistake must die here.
-    for (const apiOrigin of ['localhost:8787', 'worldofclaudecraft.com', 'not a url']) {
-      expect(() => desktopBuilderConfig({ base, distribution: 'website', apiOrigin })).toThrow(
-        /parseable http\(s\) VITE_DESKTOP_API_ORIGIN/,
-      );
-    }
-    // Steam builds publish nothing, so the same origin does not throw there.
-    expect(
-      desktopBuilderConfig({
-        base,
-        distribution: 'steam',
-        apiOrigin: 'localhost:8787',
-        steamAppId: '480',
-      }).publish,
-    ).toBeNull();
   });
 
   it('never mutates the base config object', () => {

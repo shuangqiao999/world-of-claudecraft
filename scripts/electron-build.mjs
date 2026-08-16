@@ -12,7 +12,7 @@ import {
 } from './electron-builder-config.mjs';
 import { buildElectronVendor } from './electron-vendor.mjs';
 
-// Usage: node scripts/electron-build.mjs [pack|build] [website|steam|epic]
+// Usage: node scripts/electron-build.mjs [pack|build] [website|steam|epic] [x64|arm64|ia32]
 //  - pack: --dir only (fast local verification); build: full installers.
 //  - website (default): the direct-download channel; keeps the publish feed, so
 //    the packaged app self-updates via electron-updater.
@@ -34,12 +34,19 @@ if (!['website', 'steam', 'epic'].includes(distribution)) {
   console.error(`unknown desktop distribution: ${distribution}`);
   process.exit(1);
 }
+// Optional arch restriction (x64 | arm64 | ia32): forwarded to electron-builder so
+// a local build can skip a target the host lacks the native toolchain for.
+const arch = process.argv[4] ?? null;
+if (arch !== null && !['x64', 'arm64', 'ia32'].includes(arch)) {
+  console.error(`unknown electron build arch: ${arch}`);
+  process.exit(1);
+}
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const electronBuilderCommand =
   process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder';
-const defaultOrigin = 'https://worldofclaudecraft.com';
+const defaultOrigin = 'http://localhost:8787';
 // Resolve the web origins ONCE: apiOrigin feeds both the Vite client build and
 // the wocDesktop stamp below (so the packaged main process always agrees with
 // what the bundle was baked with); loginOrigin is stamped for the main process
@@ -127,13 +134,6 @@ const config = desktopBuilderConfig({
   // The Azure Key Vault certificate route (the AzureSignTool hook); the config
   // derivation prefers azureSign when both credential sets are present.
   keyVaultSign: process.platform === 'win32' ? keyVaultSignConfigFromEnv(process.env) : null,
-  // The update track defaults from apiOrigin (production origin publishes the
-  // 'latest' feed, anything else 'dev'); WOC_UPDATE_CHANNEL=dev stages a
-  // production-origin artifact on the dev track for update-pipeline testing.
-  // The one dangerous combination, 'latest' with a non-production origin,
-  // makes desktopBuilderConfig throw before anything is built. Set-but-empty
-  // means "unset" (derive from the origin), hence || rather than ??.
-  updateChannel: process.env.WOC_UPDATE_CHANNEL || null,
   // The real Steamworks app id for a depot build (stamped into wocDesktop for
   // electron/steam.cjs). desktopBuilderConfig refuses a steam channel build
   // without a numeric id, so a depot can never silently ship on the Spacewar
@@ -185,6 +185,13 @@ run(electronBuilderCommand, [
   configPath,
   '--publish',
   'never',
+  ...(arch === 'x64'
+    ? ['--x64']
+    : arch === 'arm64'
+      ? ['--arm64']
+      : arch === 'ia32'
+        ? ['--ia32']
+        : []),
   ...adhocMacSign,
 ]);
 // The derived config holds no secrets, but do not litter the tmpdir on the

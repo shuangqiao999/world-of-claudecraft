@@ -14,7 +14,7 @@
 // installer are the same code and differ only by this stamp. WOC_DISTRIBUTION
 // overrides it for local testing of any path in `electron .` / electron:dev.
 
-const { PRODUCTION_API_ORIGIN, updateChannelForOrigin } = require('./update_guard.cjs');
+const { updateChannelForOrigin } = require('./update_guard.cjs');
 
 const DISTRIBUTIONS = new Set(['website', 'steam', 'epic']);
 
@@ -78,19 +78,20 @@ function resolveDesktopOrigins({ packagedMetadata, env, isPackaged } = {}) {
     if (typeof stampedValue === 'string' && stampedValue !== '') return stampedValue;
     return '';
   };
-  const apiOrigin = pick(env?.VITE_DESKTOP_API_ORIGIN, stamped.apiOrigin) || PRODUCTION_API_ORIGIN;
+  // 自托管客户端默认 API 地址 (不再连接官方 worldofclaudecraft.com): 打包时
+  // scripts/electron-build.mjs 的 defaultOrigin 会烘焙进 stamp, 这里仅作为
+  // 未烘焙 origin 时的 fallback。
+  const apiOrigin =
+    pick(env?.VITE_DESKTOP_API_ORIGIN, stamped.apiOrigin) || 'http://localhost:8787';
   const loginOrigin = pick(env?.VITE_DESKTOP_LOGIN_ORIGIN, stamped.loginOrigin) || apiOrigin;
   return { apiOrigin, loginOrigin };
 }
 
-// The one gate the auto-updater honors. Steam and Epic builds MUST NOT
-// self-update (SteamPipe / Epic BPT own patches; store guidance is explicit),
-// and an unpackaged checkout has nothing to update, so the updater runs only
-// for a packaged website build. There is deliberately no env escape hatch to
-// force it ON in a Steam or Epic build; WOC_DISTRIBUTION=website on a dev
-// checkout still stays off via isPackaged.
-function updaterAllowed({ distribution, isPackaged }) {
-  return isPackaged === true && distribution === 'website';
+// Auto-update is PERMANENTLY DISABLED on every distribution. The desktop
+// client must never reach the official update feed (self-host build): the
+// updater stays off for packaged website/steam/epic builds alike.
+function updaterAllowed() {
+  return false;
 }
 
 // Wallet handoff is intentionally limited to the website-distributed shell.

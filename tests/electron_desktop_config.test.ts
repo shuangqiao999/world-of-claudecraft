@@ -104,9 +104,9 @@ describe('resolveDistribution', () => {
   });
 });
 
-describe('updaterAllowed (the store / dev double gate)', () => {
-  it('allows only a packaged website build', () => {
-    expect(updaterAllowed({ distribution: 'website', isPackaged: true })).toBe(true);
+describe('updaterAllowed (auto-update permanently removed)', () => {
+  it('never allows auto-update, even a packaged website build', () => {
+    expect(updaterAllowed({ distribution: 'website', isPackaged: true })).toBe(false);
   });
 
   it('never allows a Steam build, packaged or not', () => {
@@ -222,14 +222,14 @@ describe('resolveDesktopOrigins (the packaged-build VITE_DESKTOP_* hatch closure
     ).toEqual({ apiOrigin: 'http://localhost:8787', loginOrigin: 'https://login.example.com' });
   });
 
-  it('falls back to the production origin, and login falls back to the api origin', () => {
+  it('falls back to the self-host origin, and login falls back to the api origin', () => {
     expect(resolveDesktopOrigins({})).toEqual({
-      apiOrigin: 'https://worldofclaudecraft.com',
-      loginOrigin: 'https://worldofclaudecraft.com',
+      apiOrigin: 'http://localhost:8787',
+      loginOrigin: 'http://localhost:8787',
     });
     expect(resolveDesktopOrigins()).toEqual({
-      apiOrigin: 'https://worldofclaudecraft.com',
-      loginOrigin: 'https://worldofclaudecraft.com',
+      apiOrigin: 'http://localhost:8787',
+      loginOrigin: 'http://localhost:8787',
     });
     expect(
       resolveDesktopOrigins({
@@ -241,8 +241,8 @@ describe('resolveDesktopOrigins (the packaged-build VITE_DESKTOP_* hatch closure
 });
 
 const defaultOrigins = {
-  apiOrigin: 'https://worldofclaudecraft.com',
-  loginOrigin: 'https://worldofclaudecraft.com',
+  apiOrigin: 'http://localhost:8787',
+  loginOrigin: 'http://localhost:8787',
 };
 
 describe('resolveDesktopConfig', () => {
@@ -250,9 +250,9 @@ describe('resolveDesktopConfig', () => {
     const config = resolveDesktopConfig({ packagedMetadata: websiteStamp, isPackaged: true });
     expect(config).toEqual({
       distribution: 'website',
-      updaterEnabled: true,
+      updaterEnabled: false,
       crashSubmitUrl: '',
-      updateChannel: 'latest',
+      updateChannel: 'dev',
       ...defaultOrigins,
     });
   });
@@ -263,7 +263,7 @@ describe('resolveDesktopConfig', () => {
       distribution: 'steam',
       updaterEnabled: false,
       crashSubmitUrl: '',
-      updateChannel: 'latest',
+      updateChannel: 'dev',
       ...defaultOrigins,
     });
   });
@@ -274,7 +274,7 @@ describe('resolveDesktopConfig', () => {
       distribution: 'epic',
       updaterEnabled: false,
       crashSubmitUrl: '',
-      updateChannel: 'latest',
+      updateChannel: 'dev',
       ...defaultOrigins,
     });
   });
@@ -285,7 +285,7 @@ describe('resolveDesktopConfig', () => {
       distribution: 'website',
       updaterEnabled: false,
       crashSubmitUrl: '',
-      updateChannel: 'latest',
+      updateChannel: 'dev',
       ...defaultOrigins,
     });
   });
@@ -298,7 +298,7 @@ describe('resolveDesktopConfig', () => {
       isPackaged: true,
     });
     expect(dev.updateChannel).toBe('dev');
-    expect(dev.updaterEnabled).toBe(true);
+    expect(dev.updaterEnabled).toBe(false);
     const smoke = resolveDesktopConfig({
       packagedMetadata: {
         wocDesktop: { distribution: 'website', apiOrigin: 'http://localhost:8787' },
