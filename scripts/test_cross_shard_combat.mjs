@@ -15,7 +15,7 @@
 //      yards apart. The SB bot becomes a ghost in SA (and vice-versa) via ghostSync.
 //   4. Verifies SA's snapshot contains the SB bot as a ghost entity (id == pid_B).
 //   5. SA sends dev_target {id: pid_B} (dev-only command that lets auto-attack target
-//      a cross-shard ghost), then we watch for auto_attack events on SA and the HP
+//      a cross-shard ghost), then we watch for `damage` events on SA and the HP
 //      drop on SB.
 //
 // Requires: server running with ALLOW_DEV_COMMANDS=1 and WOC_WORLD_SHARDS > 1.
@@ -251,12 +251,12 @@ async function main() {
     cmd(botA.ws, 'dev_target', { id: botB.pid });
     await sleep(10000); // several swings (~2.6s weapon speed), watch the round-trip
 
-    const hits = aState.events.filter((ev) => ev.type === 'auto_attack' && ev.targetId === botB.pid && ev.dmg > 0);
-    const anyAttackEvt = aState.events.filter((ev) => ev.type === 'auto_attack' && ev.targetId === botB.pid);
-    check('attacker received auto_attack event for ghost target', anyAttackEvt.length > 0,
-      anyAttackEvt.length > 0 ? `dmg=[${anyAttackEvt.map((e) => e.dmg).join(',')}]` : '');
-    check('cross-shard hit landed (dmg > 0)', hits.length > 0,
-      hits.length > 0 ? `total=${hits.reduce((a, e) => a + e.dmg, 0)}` : '');
+    const hits = aState.events.filter((ev) => ev.type === 'damage' && ev.targetId === botB.pid && ev.amount > 0);
+    const anyAttackEvt = aState.events.filter((ev) => ev.type === 'damage' && ev.targetId === botB.pid);
+    check('attacker received damage event for ghost target', anyAttackEvt.length > 0,
+      anyAttackEvt.length > 0 ? `amount=[${anyAttackEvt.map((e) => e.amount).join(',')}]` : '');
+    check('cross-shard hit landed (amount > 0)', hits.length > 0,
+      hits.length > 0 ? `total=${hits.reduce((a, e) => a + e.amount, 0)}` : '');
 
     // Track the minimum hp seen (PvP has no DoT, so the defender out-of-combat regen
     // can restore the damage before the final read; the transient drop is what proves it).

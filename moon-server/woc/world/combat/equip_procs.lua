@@ -47,13 +47,16 @@ function M.applyWeaponProcs(source, target, trigger, abilityId, entities, simTim
                 local dmg = math.round(proc.damage + (source.attackPower or 0) * (proc.apScale or 0))
                 if target and not target.dead then
                     target.hp = math.max(0, target.hp - dmg)
-                    table.insert(events, { type = "weapon_proc_damage", pid = target.id, sid = source.id, dmg = dmg, proc = proc.name or proc.id })
+                    table.insert(events, { type = "damage", sourceId = source.id, targetId = target.id,
+                        amount = dmg, crit = false, school = "physical",
+                        ability = proc.name or proc.id, kind = "hit" })
                 end
             elseif proc.heal then
                 if source.hp < source.maxHp then
                     local heal = math.min(math.round(proc.heal), source.maxHp - source.hp)
                     source.hp = source.hp + heal
-                    table.insert(events, { type = "heal2", sourceId = source.id, targetId = source.id, amount = heal, crit = false })
+                    table.insert(events, { type = "heal2", sourceId = source.id, targetId = source.id,
+                        amount = heal, crit = false, ability = proc.name or proc.id })
                 end
             elseif proc.aura then
                 require("world.combat.aura").applyAura(source, require("world.combat.aura").new(proc.id, proc.name or proc.id,

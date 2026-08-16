@@ -128,6 +128,9 @@ M.MONSTER_MAX_CHASE_DIST = 120
 M.MONSTER_CHASE_RANDOM_MIN = 0.7
 -- PVP 总开关 (全局关闭用于测试)
 M.ENABLE_PLAYER_PVP = true
+-- PvP 金币掉落配置: 被 PvP 击杀时, 死者身上铜币按比例转入击杀者钱包
+M.PVP_COPPER_DROP_RATE = 0.10    -- 掉落比例 10%
+M.PVP_COPPER_SAFE_MIN = 500      -- 保护阈值: 身上铜币 ≤500 则一分钱不掉落
 
 ----------------------------------------
 -- 等级
@@ -245,9 +248,9 @@ M.getPort = function()
 end
 
 M.getAllowDevCommands = function()
-    -- 生产模式: dev 命令 (dev_level/dev_teleport/dev_give/dev_target 等) 仅在
-    -- 显式设置 ALLOW_DEV_COMMANDS=1 时启用 (默认关闭)。
-    return os.getenv("ALLOW_DEV_COMMANDS") == "1"
+    -- 开发模式 (本地上线前测试): dev 命令 (dev_level/dev_teleport/dev_give/dev_target 等)
+    -- 始终启用; 生产发布前改回 os.getenv("ALLOW_DEV_COMMANDS") == "1"。
+    return true
 end
 
 M.isProduction = function()

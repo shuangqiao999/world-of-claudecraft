@@ -8,7 +8,7 @@
 //
 // Asserts three things:
 //   1. `target <wolf>` flips self.cst to 'auto_fight' (enterAutoFight ran).
-//   2. auto_attack swings fire and land damage (dmg > 0).
+//   2. standard `damage` swings fire and land damage (amount > 0).
 //   3. the wolf's HP actually drops.
 //
 // Requires: server running with ALLOW_DEV_COMMANDS=1 (to level/equip/spawn the wolf).
@@ -114,7 +114,7 @@ function logout(ws) {
 function asObj(r) { return typeof r === 'string' ? JSON.parse(r) : r; }
 
 function attachObserver(sock) {
-  const state = { cst: null, selfTarget: null, auto: null, swing: null, ents: new Map(), swings: [] };
+  const state = { cst: null, selfTarget: null, auto: null, swing: null, selfX: null, selfZ: null, ents: new Map(), swings: [] };
   sock.ws.on('message', (d) => {
     let m; try { m = JSON.parse(d.toString()); } catch { return; }
     if (m.t === 'snap') {
@@ -124,6 +124,8 @@ function attachObserver(sock) {
         if (s.target !== undefined) state.selfTarget = s.target;
         if (s.auto !== undefined) state.auto = s.auto;
         if (s.swing !== undefined) state.swing = s.swing;
+        if (s.x !== undefined) state.selfX = s.x;
+        if (s.z !== undefined) state.selfZ = s.z;
       }
       if (Array.isArray(m.ents)) {
         for (const rec of m.ents) {
@@ -136,7 +138,7 @@ function attachObserver(sock) {
       }
     } else if (m.t === 'events') {
       const arr = Array.isArray(m.list) ? m.list : (m.list ? [m.list] : []);
-      for (const ev of arr) if (ev.type === 'auto_attack') state.swings.push(ev);
+      for (const ev of arr) if (ev.type === 'damage') state.swings.push(ev);
     }
   });
   return state;
@@ -175,7 +177,13 @@ async function main() {
     // dev_give with no item spawns a hostile forest_wolf beside the player.
     cmd(conn.ws, 'dev_give', {});
     await sleep(1000);
-    const wolf = [...state.ents.values()].find((e) => e.k === 'mob' && e.tid === 'forest_wolf');
+    // Pick the NEAREST wolf: stale cross-shard wolves (15xxxxxx on other shards) also
+    // appear in the ents snapshot, and targeting one ~3000yd away never lands a swing.
+    const wolves = [...state.ents.values()].filter((e) => e.k === 'mob' && e.tid === 'forest_wolf');
+    const refX = state.selfX ?? 3000;
+    const refZ = state.selfZ ?? 3000;
+    wolves.sort((a, b) => ((a.x - refX) ** 2 + (a.z - refZ) ** 2) - ((b.x - refX) ** 2 + (b.z - refZ) ** 2));
+    const wolf = wolves[0];
     if (!wolf) {
       check('target wolf enters auto_fight', false, 'no spawned wolf observed');
       check('melee swings land damage', false, 'no wolf');
@@ -194,9 +202,9 @@ async function main() {
       }
 
       // Give the swing a few seconds to accumulate past weaponSpeed and land a hit.
-      const land = state.swings.filter((ev) => ev.targetId === wolfId && (ev.dmg ?? 0) > 0);
-      check('melee swings land damage (dmg > 0)', land.length > 0,
-        `swings=${state.swings.length} landed=${land.length} dmg=[${state.swings.map((ev) => ev.dmg).join(',')}]`);
+      const land = state.swings.filter((ev) => ev.targetId === wolfId && (ev.amount ?? 0) > 0);
+      check('melee swings land damage (amount > 0)', land.length > 0,
+        `swings=${state.swings.length} landed=${land.length} amount=[${state.swings.map((ev) => ev.amount).join(',')}]`);
 
       const wolfNow = state.ents.get(wolfId);
       const hpNow = wolfNow ? (wolfNow.hp ?? hpBefore) : hpBefore;

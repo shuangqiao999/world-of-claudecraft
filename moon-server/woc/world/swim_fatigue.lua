@@ -50,7 +50,8 @@ function M.updateSwimFatigue(e, pos)
         local dmg = math.max(5, math.round(e.maxHp * PULSE_PCT * pulses))
         if dmg > 0 then
             e.hp = math.max(0, e.hp - dmg)
-            table.insert(events, { type = "combat_damage", hp = dmg, pid = e.id, sid = nil, school = "physical" })
+            table.insert(events, { type = "damage", sourceId = -1, targetId = e.id,
+                amount = dmg, crit = false, school = "physical", ability = nil, kind = "hit" })
         end
     end
 

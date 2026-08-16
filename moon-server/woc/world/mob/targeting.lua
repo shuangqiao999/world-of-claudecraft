@@ -101,7 +101,7 @@ function M.updateMobTarget(mob, entities, threatMod)
     local cur = mob.aggroTargetId and entities[mob.aggroTargetId]
     if not cur or cur.dead then
         -- retarget 到最高威胁
-        local next = M._highestThreatTarget(mob, entities)
+        local next = M._highestThreatTarget(mob, entities, threatMod)
         if next then mob.aggroTargetId = next.id end
         return
     end
@@ -125,7 +125,7 @@ function M.updateMobTarget(mob, entities, threatMod)
 end
 
 --- 最高威胁活跃目标 (TS highestThreatTarget)
-function M._highestThreatTarget(mob, entities)
+function M._highestThreatTarget(mob, entities, threatMod)
     local best, bestT = nil, -1
     for pid, t in pairs(threatMod.getThreats(mob.id)) do
         local e = entities[pid]

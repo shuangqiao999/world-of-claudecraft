@@ -103,14 +103,12 @@ function H.cast(ctx, pid, cmd)
         local evs = ctx.fxDispatch.execute(e, target, ability, ctx.entities, ctx.simTime)
         ctx.noteEvents(evs)
         for _, ev in ipairs(evs) do
-            if ev.type == "combat_damage" and e.resourceType == "rage" then
-                e.resource = math.min(e.maxResource, e.resource + ctx.rage.rageFromDealing(ev.hp or 0, e.level))
+            if ev.type == "damage" and e.resourceType == "rage" then
+                e.resource = math.min(e.maxResource, e.resource + ctx.rage.rageFromDealing(ev.amount or 0, e.level))
             end
         end
         ctx.setProcs.applySetProcs(e, target, "on_spell_cast", ctx.simTime)
-        if target and ctx.spirit.checkDeath(target) then
-            ctx.noteEvents({ { type = "death", pid = target.id } })
-        end
+        -- 注: 不在此处 checkDeath/发 death 事件, 死亡统一由主死亡循环结算掉落/金币/XP。
     end
     return true
 end
@@ -286,7 +284,10 @@ function H.tab(ctx, pid, cmd)
     local e = ctx.entities[pid]
     if not e then return false end
     local nearest = (ctx.findNearestTarget and ctx.findNearestTarget(e)) or ctx.findNearestEnemy(e)
-    if nearest then e.targetId = nearest.id end
+    if nearest then
+        e.targetId = nearest.id
+        e.targetHasAutoChase = true  -- Tab 选中目标 → 激活自动追随 (与 target 命令一致)
+    end
     return true
 end
 
@@ -376,8 +377,12 @@ function H.loot(ctx, pid, cmd)
     local got = 0
     if meta then
         for _, it in ipairs(loot) do
-            local invItem = ctx.inventory.createItem(it.id, it.name or it.id, it.kind or "misc", it)
-            if ctx.inventory.addItem(meta, invItem) then got = got + 1 end
+            -- copper 金币不走尸体拾取: 击杀瞬间已直接入钱包 (见 init.lua mob 死亡分支)。
+            -- 这里跳过, 避免 createItem 收到无 itemId 的 copper 条目 (缺口1 防御性修复)。
+            if it.type ~= "copper" then
+                local invItem = ctx.inventory.createItem(it.id, it.name or it.id, it.kind or "misc", it)
+                if ctx.inventory.addItem(meta, invItem) then got = got + 1 end
+            end
         end
     end
     corpse.loot = nil
@@ -1748,6 +1753,16 @@ function H.dev_despawn(ctx, pid, cmd)
     if ctx.despawnEntity(id) then
         ctx.noteEvents({ { type = "log", text = "Despawned id=" .. id .. " (dev)", pid = pid } })
     end
+    return true
+end
+function H.dev_copper(ctx, pid, cmd)
+    -- dev 专用: 给玩家加铜币 (测试 PvP 金币转移 / 经济系统用)
+    if not ctx.config.getAllowDevCommands() then return false end
+    local meta = ctx.players[pid]
+    if not meta then return false end
+    local amount = n(cmd.amount) or 0
+    meta.copper = (meta.copper or 0) + amount
+    ctx.noteEvents({ { type = "log", text = "Gave " .. amount .. " copper (dev). wallet=" .. meta.copper, pid = pid } })
     return true
 end
 function H.dev_damage(ctx, pid, cmd)

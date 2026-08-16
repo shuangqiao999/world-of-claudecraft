@@ -456,11 +456,14 @@ function M.dealDamage(ctx, source, target, rawAmount, crit, school, abilityId, o
         amount = 0
     end
 
-    -- 16. 记录最后攻击者 (击杀荣誉结算 + 平民击杀通缉用)。行人 NPC 被高等级玩家
-    -- 远程击杀时不会反击 (灰怪 + 4yd 感知), aggroTargetId 不会设置, 所以这里必须
-    -- 对 pedestrian 也记 lastAttackerId, 否则 wanted 的 pedKiller 回退失效。
+    -- 16. 记录最后攻击者 (击杀荣誉结算 + 平民击杀通缉 + mob 击杀者判定用)。
+    -- 行人 NPC 被高等级玩家远程击杀时不会反击 (灰怪 + 4yd 感知), aggroTargetId 不会设置,
+    -- 所以这里必须对 pedestrian 也记 lastAttackerId, 否则 wanted 的 pedKiller 回退失效。
+    -- mob 同样记录: 灰怪/远程击杀时 mob 可能从不 _startCombat, aggroTargetId 为 nil,
+    -- mob 死亡时的击杀者判定 (XP/任务/通缉/金币) 依赖 lastAttackerId 兜底。
     if source and target and amount > 0 and source.kind == "player" and source.id ~= target.id then
-        if target.kind == "player" or (target.kind == "npc" and target.pedestrian) then
+        if target.kind == "player" or (target.kind == "npc" and target.pedestrian)
+           or target.kind == "mob" then
             target.lastAttackerId = source.id
         end
     end

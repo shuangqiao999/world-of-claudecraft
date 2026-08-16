@@ -21,6 +21,7 @@ local playerStats = require("world.player_stats")
 local damage = require("world.combat.damage")
 local healMod = require("world.combat.heal")
 local castSys = require("world.combat.cast")
+local eventWire = require("world.combat.event_wire")
 local aura = require("world.combat.aura")
 local autoAttack = require("world.combat.auto_attack")
 local combatState = require("world.combat_state")
@@ -833,17 +834,17 @@ local function resolveCastEffects(e, target, ability, combatEvents, entities, si
     local evs = fxDispatch.execute(e, target, ability, entities, simTime)
     for _, ev in ipairs(evs) do
         table.insert(combatEvents, ev)
-        if ev.type == "combat_damage" and target then
+        if ev.type == "damage" and target then
             if e.resourceType == "rage" then
-                local rageGain = rage.rageFromDealing(ev.hp or 0, e.level)
+                local rageGain = rage.rageFromDealing(ev.amount or 0, e.level)
                 e.resource = math.min(e.maxResource, e.resource + rageGain)
             end
             setProcs.applySetProcs(e, target, "on_attack", simTime)
-            threatMod.addThreat(target.id, e.id, ev.hp or 0, ability.school, e)
-        elseif ev.type == "combat_heal" then
-            local healedTarget = entities[ev.pid]
+            threatMod.addThreat(target.id, e.id, ev.amount or 0, ability.school, e)
+        elseif ev.type == "heal2" then
+            local healedTarget = entities[ev.targetId]
             if healedTarget then
-                healMod.healingThreat(e, healedTarget, ev.hp or 0, entities, threatMod)
+                healMod.healingThreat(e, healedTarget, ev.amount or 0, entities, threatMod)
             end
         end
     end
@@ -851,9 +852,7 @@ local function resolveCastEffects(e, target, ability, combatEvents, entities, si
     -- 传奇武器 on-hit procs (TS equip_procs)
     local equipProcEvents = require("world.combat.equip_procs").applyWeaponProcs(e, target, "on_hit", ability.id, entities, simTime)
     for _, ev in ipairs(equipProcEvents) do table.insert(combatEvents, ev) end
-    if target and spirit.checkDeath(target) then
-        table.insert(combatEvents, { type = "death", pid = target.id })
-    end
+    -- 注: 不在此处 checkDeath/发 death 事件, 死亡统一由主死亡循环结算掉落/金币/XP。
 end
 
 local function combatTick(dt)
@@ -907,8 +906,8 @@ local function combatTick(dt)
                     local ctEvs = fxDispatch.execute(e, ctTarget, castingAbility, entities, simTime)
                     for _, ev in ipairs(ctEvs) do
                         table.insert(combatEvents, ev)
-                        if ev.type == "combat_damage" and ctTarget then
-                            threatMod.addThreat(ctTarget.id, pid, ev.hp or 0)
+                        if ev.type == "damage" and ctTarget then
+                            threatMod.addThreat(ctTarget.id, pid, ev.amount or 0)
                         end
                     end
                 end
@@ -940,7 +939,8 @@ local function combatTick(dt)
                             -- 命中时法术抵抗
                             if isSpell then
                                 if spellResist.isSpellResisted(src.level, tgt.level, src.hitBonus or 0) then
-                                    table.insert(pEvents, { type = "spell_resisted", pid = pid, sid = src.id, targetId = tgt.id })
+                                    table.insert(pEvents, eventWire.resist(src.id, tgt.id,
+                                        castingAbility.school or "magic", castingAbility.name))
                                     regen.enterCombat(src, tgt)
                                     return pEvents
                                 end
@@ -972,7 +972,8 @@ local function combatTick(dt)
                             resisted = spellResist.isSpellResisted(e.level, target.level, e.hitBonus or 0)
                         end
                         if resisted then
-                            table.insert(combatEvents, { type = "spell_resisted", pid = pid, sid = e.id, targetId = target.id })
+                            table.insert(combatEvents, eventWire.resist(e.id, target.id,
+                                castingAbility.school or "magic", castingAbility.name))
                             regen.enterCombat(e, target)
                             goto continue_player_cast
                         end
@@ -994,16 +995,13 @@ local function combatTick(dt)
                     end
                     setProcs.applySetProcs(e, entities[e.targetId], "on_attack", simTime)
                 end
-                table.insert(combatEvents, {
-                    type = "auto_attack", pid = pid, targetId = e.targetId,
-                    dmg = aaResult.damage, crit = aaResult.crit, offhand = aaResult.offhand,
-                    blocked = aaResult.blocked, dodged = aaResult.dodged, missed = aaResult.missed,
-                })
+                table.insert(combatEvents, eventWire.damage(pid, e.targetId,
+                    aaResult.damage, aaResult.crit,
+                    eventWire.kindFromResult(aaResult.result)))
                 if e.targetId then threatMod.addThreat(e.targetId, pid, aaResult.damage) end
-                local target = entities[e.targetId]
-                if target and spirit.checkDeath(target) then
-                    table.insert(combatEvents, { type = "death", pid = target.id })
-                end
+                -- 注: 不在此处 checkDeath/发 death 事件。死亡统一由主死亡循环
+                -- (for entities + spirit.checkDeath) 处理掉落/金币/XP, 这里提前 checkDeath
+                -- 会把目标 dead 置 true, 导致主循环跳过掉落结算 (金币入账失效)。
             end
 
             -- 目标失效校验 (死亡/消失/跨分片迁移 → 回 idle)
@@ -1013,6 +1011,53 @@ local function combatTick(dt)
                     local ct = entities[e.targetId] or ghostEntities[e.targetId]
                     if not ct or ct.dead then
                         combatState.idle(e)
+                    end
+                end
+            end
+
+            -- 自动面向目标 (auto_fight / pvp_fight: 自动攻击持续转向目标; 追击时持续面向)
+            -- 仅战斗状态 (auto_fight/pvp_fight) 且 autoAttack 开启时生效; 点空地停手
+            -- (stopattack → fleeing) 或死亡后不转向, 玩家可自由逃跑/转身。
+            if (e.combatState == "auto_fight" or e.combatState == "pvp_fight")
+               and e.autoAttack and e.targetId then
+                local ft = entities[e.targetId] or ghostEntities[e.targetId]
+                if ft and not ft.dead then
+                    local desired = math.atan(ft.pos.x - e.pos.x, ft.pos.z - e.pos.z)
+                    local diff = desired - e.facing
+                    while diff > math.pi do diff = diff - 2 * math.pi end
+                    while diff < -math.pi do diff = diff + 2 * math.pi end
+                    -- 限速转向 (复用键盘转向速度, 避免瞬转)
+                    local turnStep = 3.0 * dt
+                    if math.abs(diff) <= turnStep then
+                        e.facing = desired
+                    else
+                        e.facing = e.facing + (diff > 0 and turnStep or -turnStep)
+                    end
+                    while e.facing > math.pi * 2 do e.facing = e.facing - math.pi * 2 end
+                    while e.facing < 0 do e.facing = e.facing + math.pi * 2 end
+                end
+            end
+
+            -- 自动追随移动 (auto_fight / pvp_fight 自动追随战斗)
+            -- 激活条件: 目标有效存活 + targetHasAutoChase=true (选中目标即激活, 未被人手介入)。
+            -- 距离控制: 距目标 > 近战攻击阈值 → 朝目标自动移动 (复用 move 模块碰撞/地形校验);
+            --            ≤ 阈值 → 停止自动移动, 原地站桩挥击。
+            -- 玩家手动介入 (processInputs 检测方向键) 会把 targetHasAutoChase 置 false,
+            -- 本次 target 生命周期内不再自动追随; 重新选中目标才重新激活。
+            -- 退出: 目标死亡/销毁/targetId 置空/切换目标/玩家死亡 (combat_state 统一重置标记)。
+            if (e.combatState == "auto_fight" or e.combatState == "pvp_fight")
+               and e.autoAttack
+               and e.targetHasAutoChase and e.targetId then
+                local ft = entities[e.targetId] or ghostEntities[e.targetId]
+                if ft and not ft.dead then
+                    local dx = ft.pos.x - e.pos.x
+                    local dz = ft.pos.z - e.pos.z
+                    local distSq = dx * dx + dz * dz
+                    if distSq > config.MELEE_RANGE_SQ then
+                        -- 生成前进移动意图交给 move 模块 (碰撞/地形/游泳校验与玩家输入同链路);
+                        -- 朝向已由上方自动面向锁定, 前进即朝目标方向移动。
+                        move.applyInput(e, { f = 1 }, nil, config.DT)
+                        grid.update(e)
                     end
                 end
             end
@@ -1115,7 +1160,7 @@ local function combatTick(dt)
                 e.sitting = false
                 e.chargeTargetId = nil
                 e.followTargetId = nil
-                table.insert(combatEvents, { type = "death", pid = e.id, x = e.pos.x, z = e.pos.z })
+                table.insert(combatEvents, { type = "death", entityId = e.id, x = e.pos.x, z = e.pos.z })
                 print(string.format("[World] Player died: pid=%d name=%s hp=0", e.id, e.name or "?"))
                 -- 从所有 mob 仇恨表移除死亡玩家 (TS 1164-1172)
                 for _, m in pairs(entities) do
@@ -1131,19 +1176,26 @@ local function combatTick(dt)
                 e.aiState = "dead"
                 e.corpseTimer = 60
                 e.respawnTimer = 60
-                table.insert(combatEvents, { type = "death", pid = e.id })
+                table.insert(combatEvents, { type = "death", entityId = e.id })
             end
 
             if e.kind == "mob" then
                 mobAI.cleanup(e.id)
                 accountMobDeath(e)
+                -- 掉落拆分: copper 金币不进入 loot 事件 (避免客户端 createItem 无 itemId),
+                -- 击杀瞬间直接入击杀者钱包; 物品类掉落保持原样广播 (尸体/拾取逻辑不变)。
                 local loot = mobLifecycle.getLoot(e)
+                local mobCopper = 0
                 if loot and #loot > 0 then
                     for _, item in ipairs(loot) do
-                        table.insert(combatEvents, { type = "loot", mobId = e.id, item = item })
+                        if item.type == "copper" then
+                            mobCopper = mobCopper + (item.amount or 0)
+                        else
+                            table.insert(combatEvents, { type = "loot", mobId = e.id, item = item })
+                        end
                     end
                 end
-                local killer = e.targetId
+                local killer = e.aggroTargetId or e.lastAttackerId or e.targetId
                 if killer and players[killer] then
                     mobLifecycle.socialAggro(e.id, killer, entities, mobAI)
                     local qUpdates = quest.onKill(players[killer], e.templateId)
@@ -1167,6 +1219,14 @@ local function combatTick(dt)
                                 talent.recomputeForLevel(m, ent, m.class or ent.templateId)
                             end)
                         for _, xev in ipairs(xpEvents) do table.insert(combatEvents, xev) end
+                        -- PvE 金币: 击杀瞬间自动入击杀者钱包 (不经过尸体拾取)
+                        if mobCopper > 0 then
+                            kMeta.copper = (kMeta.copper or 0) + mobCopper
+                            table.insert(combatEvents, {
+                                type = "loot", pid = killer,
+                                text = "You loot " .. mobCopper .. " copper.",
+                            })
+                        end
                     end
                     -- 团队副本锁定: Boss 击杀
                     if e.templateId and (e.templateId:find("boss") or e.templateId:find("nythraxis")) then
@@ -1200,7 +1260,7 @@ local function combatTick(dt)
                 end
                 e.loot = pedLoot
                 e.lootable = true
-                table.insert(combatEvents, { type = "death", pid = e.id })
+                table.insert(combatEvents, { type = "death", entityId = e.id })
             elseif e.kind == "player" then
                 -- PvP 击杀: 最后造成伤害的玩家 (dealDamage 记录的 lastAttackerId)
                 local killerPid = e.lastAttackerId or e.targetId
@@ -1215,6 +1275,27 @@ local function combatTick(dt)
                     end
                     -- 击杀玩家 → 通缉 (GTA)
                     wanted.addWanted(players[killerPid], 1)
+                    -- PvP 金币转移: 死者身上铜币按比例转入击杀者钱包 (带保护阈值)
+                    -- 只有玩家击杀玩家触发; 怪物杀死玩家不扣铜币 (边界约束 2)
+                    local deadMeta = players[e.id]
+                    if kMeta and deadMeta then
+                        local deadCopper = deadMeta.copper or 0
+                        if deadCopper > config.PVP_COPPER_SAFE_MIN then
+                            local loss = math.floor(deadCopper * config.PVP_COPPER_DROP_RATE)
+                            if loss > 0 then
+                                deadMeta.copper = deadCopper - loss
+                                kMeta.copper = (kMeta.copper or 0) + loss
+                                table.insert(combatEvents, {
+                                    type = "loot", pid = killerPid,
+                                    text = "You gain " .. loss .. " copper from your kill!",
+                                })
+                                table.insert(combatEvents, {
+                                    type = "loot", pid = e.id,
+                                    text = "You lost " .. loss .. " copper upon death!",
+                                })
+                            end
+                        end
+                    end
                 end
                 e.lastAttackerId = nil
             end
@@ -1242,6 +1323,15 @@ local function processInputs()
     for pid, input in pairs(inputQueue) do
         local e = entities[pid]
         if e and (not e.dead or e.ghost) then
+            -- 玩家手动介入移动检测: f/b/sl/sr 任一方向键按下 → 关闭自动追随。
+            -- 核心规则: 玩家一旦介入, 本次 target 生命周期内不再自动恢复追随,
+            -- 角色变站桩 (auto-fight/自动面向仍保留), 只有重新选中目标才重新激活。
+            local mi = input.mi or {}
+            local manualMove = (mi.f and mi.f > 0) or (mi.b and mi.b > 0)
+                or (mi.sl and mi.sl > 0) or (mi.sr and mi.sr > 0)
+            if manualMove then
+                e.targetHasAutoChase = false
+            end
             move.applyInput(e, input.mi, input.facing, config.DT)
             grid.update(e)
         end
@@ -1473,7 +1563,8 @@ local function doGameTick()
                     local drown = breath.updateBreath(e, isSubmerged)
                     if drown and drown.dmg then
                         e.hp = math.max(0, e.hp - drown.dmg)
-                        table.insert(combatEvents, { type = "drown", pid = pid, dmg = drown.dmg })
+                        table.insert(combatEvents, { type = "damage", sourceId = -1, targetId = pid,
+                            amount = drown.dmg, crit = false, school = "physical", ability = nil, kind = "hit" })
                         if e.hp <= 0 then e.dead = true end
                     end
                     -- 泳者疲劳
@@ -1492,7 +1583,8 @@ local function doGameTick()
                     end
                     -- 坠落伤害事件
                     if e._fallDamage and e._fallDamage > 0 then
-                        table.insert(combatEvents, { type = "combat_damage", hp = e._fallDamage, pid = pid, school = "physical" })
+                        table.insert(combatEvents, { type = "damage", sourceId = -1, targetId = pid,
+                            amount = e._fallDamage, crit = false, school = "physical", ability = nil, kind = "hit" })
                         e._fallDamage = nil
                     end
                 end
@@ -1805,17 +1897,13 @@ moon.dispatch("lua", function(sender, session, msg)
         end
         moon.send("lua", sender, { t = "combatResult", attackerId = msg.attacker and msg.attacker.id, targetId = msg.targetId, result = res })
     elseif t == "combatResult" then
-        -- 跨分片战斗结果回传: 生成 auto_attack 事件给攻击者客户端
+        -- 跨分片战斗结果回传: 生成标准 damage 事件 (世界广播)
         if msg.result and msg.result.damage > 0 then
-            local gs = gateSvc()
-            if gs then
-                local evs = {{
-                    type = "auto_attack", pid = msg.attackerId, targetId = msg.targetId,
-                    dmg = msg.result.damage, crit = msg.result.crit, offhand = msg.result.offhand,
-                    blocked = msg.result.blocked, dodged = msg.result.dodged, missed = msg.result.missed,
-                }}
-                moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(evs) })
-            end
+            noteEvents({
+                eventWire.damage(msg.attackerId, msg.targetId,
+                    msg.result.damage, msg.result.crit,
+                    eventWire.kindFromFlags(msg.result.missed, msg.result.dodged, msg.result.blocked)),
+            })
         end
     elseif t == "castForward" then
         -- 跨分片施法结算: 归属分片用攻击者快照+技能解析效果 (可选投射物飞行延迟)
@@ -1839,7 +1927,7 @@ moon.dispatch("lua", function(sender, session, msg)
             end
             if isSpell and not isFriendly then
                 if spellResist.isSpellResisted(atk.level, target.level, atk.hitBonus or 0) then
-                    table.insert(events, { type = "spell_resisted", pid = atk.id, sid = atk.id, targetId = target.id })
+                    table.insert(events, eventWire.resist(atk.id, target.id, ability.school or "magic", ability.name))
                     moon.send("lua", sender, { t = "castResult", attackerId = atk.id, targetId = target.id, events = events })
                     return
                 end
@@ -1847,8 +1935,8 @@ moon.dispatch("lua", function(sender, session, msg)
             local evs = fxDispatch.execute(atk, target, ability, entities, simTime)
             for _, ev in ipairs(evs) do
                 table.insert(events, ev)
-                if ev.type == "combat_damage" and target.kind == "mob" then
-                    threatMod.addThreat(target.id, atk.id, ev.hp or 0, ability.school, atk)
+                if ev.type == "damage" and target.kind == "mob" then
+                    threatMod.addThreat(target.id, atk.id, ev.amount or 0, ability.school, atk)
                 end
             end
             if target.hp <= 0 then applyForwardedKill(target) end
@@ -1860,12 +1948,9 @@ moon.dispatch("lua", function(sender, session, msg)
             resolve()
         end
     elseif t == "castResult" then
-        -- 跨分片施法结果回传: 事件路由给攻击者客户端
-        if msg.attackerId and msg.events and #msg.events > 0 then
-            local gs = gateSvc()
-            if gs then
-                moon.send("lua", gs, { t = "sendToPlayer", pid = msg.attackerId, frame = jh.buildEventsFrame(msg.events) })
-            end
+        -- 跨分片施法结果回传: 标准 damage/heal2 事件走世界广播
+        if msg.events and #msg.events > 0 then
+            noteEvents(msg.events)
         end
     elseif t == "pvpConsent" then
         -- 跨分片 PVP 同意: 被攻击方标记进入 PVP_FIGHT (不改其目标/自动攻击)

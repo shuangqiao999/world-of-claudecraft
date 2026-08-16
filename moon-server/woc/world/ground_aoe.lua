@@ -69,11 +69,14 @@ function M.tick(entities, dt)
                     end
                     t.hp = math.max(0, t.hp - math.floor(dmg + 0.5))
                     table.insert(events, {
-                        type = "ground_aoe_tick",
+                        type = "damage",
                         sourceId = gae.sourceId,
                         targetId = t.id,
-                        abilityId = gae.abilityId,
-                        dmg = math.floor(dmg + 0.5),
+                        amount = math.floor(dmg + 0.5),
+                        crit = false,
+                        school = gae.school or "magic",
+                        ability = gae.abilityId,
+                        kind = "hit",
                     })
                 end
             end

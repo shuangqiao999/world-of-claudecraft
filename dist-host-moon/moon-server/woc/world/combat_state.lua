@@ -18,6 +18,9 @@ M.STATE = {
 --- 初始化 (joinPlayer 时调用)
 function M.init(e)
     if not e.combatState then e.combatState = M.STATE.IDLE end
+    -- auto_fight 自动追随标记: 设置 target 时置 true; 玩家手动介入移动/清空目标后置 false。
+    -- false 之后本次 target 生命周期内不再自动追随, 只有重新选中目标才重新激活。
+    e.targetHasAutoChase = false
 end
 
 --- 是否持械 (GTA: 空手不自动攻击, 只靠近)
@@ -27,8 +30,10 @@ function M.hasWeapon(e)
 end
 
 --- 仅选中目标 (不改变战斗状态)
+--- 设置 target 时重置 targetHasAutoChase=true (重新激活自动追随; 之后玩家介入会关闭)
 function M.select(e, target)
     e.targetId = target and target.id or nil
+    e.targetHasAutoChase = e.targetId ~= nil
 end
 
 --- 进入自动战斗 (选中怪物/平民NPC 即开打); 玩家目标/空手均只选中不攻击
@@ -54,11 +59,14 @@ function M.enterAutoFight(e, target)
     return true
 end
 
---- 进入 PVP 战斗 (需手动二次确认; PVP 无自动攻击, 由玩家主动输出)
+--- 进入 PVP 战斗 (需手动二次确认; 进入后自动攻击+自动面向+自动追随与 auto_fight 一致)
 function M.enterPvpFight(e, target)
     if e.dead then return false end
     M.select(e, target)
     e.combatState = M.STATE.PVP_FIGHT
+    if M.hasWeapon(e) then
+        autoAttack.startAutoAttack(e, target)
+    end
     return true
 end
 
@@ -74,6 +82,7 @@ function M.flee(e)
     e.combatState = M.STATE.FLEEING
     autoAttack.stopAutoAttack(e)
     e.targetId = nil
+    e.targetHasAutoChase = false  -- 清空 target → 关闭自动追随
 end
 
 --- 回到空闲
@@ -81,6 +90,7 @@ function M.idle(e)
     e.combatState = M.STATE.IDLE
     autoAttack.stopAutoAttack(e)
     e.targetId = nil
+    e.targetHasAutoChase = false  -- 清空 target → 关闭自动追随
 end
 
 --- 死亡
@@ -88,6 +98,7 @@ function M.die(e)
     e.combatState = M.STATE.DEAD
     autoAttack.stopAutoAttack(e)
     e.targetId = nil
+    e.targetHasAutoChase = false  -- 玩家死亡 → 关闭自动追随
 end
 
 return M

@@ -142,11 +142,14 @@ function M.updatePet(owner, entities, dt)
                 dmg = math.max(1, math.floor(dmg + 0.5))
                 target.hp = math.max(0, target.hp - dmg)
                 table.insert(events, {
-                    type = "pet_attack",
-                    petId = pet.id,
-                    ownerId = owner.id,
+                    type = "damage",
+                    sourceId = pet.id,
                     targetId = target.id,
-                    dmg = dmg,
+                    amount = dmg,
+                    crit = false,
+                    school = "physical",
+                    ability = nil,
+                    kind = "hit",
                 })
                 -- 宠物嘲讽
                 if pet.petAutoTaunt and pet.petTauntTimer <= 0 then

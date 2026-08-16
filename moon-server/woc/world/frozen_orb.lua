@@ -56,7 +56,9 @@ function M.tick(entities, dt, simrng)
                 if e.id ~= orb.sourceId and not e.dead then
                     local dmg = (source.spellPower or 0) * 0.1 + 5
                     e.hp = math.max(0, e.hp - math.floor(dmg + 0.5))
-                    table.insert(events, { type = "frozen_orb_pulse", sourceId = orb.sourceId, targetId = e.id, dmg = math.floor(dmg + 0.5) })
+                    table.insert(events, { type = "damage", sourceId = orb.sourceId, targetId = e.id,
+                        amount = math.floor(dmg + 0.5), crit = false, school = "frost",
+                        ability = "Frozen Orb", kind = "hit" })
                 end
             end
             grid.releaseRadiusResult(cand)

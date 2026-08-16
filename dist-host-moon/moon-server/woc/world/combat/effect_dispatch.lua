@@ -9,6 +9,7 @@ local aura = require("world.combat.aura")
 local simrng = require("world.simrng")
 local config = require("config")
 local grid = require("world.grid")
+local eventWire = require("world.combat.event_wire")
 
 local M = {}
 
@@ -67,7 +68,7 @@ function M._applyEffect(caster, target, effect, entities, simTime)
                     or damage.dealDamage(nil, caster, t, raw, crit, "physical", effect.name, {})
                 if final > 0 then
                     t.hp = math.max(0, t.hp - final)
-                    ev = { type = "combat_damage", hp = final, crit = crit, pid = t.id, sid = caster.id, school = effect.school }
+                    ev = eventWire.spellDamage(caster.id, t.id, final, crit, effect.school or "physical", effect.name)
                 end
 
             -- 兼容旧: damage (flat value)
@@ -80,9 +81,8 @@ function M._applyEffect(caster, target, effect, entities, simTime)
                 end
                 if result.damage > 0 then
                     t.hp = math.max(0, t.hp - result.damage)
-                    ev = { type = "combat_damage", hp = result.damage, crit = result.crit,
-                           pid = t.id, sid = caster.id, school = effect.school,
-                           blocked = result.blocked, dodged = result.dodged, missed = result.missed }
+                    ev = eventWire.damage(caster.id, t.id, result.damage, result.crit,
+                        eventWire.kindFromFlags(result.missed, result.dodged, result.blocked))
                 end
 
             -- TS: aoeDamage / 兼容旧 aoe
@@ -93,7 +93,7 @@ function M._applyEffect(caster, target, effect, entities, simTime)
                 local final = damage.dealDamage(nil, caster, t, raw, crit, effect.school or "spell", effect.name, {})
                 if final > 0 then
                     t.hp = math.max(0, t.hp - final)
-                    ev = { type = "combat_damage", hp = final, crit = crit, pid = t.id, sid = caster.id, school = effect.school }
+                    ev = eventWire.spellDamage(caster.id, t.id, final, crit, effect.school or "magic", effect.name)
                 end
 
             -- TS: heal
@@ -104,8 +104,9 @@ function M._applyEffect(caster, target, effect, entities, simTime)
                 end
                 local result = heal.applyHeal(caster, t, baseHeal, effect.name or "heal", true)
                 if result.heal > 0 then
-                    ev = { type = "combat_heal", hp = result.heal, crit = result.crit, pid = t.id, sid = caster.id,
-                           absorbed = result.absorbed, overheal = result.overheal }
+                    ev = eventWire.heal2(caster.id, t.id, result.heal, result.crit, effect.name or "heal", {
+                        absorbed = result.absorbed, overheal = result.overheal,
+                    })
                 end
 
             -- TS: aoeHeal
@@ -114,7 +115,7 @@ function M._applyEffect(caster, target, effect, entities, simTime)
                 if effect.max then baseHeal = simrng.randfloat(effect.min or 1, effect.max) end
                 local result = heal.applyHeal(caster, t, baseHeal, effect.name or "aoeHeal", true)
                 if result.heal > 0 then
-                    ev = { type = "combat_heal", hp = result.heal, crit = result.crit, pid = t.id, sid = caster.id }
+                    ev = eventWire.heal2(caster.id, t.id, result.heal, result.crit, effect.name or "aoeHeal")
                 end
 
             -- TS: dot (value = per-tick base, tickInterval)

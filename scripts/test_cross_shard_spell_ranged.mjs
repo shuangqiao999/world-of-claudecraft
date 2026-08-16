@@ -3,10 +3,10 @@
 // Extends the melee check: two bots on opposite sides of a region boundary, in
 // different shards. Then:
 //   1. Ranged: give the attacker a ranged weapon (dev_ranged), auto-attack the
-//      cross-shard ghost, verify the defender's HP drops and the attacker gets an
-//      auto_attack event (combatForward{ranged} -> rangedSwingResult round-trip).
+//      cross-shard ghost, verify the defender's HP drops and the attacker gets a
+//      standard `damage` event (combatForward{ranged} -> rangedSwingResult round-trip).
 //   2. Spell:  the attacker casts fireball (projectile, 2s cast) at the ghost, verify
-//      the defender's HP drops and the attacker gets a combat_damage event
+//      the defender's HP drops and the attacker gets a standard `damage` event
 //      (castForward -> castResult round-trip).
 //
 // Requires: server running with ALLOW_DEV_COMMANDS=1 (or Dev forced ON) and
@@ -228,12 +228,12 @@ async function main() {
     cmd(botA.ws, 'dev_target', { id: botB.pid });
     await sleep(6000); // ~2 shots at 2.5s weapon speed
 
-    const rangedHits = aState.events.filter((ev) => ev.type === 'auto_attack' && ev.targetId === botB.pid && ev.dmg > 0);
+    const rangedHits = aState.events.filter((ev) => ev.type === 'damage' && ev.targetId === botB.pid && ev.amount > 0);
     // Ranged has no DoT, so the small damage can regen before the final read; track the
     // minimum hp seen during the phase instead of the final value.
     const rangedHpDrop = bHpRanged != null && bState.minHp != null && bState.minHp < bHpRanged;
-    check('ranged auto_attack event received for ghost', rangedHits.length > 0,
-      rangedHits.length > 0 ? `dmg=[${rangedHits.map((e) => e.dmg).join(',')}]` : '');
+    check('ranged damage event received for ghost', rangedHits.length > 0,
+      rangedHits.length > 0 ? `amount=[${rangedHits.map((e) => e.amount).join(',')}]` : '');
     check(`ranged damage applied to defender (${bHpRanged} -> min ${bState.minHp})`, rangedHpDrop, '');
 
     // ---- Spell test (fireball: 2s cast + projectile) ----
@@ -241,10 +241,10 @@ async function main() {
     cmd(botA.ws, 'cast', { ability: 'fireball', target: botB.pid });
     await sleep(4000); // cast 2s + flight
 
-    const spellDmgEvents = aState.events.filter((ev) => ev.type === 'combat_damage' && ev.sid === botA.pid);
+    const spellDmgEvents = aState.events.filter((ev) => ev.type === 'damage' && ev.sourceId === botA.pid && ev.amount > 0);
     const spellHpDrop = bHpSpell != null && bState.selfHp != null && bState.selfHp < bHpSpell;
-    check('spell combat_damage event received for ghost', spellDmgEvents.length > 0,
-      spellDmgEvents.length > 0 ? `hp=[${spellDmgEvents.map((e) => e.hp).join(',')}]` : '');
+    check('spell damage event received for ghost', spellDmgEvents.length > 0,
+      spellDmgEvents.length > 0 ? `amount=[${spellDmgEvents.map((e) => e.amount).join(',')}]` : '');
     check(`spell damage applied to defender (${bHpSpell} -> ${bState.selfHp})`, spellHpDrop, '');
 
     console.log(`\n[xshard2] done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${failures === 0 ? 'RESULT: PASS' : 'RESULT: FAIL'}`);

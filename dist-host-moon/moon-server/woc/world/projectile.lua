@@ -37,16 +37,10 @@ function M.tick(entities, dt)
     for _, proj in ipairs(pendingProjectiles) do
         proj.remaining = proj.remaining - dt
         if proj.remaining <= 0 then
-            -- 投射物到达目标 (目标死亡则落空)
+            -- 投射物到达目标 (目标死亡则落空); 命中效果由 onHit 解析并输出标准 damage/spellfx
             local target = entities[proj.targetId]
             local source = entities[proj.sourceId]
             if target and source and not target.dead then
-                table.insert(events, {
-                    type = "projectile_hit",
-                    sourceId = proj.sourceId,
-                    targetId = proj.targetId,
-                    abilityId = proj.abilityId,
-                })
                 if proj.onHit then
                     local hitEvents = proj.onHit(source, target)
                     if hitEvents then

@@ -1,9 +1,11 @@
 -- World of ClaudeCraft — Mob Melee Swing
 -- 对应原项目 src/sim/mob/mob_swing.ts + base hit-table shell
 -- Mob 普攻使用完整命中表 (miss/dodge/crit/block), 与玩家一致
+-- 输出标准 damage 事件 (世界广播), 与玩家普攻共享客户端事件契约
 
 local simrng = require("world.simrng")
 local damage = require("world.combat.damage")
+local eventWire = require("world.combat.event_wire")
 local M = {}
 
 local SWING_INTERVAL = 2.0  -- 默认挥击间隔 (template attackSpeed 优先)
@@ -30,7 +32,8 @@ function M.updateSwing(mob, target, dt)
     local result = damage.rollPhysicalHit(mob, target, { whiteDualWieldPenalty = false })
 
     if result.result == "miss" or result.result == "dodge" or result.result == "parry" then
-        return { type = "mob_swing", mobId = mob.id, targetId = target.id, dmg = 0, result = result.result }
+        return eventWire.damage(mob.id, target.id, 0, false,
+            eventWire.kindFromResult(result.result))
     end
 
     -- 基础伤害: 武器 min/max (TS meleeSwing: weaponDmg + AP×speed/14×0.5)
@@ -47,7 +50,7 @@ function M.updateSwing(mob, target, dt)
     -- 完整伤害管道 (含护甲/DR/吸收/防姿)
     local final = damage.dealDamage(nil, mob, target, baseDmg, result.crit, "physical", "auto", {})
     if final <= 0 then
-        return { type = "mob_swing", mobId = mob.id, targetId = target.id, dmg = 0, result = "blocked" }
+        return eventWire.damage(mob.id, target.id, 0, false, "block")
     end
 
     target.hp = math.max(0, target.hp - final)
@@ -82,7 +85,8 @@ function M.updateSwing(mob, target, dt)
         mob._frenzied = true
     end
 
-    return { type = "mob_swing", mobId = mob.id, targetId = target.id, dmg = final, crit = result.crit, result = result.result }
+    return eventWire.damage(mob.id, target.id, final, result.crit,
+        eventWire.kindFromResult(result.result))
 end
 
 return M

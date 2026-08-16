@@ -10,6 +10,7 @@ local threatMod = require("world.mob.threat")
 local moveModule = require("world.movement")
 local spiritMod = require("world.spirit")
 local grid = require("world.grid")
+local eventWire = require("world.combat.event_wire")
 
 local M = {}
 
@@ -240,9 +241,12 @@ function M.updateMob(mob, entities, players, dt)
             local distSq = dx * dx + dz * dz
 
             -- 脱离检测: 储存上一帧的距离
+            -- 仅在"仍处于追击范围之外"(distSq > combat range) 时才累计 chaseStall:
+            -- 若双方已互相靠近进入近战距离 (auto-chase 互相迎上), 距离不再缩短是正常交战
+            -- 状态, 不该判为"被卡住"而脱战回血。否则玩家自动追怪时 mob 会反复 EVADING+回血。
+            local combatRangeSq = targeting.getCombatRangeSq()
             local prevDistSq = data._prevDistSq or distSq
-            if prevDistSq - distSq < 0.01 then
-                -- 距离没有明显缩短 → 可能被地形阻挡
+            if distSq > combatRangeSq and prevDistSq - distSq < 0.01 then
                 mob.chaseStall = (mob.chaseStall or 0) + config.DT
             else
                 mob.chaseStall = 0
@@ -290,9 +294,11 @@ function M.updateMob(mob, entities, players, dt)
             local homeDx = mob.pos.x - data.spawnPos.x
             local homeDz = mob.pos.z - data.spawnPos.z
 
-            -- 脱离检测
+            -- 脱离检测: 仅在"仍处于近战范围之外"时才累计 chaseStall。
+            -- 双方已贴脸交战 (distSq <= combat range) 时距离不再缩短是正常状态,
+            -- 不该判为"被卡住"而 EVADING 回血 (与 CHASING 分支同理)。
             local prevDistSq = data._prevDistSq or distSq
-            if prevDistSq - distSq < 0.01 then
+            if distSq > targeting.getCombatRangeSq() and prevDistSq - distSq < 0.01 then
                 mob.chaseStall = (mob.chaseStall or 0) + config.DT
             else
                 mob.chaseStall = 0
@@ -677,10 +683,10 @@ function M._autoAttackMob(mob, target, data, dt)
     local ev = mobSwing.updateSwing(mob, target, dt)
     if not ev then return nil end
 
-    if ev.dmg > 0 and spiritMod.checkDeath(target) then
-        return { type = "death", pid = target.id, mobAutoAttack = true }
+    if ev.amount and ev.amount > 0 and spiritMod.checkDeath(target) then
+        return { type = "death", entityId = target.id, killerId = mob.id, mobAutoAttack = true }
     end
-    return { type = "mob_attack", mobId = mob.id, pid = target.id, dmg = ev.dmg, crit = ev.crit, result = ev.result }
+    return ev
 end
 
 function M._useAbility(mob, target, ability, entities)
@@ -693,10 +699,11 @@ function M._useAbility(mob, target, ability, entities)
             target.hp = math.max(0, target.hp - dmg)
             threatMod.addThreat(mob.id, target.id, dmg * 1.5)
 
-            local ev = { type = "mob_ability", mobId = mob.id, ability = ability.name, pid = target.id, dmg = dmg }
+            local ev = eventWire.spellDamage(mob.id, target.id, dmg, false,
+                ability.school or "physical", ability.name)
 
             if spiritMod.checkDeath(target) then
-                return { type = "death", pid = target.id, mobVictory = mob.id }
+                return { type = "death", entityId = target.id, killerId = mob.id, mobVictory = mob.id }
             end
             return ev
 
@@ -710,7 +717,8 @@ function M._useAbility(mob, target, ability, entities)
                     dmg = math.max(1, math.floor(dmg + 0.5))
                     e.hp = math.max(0, e.hp - dmg)
                     if #events < (effect.maxTargets or 3) then
-                        table.insert(events, { type = "mob_ability", mobId = mob.id, ability = ability.name, pid = e.id, dmg = dmg })
+                        table.insert(events, eventWire.spellDamage(mob.id, e.id, dmg, false,
+                            ability.school or "physical", ability.name))
                     end
                 end
             end
