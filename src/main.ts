@@ -76,6 +76,7 @@ import {
   stampGraphicsRebuildProbe,
   updateGraphicsRebuildProbePhase,
 } from './game/graphics_rebuild_crash_guard';
+import { shouldFleeOnGroundClick } from './game/ground_click_flee';
 import { Input } from './game/input';
 import { InputActivityMeter, installInputActivityTracking } from './game/input_activity';
 import { stopAutorunForInteraction } from './game/interaction_autorun';
@@ -3358,6 +3359,12 @@ async function startGame(
     const clickToMoveButton = normalizeClickMoveButton(settings.get('clickToMoveButton'));
     const isClickMoveButton = clickToMove && button === clickToMoveButton;
     if (id === null) {
+      // GTA open-world: clicking the ground stops your attack and sends you fleeing
+      // (the moon server flips combatState to 'fleeing' on `stopattack`). The
+      // target-clear and click-to-move below still run.
+      if (shouldFleeOnGroundClick(world.player.combatState, world.player.autoAttack)) {
+        world.stopAutoAttack();
+      }
       // Classic behavior clears the target on a ground left-click; the opt-in
       // stickyTarget setting keeps it (only the clear is skipped, click-to-move
       // below is untouched). Decision table: src/game/target_click.ts.

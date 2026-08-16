@@ -5550,6 +5550,75 @@
     white-space: nowrap;
   }
 
+  /* ---------- wanted stars + combat-state indicator ---------- */
+  /* Screen-top GTA-style wanted stars (1-5) plus a combat-state label. The
+     painter drives the w1..w5 / wanted / fleeing / combat classes and the label
+     text through the elided writers; the stars are clip-path'd so no image asset
+     is needed. Hidden (no stars, no label) when wanted 0 and combatState idle. */
+  #wanted-indicator {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    z-index: 6;
+  }
+  #wanted-indicator .wanted-stars {
+    display: none;
+    gap: 5px;
+  }
+  #wanted-indicator.wanted .wanted-stars {
+    display: flex;
+  }
+  #wanted-indicator .wanted-star {
+    width: 16px;
+    height: 16px;
+    background: var(--color-gold-500);
+    clip-path: polygon(
+      50% 0%,
+      63% 38%,
+      100% 38%,
+      69% 60%,
+      82% 100%,
+      50% 75%,
+      18% 100%,
+      31% 60%,
+      0% 38%,
+      37% 38%
+    );
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  #wanted-indicator.w1 .wanted-star:nth-child(1),
+  #wanted-indicator.w2 .wanted-star:nth-child(-n + 2),
+  #wanted-indicator.w3 .wanted-star:nth-child(-n + 3),
+  #wanted-indicator.w4 .wanted-star:nth-child(-n + 4),
+  #wanted-indicator.w5 .wanted-star:nth-child(-n + 5) {
+    opacity: 1;
+  }
+  #wanted-indicator.fleeing .wanted-star {
+    filter: grayscale(1) brightness(0.7);
+  }
+  #wanted-indicator .combat-state {
+    display: none;
+    color: var(--color-gold-300);
+    font-size: 13px;
+    font-weight: bold;
+    text-shadow: 0 0 8px #000000cc, 1px 1px 2px #000;
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+  #wanted-indicator.fleeing .combat-state,
+  #wanted-indicator.combat .combat-state {
+    display: inline;
+  }
+  #wanted-indicator.fleeing .combat-state {
+    color: var(--color-gold-700);
+  }
+
   /* ---------- low-health screen vignette ---------- */
   /* Pulsing red edge glow that fades in as the player nears death. Opacity and
      pulse cadence are driven from JS via the --lhv-* custom properties; the

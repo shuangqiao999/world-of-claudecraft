@@ -456,9 +456,13 @@ function M.dealDamage(ctx, source, target, rawAmount, crit, school, abilityId, o
         amount = 0
     end
 
-    -- 16. 记录 PvP 最后攻击者 (击杀荣誉结算用)
-    if source and target and amount > 0 and source.kind == "player" and target.kind == "player" and source.id ~= target.id then
-        target.lastAttackerId = source.id
+    -- 16. 记录最后攻击者 (击杀荣誉结算 + 平民击杀通缉用)。行人 NPC 被高等级玩家
+    -- 远程击杀时不会反击 (灰怪 + 4yd 感知), aggroTargetId 不会设置, 所以这里必须
+    -- 对 pedestrian 也记 lastAttackerId, 否则 wanted 的 pedKiller 回退失效。
+    if source and target and amount > 0 and source.kind == "player" and source.id ~= target.id then
+        if target.kind == "player" or (target.kind == "npc" and target.pedestrian) then
+            target.lastAttackerId = source.id
+        end
     end
 
     return math.floor(amount + 0.5)

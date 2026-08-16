@@ -366,6 +366,13 @@ export const en_XA: EnTranslations = {
       "busy": "[Ƒíñíšĥ ýóúŕ çúŕŕéñţ áçţíóñ ƀéƒóŕé úšíñĝ Úñšţúçķ.]",
       "unavailable": "[Úñšţúçķ íš úñáʋáíļáƀļé íñ ýóúŕ çúŕŕéñţ šţáţé.]"
     },
+    "combatState": {
+      "fleeing": "[Ƒļééíñĝ]",
+      "inCombat": "[Íñ Çóɱƀáţ]"
+    },
+    "wanted": {
+      "stars": "[Ŵáñţéð, {count} šţáŕš]"
+    },
     "fct": {
       "absorbed": "[Áƀšóŕƀéð {amount}]",
       "cheap": "[Çĥéáþ!]"

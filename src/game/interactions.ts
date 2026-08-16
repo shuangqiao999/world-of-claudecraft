@@ -42,6 +42,9 @@ export interface PickInteractionHud {
   showError(text: string): void;
   closeContextMenu(): void;
   requestSpiritHealerResurrect(): void;
+  // GTA open-world: left-clicking a player opens the interact menu (whisper /
+  // add-friend / attack) instead of auto-attacking them.
+  openContextMenu(pid: number, name: string, x: number, y: number): void;
 }
 
 export function isAttackHoverTarget(e: Entity | undefined): boolean {
@@ -335,6 +338,11 @@ export function handlePickedEntity(
         else hud.openQuestDialog(id);
         return true;
       }
+    } else if (e.kind === 'player' && e.id !== (world.playerId ?? world.player.id)) {
+      // GTA open-world: left-clicking another player selects them and opens the
+      // interact menu (whisper / add-friend / attack) — never auto-attacking.
+      hud.openContextMenu(id, e.name, screenX, screenY);
+      return true;
     }
   }
   return false;

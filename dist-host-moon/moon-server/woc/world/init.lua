@@ -538,6 +538,36 @@ local function createMobEntity(templateId, name, level, pos, opts)
     return e
 end
 
+-- 临时平民 NPC (dev 测试专用): 与 pedestrian.spawn 的 makePedestrian 同属性,
+-- 但位置由调用方指定 (不依赖 simrng 随机散布) 且静止不漫游 (moveSpeed 0),
+-- 供测试「击杀平民 → 通缉」逻辑 (否则平民漫游脱离近战范围, 回血抵消伤害)。
+local function createPedestrianEntity(name, level, pos)
+    local id = allocId()
+    local y = terrain.placementHeight(pos.x, pos.z)
+    local e = Entity.new(id, "npc", "pedestrian", name or "Test Villager", level or 5, { x = pos.x, y = y, z = pos.z })
+    e.pedestrian = true
+    e.hostile = false
+    e.level = level or 5
+    mobAI.initMob(e, "pedestrian", { x = pos.x, y = y, z = pos.z })
+    e.maxHp = 50
+    e.hp = 50
+    e.attackPower = 10
+    e.weapon = { min = 3, max = 6, speed = 2.6 }
+    e.moveSpeed = 0
+    e.family = "humanoid"
+    return e
+end
+
+-- 销毁实体 (dev 测试专用): 清 AI/空间索引/实体表, 防止多次跑测试残留堆积。
+local function despawnEntity(id)
+    local e = entities[id]
+    if not e then return false end
+    mobAI.cleanup(id)
+    grid.remove(e)
+    entities[id] = nil
+    return true
+end
+
 -- 跨分片 mob 迁移: mob 追到相邻 region 且该 region 映射到其他分片时, 迁到归属分片。
 -- 完整状态迁移: 保留 AI 状态/仇恨/目标/出生点, 目标分片重建后继续追击。
 local function migrateMobOut(e)
@@ -2016,6 +2046,7 @@ moon.exports.handleCommand = function(pid, cmd)
         forwardCast = forwardCast,
         forwardPvpConsent = forwardPvpConsent,
         createMobEntity = createMobEntity, allocId = allocId,
+        createPedestrianEntity = createPedestrianEntity, despawnEntity = despawnEntity,
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
         protoGet = protoGet, nodeTypeFor = nodeTypeFor,
     }, pid, cmd)

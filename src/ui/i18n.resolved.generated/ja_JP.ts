@@ -366,6 +366,13 @@ export const ja_JP: EnTranslations = {
       "busy": "現在の行動を終えてからスタック解除を使用してください。",
       "unavailable": "現在の状態ではスタック解除を使用できません。"
     },
+    "combatState": {
+      "fleeing": "逃走中",
+      "inCombat": "戦闘中"
+    },
+    "wanted": {
+      "stars": "指名手配、星 {count}"
+    },
     "fct": {
       "absorbed": "{amount} 吸収",
       "cheap": "低コスト!"

@@ -366,6 +366,13 @@ export const cs_CZ: EnTranslations = {
       "busy": "Dokonči svou současnou akci, než použiješ Vyproštění.",
       "unavailable": "Vyproštění není ve tvém současném stavu dostupné."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "Pohlceno {amount}",
       "cheap": "Levnější!"

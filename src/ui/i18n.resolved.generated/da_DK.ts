@@ -366,6 +366,13 @@ export const da_DK: EnTranslations = {
       "busy": "Afslut din nuværende handling, før du bruger Frigørelse.",
       "unavailable": "Frigørelse er ikke tilgængelig i din nuværende tilstand."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} absorberet",
       "cheap": "Billigere!"

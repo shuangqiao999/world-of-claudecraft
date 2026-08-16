@@ -366,6 +366,13 @@ export const de_DE: EnTranslations = {
       "busy": "Schließe deine aktuelle Aktion ab, bevor du Befreien benutzt.",
       "unavailable": "Befreien ist in deinem aktuellen Zustand nicht verfügbar."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} absorbiert",
       "cheap": "Günstiger!"

@@ -366,6 +366,13 @@ export const tr_TR: EnTranslations = {
       "busy": "Kurtulmayı kullanmadan önce mevcut eylemini bitir.",
       "unavailable": "Kurtulma mevcut durumunda kullanılamaz."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} soğuruldu",
       "cheap": "Daha ucuz!"

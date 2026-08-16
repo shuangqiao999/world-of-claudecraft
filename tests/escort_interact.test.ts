@@ -386,6 +386,7 @@ describe('a right-click reaches the escort run (handlePickedEntity)', () => {
       showError: vi.fn(),
       closeContextMenu: vi.fn(),
       requestSpiritHealerResurrect: vi.fn(),
+      openContextMenu: vi.fn(),
     };
     return { world, hud, interact, startAutoAttack };
   }

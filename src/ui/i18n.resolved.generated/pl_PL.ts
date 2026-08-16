@@ -366,6 +366,13 @@ export const pl_PL: EnTranslations = {
       "busy": "Zakończ bieżącą czynność, zanim użyjesz Wyzwolenia.",
       "unavailable": "Wyzwolenie jest niedostępne w twoim obecnym stanie."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "Pochłonięto {amount}",
       "cheap": "Taniej!"

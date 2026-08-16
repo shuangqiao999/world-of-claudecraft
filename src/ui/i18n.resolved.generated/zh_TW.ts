@@ -366,6 +366,13 @@ export const zh_TW: EnTranslations = {
       "busy": "請先完成目前動作再使用脫困。",
       "unavailable": "目前狀態下無法使用脫困。"
     },
+    "combatState": {
+      "fleeing": "逃跑中",
+      "inCombat": "戰鬥中"
+    },
+    "wanted": {
+      "stars": "被通緝，{count} 星"
+    },
     "fct": {
       "absorbed": "吸收 {amount}",
       "cheap": "費用降低!"

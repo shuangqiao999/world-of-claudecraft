@@ -366,6 +366,13 @@ export const pt_BR: EnTranslations = {
       "busy": "Termine sua ação atual antes de usar Desbloqueio.",
       "unavailable": "Desbloqueio não está disponível no seu estado atual."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} absorvido",
       "cheap": "Custo reduzido!"

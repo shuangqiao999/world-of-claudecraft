@@ -561,6 +561,7 @@ describe('handlePickedEntity', () => {
       showError: () => {},
       closeContextMenu: () => {},
       requestSpiritHealerResurrect: () => {},
+      openContextMenu: () => {},
     };
 
     expect(handlePickedEntity(world, hud, 2, 2, 10, 20)).toBe(false);
@@ -601,6 +602,7 @@ describe('handlePickedEntity', () => {
       showError: () => {},
       closeContextMenu: () => {},
       requestSpiritHealerResurrect: () => {},
+      openContextMenu: () => {},
     };
 
     handlePickedEntity(world, hud, 2, 2, 10, 20);
@@ -648,6 +650,7 @@ describe('handlePickedEntity while dead (the ghost/death loop)', () => {
       showError: () => calls.push('showError'),
       closeContextMenu: () => {},
       requestSpiritHealerResurrect: () => calls.push('requestSpiritHealerResurrect'),
+      openContextMenu: () => calls.push('openContextMenu'),
     };
     return { world, hud, calls };
   }

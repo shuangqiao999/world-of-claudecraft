@@ -366,6 +366,13 @@ export const ru_RU: EnTranslations = {
       "busy": "Завершите текущее действие, прежде чем выбираться.",
       "unavailable": "В текущем состоянии выбраться нельзя."
     },
+    "combatState": {
+      "fleeing": "Бегство",
+      "inCombat": "В бою"
+    },
+    "wanted": {
+      "stars": "В розыске, {count} звёзд"
+    },
     "fct": {
       "absorbed": "Поглощено {amount}",
       "cheap": "Дешевле!"

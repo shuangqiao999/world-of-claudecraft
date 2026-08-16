@@ -366,6 +366,13 @@ export const nl_NL: EnTranslations = {
       "busy": "Maak je huidige actie af voordat je Loskomen gebruikt.",
       "unavailable": "Loskomen is niet beschikbaar in je huidige toestand."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} geabsorbeerd",
       "cheap": "Goedkoper!"

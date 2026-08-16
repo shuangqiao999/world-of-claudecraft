@@ -366,6 +366,13 @@ export const ko_KR: EnTranslations = {
       "busy": "현재 행동을 끝낸 뒤 갇힘 탈출을 사용하세요.",
       "unavailable": "현재 상태에서는 갇힘 탈출을 사용할 수 없습니다."
     },
+    "combatState": {
+      "fleeing": "도주 중",
+      "inCombat": "전투 중"
+    },
+    "wanted": {
+      "stars": "수배 중, 별 {count}개"
+    },
     "fct": {
       "absorbed": "{amount} 흡수",
       "cheap": "비용 감소!"

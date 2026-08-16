@@ -366,6 +366,13 @@ export const sv_SE: EnTranslations = {
       "busy": "Avsluta din nuvarande handling innan du använder Fastna-hjälp.",
       "unavailable": "Fastna-hjälp är inte tillgänglig i ditt nuvarande tillstånd."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} absorberat",
       "cheap": "Billigare!"

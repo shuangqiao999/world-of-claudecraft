@@ -1713,6 +1713,11 @@ function H.dev_target(ctx, pid, cmd)
     -- 正常玩法中跨分片目标需扩展 findNearestEnemy/target 以覆盖 ghost 实体。
     ctx.autoAttack.startAutoAttack(e, { id = id })
     e.swingTimer = 3.0  -- 立即挥击 (测试: 规避 mob 巡逻导致首击超出近战范围)
+    -- 朝向目标 (测试: 规避近战朝向差导致的 miss)
+    local t = ctx.entities[id] or (ctx.ghostEntities and ctx.ghostEntities[id])
+    if t then
+        e.facing = math.atan(t.pos.x - e.pos.x, t.pos.z - e.pos.z)
+    end
     return true
 end
 function H.dev_ranged(ctx, pid, cmd)
@@ -1722,6 +1727,44 @@ function H.dev_ranged(ctx, pid, cmd)
     -- 测试用: 给实体装一把远程武器 (当前无弓箭/魔杖物品, 直接注入 weapon.kind="ranged")
     e.weapon = { kind = "ranged", min = 10, max = 20, speed = 2.5 }
     ctx.noteEvents({ { type = "log", text = "Ranged weapon set (dev)", pid = pid } })
+    return true
+end
+function H.dev_spawn_ped(ctx, pid, cmd)
+    if not ctx.config.getAllowDevCommands() then return false end
+    local e = ctx.entities[pid]
+    if not e then return false end
+    -- 在玩家身旁 2yd 生成临时平民 NPC (不依赖全局随机散布, 测试「击杀平民→通缉」用)
+    local pos = { x = e.pos.x + 2, y = 0, z = e.pos.z }
+    local ped = ctx.createPedestrianEntity("Test Villager", 5, pos)
+    ctx.entities[ped.id] = ped
+    ctx.grid.insert(ped)
+    ctx.noteEvents({ { type = "log", text = "Spawned pedestrian id=" .. ped.id .. " (dev)", pid = pid } })
+    return true
+end
+function H.dev_despawn(ctx, pid, cmd)
+    if not ctx.config.getAllowDevCommands() then return false end
+    local id = n(cmd.id)
+    if not id then return false end
+    if ctx.despawnEntity(id) then
+        ctx.noteEvents({ { type = "log", text = "Despawned id=" .. id .. " (dev)", pid = pid } })
+    end
+    return true
+end
+function H.dev_damage(ctx, pid, cmd)
+    if not ctx.config.getAllowDevCommands() then return false end
+    local e = ctx.entities[pid]
+    if not e then return false end
+    local id = n(cmd.id)
+    if not id then return false end
+    local target = ctx.entities[id]
+    if not target or target.dead then return false end
+    -- 测试专用: 直接走 dealDamage (绕过 auto_attack 挥击时序), 用于验证
+    -- damage.dealDamage 的 lastAttackerId 记录 → 击杀平民/玩家 → wanted 触发。
+    local damage = require("world.combat.damage")
+    local amount = n(cmd.amount) or 100
+    local dmg = damage.dealDamage(nil, e, target, amount, false, "physical", nil)
+    target.hp = math.max(0, target.hp - math.floor(dmg + 0.5))
+    ctx.noteEvents({ { type = "log", text = "dev_damage id=" .. id .. " raw=" .. math.floor(dmg + 0.5) .. " hp=" .. target.hp, pid = pid } })
     return true
 end
 function H.dev_complete_quest(ctx, pid, cmd)

@@ -333,6 +333,7 @@ describe('client interaction classification', () => {
       showError: () => {},
       closeContextMenu: () => {},
       requestSpiritHealerResurrect: () => {},
+      openContextMenu: () => {},
     };
     handlePickedEntity(world, hud, 9, 2, 10, 20); // right-click, in range
     expect(opened).toBe(9);

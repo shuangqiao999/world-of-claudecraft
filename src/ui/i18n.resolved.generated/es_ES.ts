@@ -366,6 +366,13 @@ export const es_ES: EnTranslations = {
       "busy": "Termina tu acción actual antes de usar Desatascar.",
       "unavailable": "Desatascar no está disponible en tu estado actual."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "Absorbido {amount}",
       "cheap": "¡Coste reducido!"

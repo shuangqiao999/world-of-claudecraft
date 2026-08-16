@@ -366,6 +366,13 @@ export const vi_VN: EnTranslations = {
       "busy": "Hãy hoàn tất hành động hiện tại trước khi sử dụng Thoát Kẹt.",
       "unavailable": "Thoát Kẹt không khả dụng trong trạng thái hiện tại của bạn."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "Đã hấp thụ {amount}",
       "cheap": "Giảm chi phí!"

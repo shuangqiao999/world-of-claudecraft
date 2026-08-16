@@ -28,9 +28,19 @@ function check(name, cond, extra) {
 }
 
 async function seed(pool, count, offset) {
-  const usernames = [], names = [], tokens = [];
+  const usernames = [],
+    names = [],
+    tokens = [];
   const L = 'abcdefghijklmnopqrstuvwxyz';
-  const letters = (n) => { let s = ''; let x = n + 1; while (x > 0) { s = L[x % 26] + s; x = Math.floor(x / 26); } return s; };
+  const letters = (n) => {
+    let s = '';
+    let x = n + 1;
+    while (x > 0) {
+      s = L[x % 26] + s;
+      x = Math.floor(x / 26);
+    }
+    return s;
+  };
   for (let i = 0; i < count; i++) {
     const k = offset + i;
     usernames.push(`xg${RUN}${String(k).padStart(5, '0')}`);
@@ -65,15 +75,24 @@ async function seed(pool, count, offset) {
     if (chars.rows.length !== count) throw new Error(`char seed: ${chars.rows.length}/${count}`);
     const charByAcct = new Map(chars.rows.map((r) => [r.account_id, r.id]));
     await client.query('COMMIT');
-    const bots = accountIds.map((a) => ({ token: tokens[accountIds.indexOf(a)], charId: charByAcct.get(a) }));
+    const bots = accountIds.map((a) => ({
+      token: tokens[accountIds.indexOf(a)],
+      charId: charByAcct.get(a),
+    }));
     return { bots, accountIds };
-  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
-  finally { client.release(); }
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function cleanup(pool, accountIds) {
   for (let i = 0; i < accountIds.length; i += 500) {
-    await pool.query('DELETE FROM accounts WHERE id = ANY($1::int[])', [accountIds.slice(i, i + 500)]);
+    await pool.query('DELETE FROM accounts WHERE id = ANY($1::int[])', [
+      accountIds.slice(i, i + 500),
+    ]);
   }
 }
 
@@ -81,16 +100,61 @@ function connect(token, charId) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS);
     let done = false;
-    const to = setTimeout(() => { if (!done) { done = true; try { ws.terminate(); } catch {} reject(new Error('join timeout')); } }, 30000);
-    ws.on('open', () => ws.send(JSON.stringify({ t: 'auth-world-5', token, character: charId, clientSeed: '', timerWire: 2 })));
+    const to = setTimeout(() => {
+      if (!done) {
+        done = true;
+        try {
+          ws.terminate();
+        } catch {}
+        reject(new Error('join timeout'));
+      }
+    }, 30000);
+    ws.on('open', () =>
+      ws.send(
+        JSON.stringify({
+          t: 'auth-world-5',
+          token,
+          character: charId,
+          clientSeed: '',
+          timerWire: 2,
+        }),
+      ),
+    );
     ws.on('message', (d) => {
       if (done) return;
-      let m; try { m = JSON.parse(d.toString()); } catch { return; }
-      if (m.t === 'hello') { done = true; clearTimeout(to); resolve({ ws, pid: m.pid }); }
-      else if (m.t === 'error') { done = true; clearTimeout(to); try { ws.close(); } catch {} reject(new Error(m.error ?? 'auth error')); }
+      let m;
+      try {
+        m = JSON.parse(d.toString());
+      } catch {
+        return;
+      }
+      if (m.t === 'hello') {
+        done = true;
+        clearTimeout(to);
+        resolve({ ws, pid: m.pid });
+      } else if (m.t === 'error') {
+        done = true;
+        clearTimeout(to);
+        try {
+          ws.close();
+        } catch {}
+        reject(new Error(m.error ?? 'auth error'));
+      }
     });
-    ws.on('error', (e) => { if (!done) { done = true; clearTimeout(to); reject(e); } });
-    ws.on('close', () => { if (!done) { done = true; clearTimeout(to); reject(new Error('closed before hello')); } });
+    ws.on('error', (e) => {
+      if (!done) {
+        done = true;
+        clearTimeout(to);
+        reject(e);
+      }
+    });
+    ws.on('close', () => {
+      if (!done) {
+        done = true;
+        clearTimeout(to);
+        reject(new Error('closed before hello'));
+      }
+    });
   });
 }
 
@@ -98,15 +162,37 @@ function cmd(ws, name, args = {}) {
   ws.send(JSON.stringify({ t: 'cmd', cmd: name, ...args }));
 }
 function logout(ws) {
-  try { ws.send(JSON.stringify({ t: 'logout' })); } catch {}
-  try { ws.close(); } catch {}
+  try {
+    ws.send(JSON.stringify({ t: 'logout' }));
+  } catch {}
+  try {
+    ws.close();
+  } catch {}
 }
-function asObj(r) { return typeof r === 'string' ? JSON.parse(r) : r; }
+function asObj(r) {
+  return typeof r === 'string' ? JSON.parse(r) : r;
+}
 
 function attachObserver(sock) {
-  const state = { cst: null, wanted: null, selfTarget: null, ents: new Map(), selfX: null, selfZ: null, snapCount: 0, entsLens: [], keepLens: [] };
+  const state = {
+    cst: null,
+    wanted: null,
+    selfTarget: null,
+    ents: new Map(),
+    selfX: null,
+    selfZ: null,
+    snapCount: 0,
+    entsLens: [],
+    keepLens: [],
+    events: [],
+  };
   sock.ws.on('message', (d) => {
-    let m; try { m = JSON.parse(d.toString()); } catch { return; }
+    let m;
+    try {
+      m = JSON.parse(d.toString());
+    } catch {
+      return;
+    }
     if (m.t === 'snap') {
       state.snapCount++;
       if (Array.isArray(m.ents)) state.entsLens.push(m.ents.length);
@@ -128,28 +214,29 @@ function attachObserver(sock) {
           }
         }
       }
+    } else if (m.t === 'events') {
+      const arr = Array.isArray(m.list) ? m.list : m.list ? [m.list] : [];
+      for (const ev of arr) state.events.push(ev);
     }
   });
   return state;
 }
 
-function findPedestrian(state) {
-  for (const e of state.ents.values()) {
-    if (e.k === 'npc' && e.tid === 'pedestrian' && !e.dead) return e;
-  }
-  return null;
-}
-
 async function main() {
   const t0 = Date.now();
-  if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is required'); process.exit(1); }
+  if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is required');
+    process.exit(1);
+  }
   console.log(`[gta] target=${BASE} shards=${SHARDS} run=${RUN}`);
 
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 5 });
   const bots = [];
   try {
     const { bots: seeded, accountIds } = await seed(pool, 1, 0);
-    console.log(`[gta] seeded ${seeded.length} account(s) (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+    console.log(
+      `[gta] seeded ${seeded.length} account(s) (${((Date.now() - t0) / 1000).toFixed(1)}s)`,
+    );
 
     const b = seeded[0];
     const conn = await connect(b.token, b.charId);
@@ -164,40 +251,42 @@ async function main() {
     cmd(bot.ws, 'dev_level', { level: 20 });
     await sleep(500);
 
-    // --- 1. wanted: kill a pedestrian NPC ---
-    // Give the player a weapon (mainhandItemId != nil) so selecting a pedestrian
-    // actually enters auto_fight (unarmed selection is select-only). New level-1
-    // characters auto-equip a starter sword, but level 20 (dev_level) is safe.
+    // --- 1a. wanted: kill a pedestrian NPC ---
+    // Give the player a melee weapon so selecting the pedestrian enters auto_fight
+    // (unarmed selection is select-only), then spawn a deterministic test pedestrian
+    // right beside the player (no simrng scatter / AOI-culling / dead-zone involved),
+    // melee it to death, and despawn the corpse.
     cmd(bot.ws, 'dev_give', { item: 'worn_sword' });
     await sleep(300);
     cmd(bot.ws, 'equip', { item: 'worn_sword' });
-    // Players spawn at (0,0) and migrate to the pedestrian shard on the next tick;
-    // give the migration + interest set time to settle before looking for a victim.
-    await sleep(5000);
-    let ped = findPedestrian(state);
-    if (!ped) {
-      // The player spawns at (0,0), the town center. MAX_VISIBLE_ENTITIES (25)
-      // clips the snapshot to the NEAREST entities, and the ~10 town service NPCs
-      // plus ~30 gather nodes sit closer than the pedestrians (+/-50 yd), so the
-      // pedestrians fall outside the first 25 and never reach the wire. This is
-      // an AOI-culling limit, not a wanted-system bug. Verifying wanted end-to-end
-      // needs a scene where a pedestrian is inside the top-25 (or a targeted kill).
-      console.log('  SKIP  wanted: pedestrian clipped by MAX_VISIBLE_ENTITIES (town-center AOI crowding)');
+    await sleep(500);
+    const beforeWanted = state.wanted ?? 0;
+    const logBefore = state.events.length;
+    cmd(bot.ws, 'dev_spawn_ped', {});
+    await sleep(800);
+    const spawnEvt = state.events
+      .slice(logBefore)
+      .find((ev) => ev.type === 'log' && /Spawned pedestrian id=(\d+)/.test(ev.text ?? ''));
+    const pedId = spawnEvt ? Number((spawnEvt.text || '').match(/id=(\d+)/)?.[1]) : null;
+    if (!pedId) {
+      check('killing a pedestrian raises wanted', false, 'dev_spawn_ped produced no id');
     } else {
-      const before = state.wanted ?? 0;
-      console.log(`[gta] targeting pedestrian id=${ped.id} hp=${ped.hp}/${ped.mhp} (wanted before=${before})`);
-      cmd(bot.ws, 'target', { id: ped.id });
-      await sleep(1500);
-      // Wait for the kill (50 HP pedestrian; player is level 20 with a sword).
-      let killed = false;
-      for (let i = 0; i < 30 && !killed; i++) {
-        const p = state.ents.get(ped.id);
-        if (!p || p.dead) killed = true;
-        else await sleep(1000);
+      // Kill via a direct damage call (bypasses auto_attack swing-timer quirks) so the
+      // assertion targets the wanted pipeline: dealDamage records lastAttackerId, then
+      // handleDeath raises wanted on the killer.
+      cmd(bot.ws, 'dev_damage', { id: pedId, amount: 100 });
+      let pedKilled = false;
+      for (let i = 0; i < 10 && !pedKilled; i++) {
+        await sleep(1000);
+        if ((state.wanted ?? 0) > beforeWanted) pedKilled = true;
       }
-      const after = state.wanted ?? 0;
-      check('killing a pedestrian raises wanted (self.wanted)', after > before,
-        `wanted ${before} -> ${after}`);
+      check(
+        'killing a pedestrian raises wanted',
+        pedKilled,
+        `wanted ${beforeWanted} -> ${state.wanted} pedId=${pedId}`,
+      );
+      cmd(bot.ws, 'dev_despawn', { id: pedId });
+      await sleep(300);
     }
 
     // Move far from spawn camps and pedestrians to control the remaining scene.
@@ -207,8 +296,11 @@ async function main() {
     // --- 2. fleeing ---
     cmd(bot.ws, 'stopattack');
     await sleep(500);
-    check('stopattack flips combatState to fleeing (self.cst)', state.cst === 'fleeing',
-      `cst=${state.cst}`);
+    check(
+      'stopattack flips combatState to fleeing (self.cst)',
+      state.cst === 'fleeing',
+      `cst=${state.cst}`,
+    );
     // Reset to idle so the chase test starts clean.
     cmd(bot.ws, 'target', { id: null });
     await sleep(400);
@@ -217,9 +309,13 @@ async function main() {
     // dev_give with no item spawns a hostile forest_wolf near the player.
     cmd(bot.ws, 'dev_give', {});
     await sleep(1000);
-    const wolfEntry = [...state.ents.values()].find((e) => e.k === 'mob' || e.tid === 'forest_wolf');
+    const wolfEntry = [...state.ents.values()].find(
+      (e) => e.k === 'mob' || e.tid === 'forest_wolf',
+    );
     if (!wolfEntry) {
-      console.log('  SKIP  mob chase: no spawned wolf observed (dev_give may not have spawned one)');
+      console.log(
+        '  SKIP  mob chase: no spawned wolf observed (dev_give may not have spawned one)',
+      );
     } else {
       const wolfId = wolfEntry.id;
       const spawnX = wolfEntry.x;
@@ -241,14 +337,60 @@ async function main() {
       const wolf = state.ents.get(wolfId);
       if (wolf && wolf.x !== undefined) {
         const dist = Math.hypot(wolf.x - spawnX, wolf.z - spawnZ);
-        check('mob gives up chasing past its max distance', dist < 160,
-          `wolf stray=${dist.toFixed(0)}yd from spawn (player 200yd away)`);
+        check(
+          'mob gives up chasing past its max distance',
+          dist < 160,
+          `wolf stray=${dist.toFixed(0)}yd from spawn (player 200yd away)`,
+        );
       } else {
         check('mob gives up chasing past its max distance', false, 'wolf not observed after chase');
       }
     }
 
-    console.log(`\n[gta] done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${failures === 0 ? 'RESULT: PASS' : 'RESULT: FAIL'}`);
+    // --- 1b. wanted: kill another player (PvP) ---
+    {
+      const { bots: bots2, accountIds: ids2 } = await seed(pool, 1, 200000);
+      accountIds.push(...ids2);
+      const b2 = bots2[0];
+      const conn2 = await connect(b2.token, b2.charId);
+      bots.push(conn2.ws);
+      // Bot B is level 1 (90 HP) so a single kill shot raises Bot A's wanted
+      // (killing a player, like a pedestrian, is a crime).
+      cmd(conn2.ws, 'dev_level', { level: 1 });
+      await sleep(300);
+      cmd(conn2.ws, 'dev_teleport', { x: 3200, z: 3000 });
+      // The shard migration for Bot B takes several ticks after the teleport; wait
+      // until it actually lands in Bot A's shard, or pvp_attack sees no local target.
+      await sleep(8000);
+      cmd(bot.ws, 'dev_give', { item: 'worn_sword' });
+      await sleep(300);
+      cmd(bot.ws, 'equip', { item: 'worn_sword' });
+      await sleep(300);
+      cmd(bot.ws, 'target', { id: null });
+      cmd(bot.ws, 'dev_teleport', { x: 3198, z: 3000 });
+      await sleep(1200);
+      const beforePvpWanted = state.wanted ?? 0;
+      cmd(bot.ws, 'pvp_attack', { id: conn2.pid });
+      await sleep(500);
+      // pvp_attack only flags consent; then kill via a direct damage call (bypasses
+      // auto_attack miss/dodge/parry swing luck) so the assertion targets the wanted
+      // pipeline: dealDamage records lastAttackerId, handleDeath raises wanted.
+      cmd(bot.ws, 'dev_damage', { id: conn2.pid, amount: 200 });
+      let pvpKilled = false;
+      for (let i = 0; i < 15 && !pvpKilled; i++) {
+        if ((state.wanted ?? 0) > beforePvpWanted) pvpKilled = true;
+        else await sleep(1000);
+      }
+      check(
+        'killing a player raises wanted',
+        pvpKilled,
+        `wanted ${beforePvpWanted} -> ${state.wanted} cst=${state.cst} target=${state.selfTarget}`,
+      );
+    }
+
+    console.log(
+      `\n[gta] done in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${failures === 0 ? 'RESULT: PASS' : 'RESULT: FAIL'}`,
+    );
 
     for (const w of bots) logout(w);
     await sleep(500);
@@ -259,4 +401,7 @@ async function main() {
   process.exit(failures > 0 ? 1 : 0);
 }
 
-main().catch((e) => { console.error('FATAL', e); process.exit(1); });
+main().catch((e) => {
+  console.error('FATAL', e);
+  process.exit(1);
+});

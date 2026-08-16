@@ -83,6 +83,16 @@ export const hudChromeStrings = {
     busy: 'Finish your current action before using Unstuck.',
     unavailable: 'Unstuck is unavailable in your current state.',
   },
+  // GTA open-world combat state + wanted indicator (screen-top). The state label
+  // and the wanted-stars accessible name; the stars themselves are clip-path'd
+  // (no asset), driven by the wanted_indicator painter.
+  combatState: {
+    fleeing: 'Fleeing',
+    inCombat: 'In Combat',
+  },
+  wanted: {
+    stars: 'Wanted, {count} stars',
+  },
   // Floating combat text self-notes (proc consume labels, absorb readout).
   fct: {
     absorbed: 'Absorbed {amount}',

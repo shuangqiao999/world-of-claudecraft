@@ -366,6 +366,13 @@ export const it_IT: EnTranslations = {
       "busy": "Completa l'azione in corso prima di usare Sblocco.",
       "unavailable": "Sblocco non è disponibile nel tuo stato attuale."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "Assorbito {amount}",
       "cheap": "Costo ridotto!"

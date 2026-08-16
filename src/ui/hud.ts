@@ -684,6 +684,8 @@ import {
   wocBalance,
   wocBalanceVerified,
 } from './wallet_balance';
+import { WantedIndicatorPainter } from './wanted_indicator_painter';
+import { buildWantedIndicatorModel } from './wanted_indicator_view';
 import { type WeaponProcEffectDesc, weaponProcLines } from './weapon_proc_view';
 import { weaponTypeLabelKey } from './weapon_type_label';
 import {
@@ -3956,6 +3958,16 @@ export class Hud {
   private readonly procOverlayPainter = new ProcOverlayPainter(
     this.writerFacet,
     this.procOverlayEl,
+  );
+  // Screen-top GTA-style wanted stars + combat-state label. The #wanted-indicator
+  // element and its .combat-state child are static markup in index.html; the
+  // painter only toggles the w1..w5/wanted/fleeing/combat classes and the label.
+  private readonly wantedIndicatorEl = $('#wanted-indicator');
+  private readonly wantedCombatStateEl = $('#wanted-indicator .combat-state');
+  private readonly wantedIndicatorPainter = new WantedIndicatorPainter(
+    this.writerFacet,
+    this.wantedIndicatorEl,
+    this.wantedCombatStateEl,
   );
   // Player-configurable class proc overlays. The controller builds the native
   // spell icon plus two side crescents once; its painter only toggles active
@@ -8834,6 +8846,22 @@ export class Hud {
       this.procOverlayPainter.paintFrostCharges(frostOverlayCharges(p.auras));
     } else {
       this.procOverlayPainter.paint(procOverlayState(p.auras), combustionOverlayActive(p.auras));
+    }
+    // Screen-top GTA-style wanted stars + combat-state label. Resolve the
+    // localized label/aria text here so the painter stays i18n-free; the painter
+    // elides every write so an unchanged state costs zero DOM work.
+    {
+      const wm = buildWantedIndicatorModel(p.wantedLevel, p.combatState);
+      const stateText = wm.fleeing
+        ? t('hudChrome.combatState.fleeing')
+        : wm.inCombat
+          ? t('hudChrome.combatState.inCombat')
+          : '';
+      const starsText =
+        wm.wantedLevel > 0 ? t('hudChrome.wanted.stars', { count: wm.wantedLevel }) : '';
+      const ariaLabel =
+        starsText && stateText ? `${starsText}, ${stateText}` : starsText || stateText;
+      this.wantedIndicatorPainter.paint(wm, stateText, ariaLabel);
     }
     this.auraOverlayController.paint(
       p.auras,

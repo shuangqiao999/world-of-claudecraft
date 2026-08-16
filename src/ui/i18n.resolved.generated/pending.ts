@@ -10,54 +10,99 @@
 
 export const pending: Record<string, readonly string[]> = {
   "es": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "es_ES": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "fr_FR": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "fr_CA": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "en_CA": [],
   "it_IT": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "de_DE": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "zh_CN": [],
   "zh_TW": [],
   "ko_KR": [],
   "ja_JP": [],
   "pt_BR": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "ru_RU": [],
   "cs_CZ": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "nl_NL": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "pl_PL": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "id_ID": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "tr_TR": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "sv_SE": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "vi_VN": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ],
   "da_DK": [
-    "hud.chat.context.attack"
+    "hud.chat.context.attack",
+    "hudChrome.combatState.fleeing",
+    "hudChrome.combatState.inCombat",
+    "hudChrome.wanted.stars"
   ]
 };

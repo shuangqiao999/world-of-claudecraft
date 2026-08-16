@@ -366,6 +366,13 @@ export const id_ID: EnTranslations = {
       "busy": "Selesaikan tindakanmu saat ini sebelum menggunakan Lepaskan Diri.",
       "unavailable": "Lepaskan Diri tidak tersedia dalam keadaanmu saat ini."
     },
+    "combatState": {
+      "fleeing": "Fleeing",
+      "inCombat": "In Combat"
+    },
+    "wanted": {
+      "stars": "Wanted, {count} stars"
+    },
     "fct": {
       "absorbed": "{amount} diserap",
       "cheap": "Lebih murah!"
