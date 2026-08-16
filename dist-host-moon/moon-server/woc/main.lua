@@ -71,8 +71,8 @@ if _G["__init__"] then
         -- 工作线程数 (自适应: 固定服务 5 + 世界分片)
         thread = threads,
 
-        -- 日志级别: 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG
-        loglevel = isProduction() and "INFO" or "DEBUG",
+        -- 日志级别: 1=ERROR, 2=WARN, 3=INFO, 4=DEBUG (最低级别只保留 ERROR)
+        loglevel = "ERROR",
 
         -- 启用控制台输出
         enable_stdout = true,

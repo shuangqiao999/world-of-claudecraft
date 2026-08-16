@@ -1762,18 +1762,20 @@ local function doGameTick()
 
     phaseEnd("save", t0)
 
-    -- 周期性状态日志 (含 tick 耗时)
-    if tick % (config.TICK_RATE * 10) == 0 then
+    -- 周期性状态日志 (含 tick 耗时); 生产模式不输出, 减少日志噪音
+    if not config.isProduction() and tick % (config.TICK_RATE * 10) == 0 then
         local n = 0; for _ in pairs(players) do n = n + 1 end
         local m = 0; for _, e in pairs(entities) do if e.kind == "mob" and not e.dead then m = m + 1 end end
         print(string.format(shardTag("[World]") .. " t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
     end
 
-    -- 分相计时: 每 10 秒墙上时间打印一次 (tick 慢时不受 200-tick 间隔影响)
-    local phaseNow = moonCore.clock()
-    if phaseNow - phaseLastReport >= 10 then
-        phaseLastReport = phaseNow
-        phaseReport()
+    -- 分相计时: 每 10 秒墙上时间打印一次 (tick 慢时不受 200-tick 间隔影响); 生产模式不输出
+    if not config.isProduction() then
+        local phaseNow = moonCore.clock()
+        if phaseNow - phaseLastReport >= 10 then
+            phaseLastReport = phaseNow
+            phaseReport()
+        end
     end
 end
 
