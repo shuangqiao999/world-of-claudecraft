@@ -248,9 +248,9 @@ M.getPort = function()
 end
 
 M.getAllowDevCommands = function()
-    -- 开发模式 (本地上线前测试): dev 命令 (dev_level/dev_teleport/dev_give/dev_target 等)
-    -- 始终启用; 生产发布前改回 os.getenv("ALLOW_DEV_COMMANDS") == "1"。
-    return true
+    -- 生产模式: dev 命令 (dev_level/dev_teleport/dev_give/dev_target 等) 仅在
+    -- 显式设置 ALLOW_DEV_COMMANDS=1 时启用 (默认关闭)。
+    return os.getenv("ALLOW_DEV_COMMANDS") == "1"
 end
 
 M.isProduction = function()
