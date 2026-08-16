@@ -10,7 +10,7 @@ dist-env/
 dist-ota/
 dist-server/
 dist-host/
-postgres-src/
+# 便携 PostgreSQL 二进制 (postgres-src/) 纳入版本控制, 供自托管服务端打包使用。
 release/
 release-steam/
 # generated main-process runtime bundles (scripts/electron-vendor.mjs)
