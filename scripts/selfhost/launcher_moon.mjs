@@ -34,6 +34,7 @@ const ENV_FILE = path.join(DATA_ROOT, '.env');
 
 const PUBLIC_PORT = parsePort(process.env.WOC_GAME_PORT, 8787);
 const MOON_PORT = parsePort(process.env.WOC_GATE_PORT, 8788);
+const WS_PORT = parsePort(process.env.WOC_WS_PORT, MOON_PORT + 1);
 const PG_PORT = parsePort(process.env.WOC_PG_PORT, 5433);
 const DB_USER = 'eastbrook';
 const DB_NAME = 'postgres';
@@ -202,7 +203,7 @@ async function main() {
   log(`adaptive threads: cpu=${cpuCount} threads=${threadCount} worldShards=${worldShards} dbPool=${dbPoolSize}`);
   const moonProc = spawn(MOON_EXE, [MOON_ENTRY], {
     cwd: MOON_CWD,
-    env: { ...process.env, DATABASE_URL: `postgres://${DB_USER}:${readPassword()}@127.0.0.1:${PG_PORT}/${DB_NAME}`, PORT: String(MOON_PORT), WOC_GATE_PORT: String(MOON_PORT), WOC_REALM: 'Claudemoon', WOC_THREADS: String(threadCount), WOC_WORLD_SHARDS: String(worldShards), DB_POOL_SIZE: String(dbPoolSize), STATIC_DIR: DIST_DIR },
+    env: { ...process.env, DATABASE_URL: `postgres://${DB_USER}:${readPassword()}@127.0.0.1:${PG_PORT}/${DB_NAME}`, PORT: String(MOON_PORT), WOC_GATE_PORT: String(MOON_PORT), WOC_WS_PORT: String(WS_PORT), WOC_REALM: 'Claudemoon', WOC_THREADS: String(threadCount), WOC_WORLD_SHARDS: String(worldShards), DB_POOL_SIZE: String(dbPoolSize), STATIC_DIR: DIST_DIR },
     stdio: 'inherit', windowsHide: true,
   });
   moonProc.on('error', (e) => fail(`moon: ${e.message}`));
@@ -212,11 +213,11 @@ async function main() {
 
   const proxyServer = http.createServer(handleStaticRequest);
 
-  // WebSocket upgrade proxy
+  // WebSocket upgrade proxy → moon 的 WS 端口 (WOC_WS_PORT, 默认 MOON_PORT+1)
   proxyServer.on('upgrade', (req, socket, head) => {
-    const moon = net.connect(MOON_PORT, '127.0.0.1', () => {
+    const moon = net.connect(WS_PORT, '127.0.0.1', () => {
       const lines = [`${req.method} ${req.url} HTTP/1.1`];
-      const hdrs = { ...req.headers, host: `127.0.0.1:${MOON_PORT}`, connection: 'Upgrade' };
+      const hdrs = { ...req.headers, host: `127.0.0.1:${WS_PORT}`, connection: 'Upgrade' };
       for (const [k, v] of Object.entries(hdrs)) { if (v !== undefined) lines.push(`${k}: ${v}`); }
       lines.push('', '');
       moon.write(lines.join('\r\n'));

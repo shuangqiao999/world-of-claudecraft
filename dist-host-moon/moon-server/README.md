@@ -7,6 +7,7 @@
 ```
 moon-server/
 ├── bin/          # moon.exe 编译好的二进制
+├── clib/         # C 运行库 (rust.dll, math3d.dll)
 ├── woc/          # World of ClaudeCraft 游戏逻辑 (Lua)
 │   ├── main.lua       # 入口: 创建所有 Service
 │   ├── config.lua     # 全局常量
@@ -92,14 +93,13 @@ copy target\release\moon.exe bin\
 
 - Node.js 24+
 - NSIS 3.x（安装到默认路径 `C:\Program Files (x86)\NSIS`）
-- `npm run build` 已执行（`dist/` 存在）
+- `npm run build` 已执行（项目根 `dist/` 存在）
 - `postgres-src/` 已解压（Windows x64 便携版 PostgreSQL 16，含 `bin/postgres.exe`）
-- `moon-server/` 源目录已与 `dist-host-moon/moon-server/` 同步（见下方同步步骤）
+- 本 `moon-server/` 目录已含最新游戏逻辑（woc/）和 `clib/`
 
-### 同步 moon-server 源
+### 同步源目录
 
-打包脚本从项目根 `moon-server/` 复制到 `dist-host-moon/moon-server/`。
-如果日常开发在 `dist-host-moon/moon-server/` 中进行，需先将修改同步回源目录：
+如果日常开发在 `dist-host-moon/moon-server/` 中进行，修改后需同步回源目录：
 
 ```cmd
 robocopy "dist-host-moon/moon-server/woc" "moon-server/woc" /MIR /NJH /NJS /NDL /NP

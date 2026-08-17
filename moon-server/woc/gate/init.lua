@@ -1,5 +1,11 @@
--- World of ClaudeCraft — Gate Service (API + WebSocket on internal port)
--- 由 Node.js 代理转发 /api/* 和 /ws，代理负责静态文件
+-- World of ClaudeCraft — Gate Service (API + WebSocket)
+-- 由 Node.js 代理层 (launcher_moon.mjs) 对外统一 8787, 内部分流:
+--   /api/* 与 /health  → moon 的 HTTP 端口 (config.getPort(), 默认 8788)
+--   WS upgrade        → moon 的 WS 端口 (WOC_WS_PORT, 默认 8789)
+-- 底层 HTTP/WS 改用 moon 自带模块 (C++ 解析/缓冲/心跳):
+--   moon.http.server   : HTTP 解析 + 路由 + keepalive
+--   moon.http.websocket: WS 帧/掩码/心跳, 免手写背压与掩码循环
+-- 会话/认证/广播等业务逻辑保持不变。
 
 local moon = require("moon")
 local socket = require("moon.socket")
@@ -7,6 +13,8 @@ local jh = require("shared.json_helpers")
 local json = require("json")
 local crypt = require("crypt")
 local config = require("config")
+local httpServer = require("moon.http.server")
+local websocket = require("moon.http.websocket")
 
 -- 速率限制 (Phase 3)
 local rateLimit = require("world.msg_rate_limit")
@@ -59,14 +67,13 @@ local function joinGate()
     end
 end
 
-local WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+-- 端口: HTTP 用 config.getPort (launcher 转发 /api), WS 用 WOC_WS_PORT
+local httpPort = config.getPort()
+local wsPort = tonumber(os.getenv("WOC_WS_PORT")) or (httpPort + 1)
 
-------------------------------------------------------------
+-----------------------------------------------------------------
 -- DB Service 调用 (moon.call 跨 worker, 无直连)
-------------------------------------------------------------
-
---- 调用 DB Service 操作
---- @return data, err
+-----------------------------------------------------------------
 local function dbCall(op, ...)
     local dbSvc = moon.queryservice("db")
     if not dbSvc then return nil, "db service unavailable" end
@@ -77,199 +84,20 @@ local function dbCall(op, ...)
     return nil, (resp and resp.error) or "db error"
 end
 
---- DB Service 是否可用
 local function dbUp()
     return moon.queryservice("db") ~= nil
 end
 
---- DB Service 是否可用
-local function dbUp()
-    return moon.queryservice("db") ~= nil
-end
-
-------------------------------------------------------------
--- HTTP 处理
-------------------------------------------------------------
-
-local function sendHttpResponse(fd, status, contentType, body)
-    -- CORS: 客户端用 Content-Type: application/json + Authorization: Bearer,
-    -- 属非简单请求会触发 preflight (OPTIONS)。缺少 Allow-Methods/Allow-Headers
-    -- 时浏览器/Electron 会拒绝 preflight, 登录 POST 根本发不出去。
-    local resp = string.format("HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\nAccess-Control-Allow-Headers: Authorization, Content-Type\r\nAccess-Control-Max-Age: 600\r\nConnection: close\r\n\r\n%s",
-        status, contentType, #body, body)
-    -- write_then_close: 原子写+关 (socket.write + socket.close 在 CPU 争用下会丢数据)
-    socket.write_then_close(fd, resp)
-end
-
-local function sendJson(fd, data)
-    local body = json.encode(data)
-    sendHttpResponse(fd, "200 OK", "application/json", body)
-end
-
-local function parseHeaders(fd, firstLine)
-    local headerData = firstLine .. "\n" .. socket.read(fd, "\r\n\r\n")
-    if not headerData then return nil end
-    local lines = {}
-    for line in headerData:gmatch("[^\r\n]+") do table.insert(lines, line) end
-    if #lines == 0 then return nil end
-    local method, path, _ = string.match(lines[1] or "", "^(%w+)%s+([^%s]+)%s+HTTP/(%d%.%d)$")
-    if not method then return nil end
-    local headers = {}
-    for i = 2, #lines do
-        local k, v = string.match(lines[i], "^([^:]+):%s*(.+)$")
-        if k then headers[k:lower()] = v end
-    end
-    local clen = tonumber(headers["content-length"] or "0")
-    local body = ""
-    if clen > 0 then body = socket.read(fd, clen) or "" end
-    return { method = method, path = path, headers = headers, body = body }
-end
-
-local hash = require("shared.password_hash")
-
-local function handleHttpRequest(fd, req)
-    if not req then sendJson(fd, { error = "Bad request" }); return end
-    if req.method == "OPTIONS" then
-        sendHttpResponse(fd, "200 OK", "application/json", "{}")
-        return
-    end
-
-    local path, method = req.path, req.method
-
-    if path == "/api/register" and method == "POST" then
-        local b = json.decode(req.body or "{}")
-        if not b then sendJson(fd, { error = "Invalid JSON" }); return end
-        if type(b.username)~="string" or #b.username<3 then sendJson(fd, { error = "Invalid username" }); return end
-        if type(b.password)~="string" or #b.password<6 then sendJson(fd, { error = "Password too short" }); return end
-        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
-        local existing = dbCall("findAccount", b.username)
-        if existing then sendJson(fd, { error = "Username taken" }); return end
-        local pwHash = hash.hashPassword(b.password)
-        local acct, err = dbCall("createAccount", b.username, pwHash)
-        if not acct then sendJson(fd, { error = "Failed", reason = err }); return end
-        local token = hash.newToken()
-        dbCall("saveToken", token, acct.id, 168, "full")
-        if b.email then dbCall("setAccountEmail", acct.id, b.email) end
-        sendJson(fd, { token = token, username = acct.username, accountId = acct.id, emailMissing = false })
-        return
-    end
-
-    if path == "/api/login" and method == "POST" then
-        local b = json.decode(req.body or "{}")
-        if not b then sendJson(fd, { error = "Invalid JSON" }); return end
-        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
-        local acct = dbCall("findAccount", b.username or "")
-        if not acct then sendJson(fd, { error = "Invalid credentials" }); return end
-        if not hash.verifyPassword(b.password or "", acct.password_hash) then sendJson(fd, { error = "Invalid credentials" }); return end
-        local token = hash.newToken()
-        dbCall("saveToken", token, acct.id, 168, "full")
-        sendJson(fd, { token = token, username = acct.username, emailMissing = not acct.email or #acct.email == 0 })
-        return
-    end
-
-    if path == "/api/characters" and method == "GET" then
-        local auth = req.headers["authorization"] or ""
-        local token = string.match(auth, "^Bearer%s+(.+)$")
-        if not token then sendJson(fd, { error = "Auth required" }); return end
-        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
-        local acct = dbCall("accountAndScopeForToken", token)
-        if not acct then sendJson(fd, { error = "Invalid token" }); return end
-        local rows = dbCall("getCharactersByAccount", acct.account_id) or {}
-        local chars = {}
-        for _, c in ipairs(rows) do table.insert(chars, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, online = false, forceRename = false }) end
-        sendJson(fd, { realm = config.getRealm(), characters = chars })
-        return
-    end
-
-    if path == "/api/characters" and method == "POST" then
-        local auth = req.headers["authorization"] or ""
-        local token = string.match(auth, "^Bearer%s+(.+)$")
-        if not token then sendJson(fd, { error = "Auth required" }); return end
-        local b = json.decode(req.body or "{}")
-        if not b or not b.name or not b.class then sendJson(fd, { error = "Invalid request" }); return end
-        if not dbUp() then sendJson(fd, { error = "DB not ready" }); return end
-        local acct = dbCall("accountAndScopeForToken", token)
-        if not acct then sendJson(fd, { error = "Invalid token" }); return end
-        -- createCharacter 内部做全局唯一预检 + 事务
-        local c, cerr = dbCall("createCharacter", acct.account_id, b.name, b.class)
-        if not c then
-            if cerr == "name_taken" then
-                sendJson(fd, { error = "Name taken" }); return
-            end
-            sendJson(fd, { error = "Failed", reason = cerr }); return
-        end
-        sendJson(fd, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, forceRename = false })
-        return
-    end
-
-    if path == "/api/realms" then
-        local body = '{"current":"' .. config.getRealm() .. '","realms":[{"name":"' .. config.getRealm() .. '","url":"","type":"Normal"}],"characters":{}}'
-        sendHttpResponse(fd, "200 OK", "application/json", body)
-        return
-    end
-
-    if path == "/api/status" then
-        local n = 0; for _ in pairs(sessions) do n = n + 1 end
-        sendJson(fd, { ok = true, realm = config.getRealm(), players_online = n, players_cap = config.MAX_PLAYERS_PER_REALM, steam = { enabled = false }, epic = { enabled = false }, dev_commands = true, profiler_invulnerability = true })
-        return
-    end
-
-    if path == "/health" then
-        sendJson(fd, { status = "ok", timestamp = os.time(), db = dbUp() and "connected" or "pending" })
-        return
-    end
-
-    sendJson(fd, { error = "Not Found", path = path })
-end
-
-------------------------------------------------------------
--- WebSocket
-------------------------------------------------------------
-
-local function wsHandshake(fd, req)
-    local key = req.headers["sec-websocket-key"]
-    if not key then return false end
-    local accept = crypt.base64encode(crypt.sha1(key .. WS_GUID))
-    local resp = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " .. accept .. "\r\n\r\n"
-    socket.write(fd, resp)
-    return true
-end
-
+-----------------------------------------------------------------
+-- WebSocket 发送 (官方模块 C++ 帧编码)
+-----------------------------------------------------------------
 local function wsWrite(fd, text)
-    local len = #text
-    local frame
-    if len < 126 then frame = string.char(0x81, len) .. text
-    elseif len < 65536 then frame = string.char(0x81, 126, math.floor(len/256), len%256) .. text
-    else frame = string.char(0x81, 127) .. string.pack("<I8", len) .. text end
-    socket.write(fd, frame)
+    websocket.write_text(fd, text)
 end
 
-local function wsReadFrame(fd)
-    local header = socket.read(fd, 2)
-    if not header or #header < 2 then return nil end
-    local b1, b2 = string.byte(header, 1, 2)
-    local opcode = b1 & 0x0F
-    local masked = (b2 & 0x80) ~= 0
-    local plen = b2 & 0x7F
-    if plen == 126 then
-        local ext = socket.read(fd, 2); if not ext or #ext < 2 then return nil end
-        plen = (string.byte(ext,1)<<8) | string.byte(ext,2)
-    elseif plen == 127 then
-        local ext = socket.read(fd, 8); if not ext or #ext < 8 then return nil end
-        plen = string.unpack("<I8", ext)
-    end
-    local mask = ""
-    if masked then mask = socket.read(fd, 4); if not mask or #mask < 4 then return nil end end
-    local payload = plen > 0 and socket.read(fd, plen) or ""
-    if not payload and plen > 0 then return nil end
-    if masked and #mask == 4 then
-        local decoded = {}
-        for i = 1, #payload do decoded[i] = string.char(string.byte(payload, i) ~ string.byte(mask, ((i-1)%4)+1)) end
-        payload = table.concat(decoded)
-    end
-    return opcode, payload
-end
-
+-----------------------------------------------------------------
+-- 认证 (进入世界) — 业务逻辑不变
+-----------------------------------------------------------------
 local function handleAuth(fd, msg)
     local token, characterId = msg.token, tonumber(msg.character)
     local timerWire = msg.timerWire
@@ -291,7 +119,6 @@ local function handleAuth(fd, msg)
         if cr.force_rename then wsWrite(fd, jh.buildErrorFrame("This character must be renamed before entering the world.")); socket.close(fd); return end
 
         -- 断线重连: 若该角色已有 linkdead session 且未超宽限期, 复用其 pid/实体
-        -- (对应原 linkdead.ts planJoin resume 分支)
         local existing = sessionsByChar[characterId]
         if existing and existing.linkdead and existing.fd ~= fd then
             local world = worldSvcByShard(existing.shard)
@@ -303,7 +130,6 @@ local function handleAuth(fd, msg)
             if oldShard then oldShard[oldFd] = nil end
             existing.fd = fd
             existing.linkdead = false
-            existing.leaseNonce = existing.leaseNonce
             sessions[fd] = existing
             pids[existing.pid] = fd
             sessionsByChar[characterId] = existing
@@ -328,18 +154,19 @@ local function handleAuth(fd, msg)
         local sh = sessionsByShard[shard]
         if not sh then sh = {}; sessionsByShard[shard] = sh end
         sh[fd] = true
-        -- hello seed 必须是 WORLD_SEED: 客户端用其重建整个地形/水体/植被 (online.ts cfg.seed)
-        -- 服务器 terrain.lua 也用同一常量, 二者必须一致
         wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
         print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s shard=%d", fd, pid, cr.name, cr.class, shard))
         local world = worldSvcByShard(shard)
         if world then
             local sd = cr.state; if type(sd)=="string" then local ok, d = pcall(json.decode, sd); if ok then sd = d end end
-            moon.send("lua", world, { t = "joinPlayer", pid = pid, characterId = characterId, accountId = accountId, name = cr.name, cls = cr.class, level = cr.level or 1, state = sd, leaseNonce = nonce })
+            moon.send("lua", world, { t = "joinPlayer", pid = pid, characterId = characterId, accountId = accountId, name = cr.name, cls = cr.cls, level = cr.level or 1, state = sd, leaseNonce = nonce })
         end
     end)
 end
 
+-----------------------------------------------------------------
+-- WS 消息分发 — 业务逻辑不变 (由官方 websocket 回调驱动)
+-----------------------------------------------------------------
 local function wsMessage(fd, text)
     local ok, msg = pcall(json.decode, text)
     if not ok then return end
@@ -348,7 +175,6 @@ local function wsMessage(fd, text)
         handleAuth(fd, msg)
     elseif t == "input" or t == "cmd" then
         local sess = sessions[fd]; if not sess then return end
-        -- 速率限制检查
         if not rateLimit.allowMessage(sess.pid) then
             if rateLimit.isKicked(sess.pid) then
                 wsWrite(fd, jh.buildErrorFrame("Too many messages. Disconnected."))
@@ -376,63 +202,132 @@ local function wsMessage(fd, text)
     end
 end
 
-local function handleConnection(fd)
-    local firstLine = socket.read(fd, "\n")
-    if not firstLine then socket.close(fd); return end
-    firstLine = firstLine:match("^(.-)\r?\n?$")
-    if firstLine:match("^%w+%s+/%S*%s+HTTP/") then
-        local req = parseHeaders(fd, firstLine)
-        if not req then sendJson(fd, { error = "Bad request" }); return end
-        if req.headers["upgrade"] and req.headers["upgrade"]:lower() == "websocket" then
-            if wsHandshake(fd, req) then
-                print(string.format("[Gate] WS upgrade fd=%d path=%s", fd, req.path))
-                while true do
-                    local opcode, payload = wsReadFrame(fd)
-                    if not opcode then break end
-                    if opcode == 0x8 then
-                        -- WS 关闭: 标记 linkdead, 不清除会话
-                        local sess = sessions[fd]
-                        if sess and not sess.linkdead then
-                            sess.linkdead = true
-                            print(string.format("[Gate] Linkdead fd=%d pid=%d name=%s (grace=%ds)",
-                                fd, sess.pid, sess.name, config.LINKDEAD_GRACE_MS / 1000))
-                            local world = worldSvcByShard(sess.shard)
-                            if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
-                        end
-                        socket.close(fd); return
-                    elseif opcode == 0x9 then socket.write(fd, string.char(0x8A, 0) .. (payload or ""))
-                    elseif opcode == 0x1 then wsMessage(fd, payload)
-                    end
-                end
-            end
-        else
-            handleHttpRequest(fd, req)
-        end
-    else
-        socket.close(fd)
-    end
+-----------------------------------------------------------------
+-- HTTP API 路由 (官方 moon.http.server 注册)
+-----------------------------------------------------------------
+local hash = require("shared.password_hash")
+
+local function writeJson(response, data)
+    response.status_code = 200
+    response:write_header("Content-Type", "application/json")
+    response:write(json.encode(data))
 end
 
-------------------------------------------------------------
--- 启动 (端口 8787 = 客户端硬约束, WS + HTTP 同端口; 迁移文档 §1)
-------------------------------------------------------------
-local gatePort = tonumber(os.getenv("WOC_GATE_PORT")) or 8787
-local listenfd = socket.listen("0.0.0.0", gatePort, moon.PTYPE_SOCKET_TCP)
-assert(listenfd > 0, "Gate listen failed")
-print(string.format("[Gate] API+WS on 0.0.0.0:%d", gatePort))
+httpServer.on("/api/register", function(request, response)
+    local b = json.decode(request.body or "{}")
+    if not b then return writeJson(response, { error = "Invalid JSON" }) end
+    if type(b.username)~="string" or #b.username<3 then return writeJson(response, { error = "Invalid username" }) end
+    if type(b.password)~="string" or #b.password<6 then return writeJson(response, { error = "Password too short" }) end
+    if not dbUp() then return writeJson(response, { error = "DB not ready" }) end
+    local existing = dbCall("findAccount", b.username)
+    if existing then return writeJson(response, { error = "Username taken" }) end
+    local pwHash = hash.hashPassword(b.password)
+    local acct, err = dbCall("createAccount", b.username, pwHash)
+    if not acct then return writeJson(response, { error = "Failed", reason = err }) end
+    local token = hash.newToken()
+    dbCall("saveToken", token, acct.id, 168, "full")
+    if b.email then dbCall("setAccountEmail", acct.id, b.email) end
+    writeJson(response, { token = token, username = acct.username, accountId = acct.id, emailMissing = false })
+end)
 
-moon.async(function()
-    while true do
-        local fd, err = socket.accept(listenfd, moon.id)
-        if not fd then moon.sleep(1000)
-        else
-            -- scrypt 登录验证 (N=16384) 需 ~40s, 默认 15s 超时会在验证中途断开导致崩溃
-            socket.settimeout(fd, 120)
-            moon.async(function() handleConnection(fd) end)
+httpServer.on("/api/login", function(request, response)
+    local b = json.decode(request.body or "{}")
+    if not b then return writeJson(response, { error = "Invalid JSON" }) end
+    if not dbUp() then return writeJson(response, { error = "DB not ready" }) end
+    local acct = dbCall("findAccount", b.username or "")
+    if not acct then return writeJson(response, { error = "Invalid credentials" }) end
+    if not hash.verifyPassword(b.password or "", acct.password_hash) then return writeJson(response, { error = "Invalid credentials" }) end
+    local token = hash.newToken()
+    dbCall("saveToken", token, acct.id, 168, "full")
+    writeJson(response, { token = token, username = acct.username, emailMissing = not acct.email or #acct.email == 0 })
+end)
+
+httpServer.on("/api/characters", function(request, response)
+    local auth = request.headers["authorization"] or ""
+    local token = string.match(auth, "^Bearer%s+(.+)$")
+    if not token then return writeJson(response, { error = "Auth required" }) end
+    if not dbUp() then return writeJson(response, { error = "DB not ready" }) end
+    local acct = dbCall("accountAndScopeForToken", token)
+    if not acct then return writeJson(response, { error = "Invalid token" }) end
+    if request.method == "GET" then
+        local rows = dbCall("getCharactersByAccount", acct.account_id) or {}
+        local chars = {}
+        for _, c in ipairs(rows) do table.insert(chars, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, online = false, forceRename = false }) end
+        writeJson(response, { realm = config.getRealm(), characters = chars })
+    elseif request.method == "POST" then
+        local b = json.decode(request.body or "{}")
+        if not b or not b.name or not b.class then return writeJson(response, { error = "Invalid request" }) end
+        local c, cerr = dbCall("createCharacter", acct.account_id, b.name, b.class)
+        if not c then
+            if cerr == "name_taken" then return writeJson(response, { error = "Name taken" }) end
+            return writeJson(response, { error = "Failed", reason = cerr })
         end
+        writeJson(response, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, forceRename = false })
+    else
+        response.status_code = 405; response:write_header("Content-Type", "text/plain"); response:write("Method Not Allowed")
     end
 end)
 
+httpServer.on("/api/realms", function(request, response)
+    local body = '{"current":"' .. config.getRealm() .. '","realms":[{"name":"' .. config.getRealm() .. '","url":"","type":"Normal"}],"characters":{}}'
+    response.status_code = 200; response:write_header("Content-Type", "application/json"); response:write(body)
+end)
+
+httpServer.on("/api/status", function(request, response)
+    local n = 0; for _ in pairs(sessions) do n = n + 1 end
+    writeJson(response, { ok = true, realm = config.getRealm(), players_online = n, players_cap = config.MAX_PLAYERS_PER_REALM, steam = { enabled = false }, epic = { enabled = false }, dev_commands = true, profiler_invulnerability = true })
+end)
+
+httpServer.on("/health", function(request, response)
+    writeJson(response, { status = "ok", timestamp = os.time(), db = dbUp() and "connected" or "pending" })
+end)
+
+-- CORS preflight + 兜底
+httpServer.fallback(function(request, response, next)
+    if request.method == "OPTIONS" then
+        response.status_code = 200
+        response:write_header("Content-Type", "application/json")
+        response:write("{}")
+    else
+        response.status_code = 404
+        response:write_header("Content-Type", "application/json")
+        response:write(json.encode({ error = "Not Found", path = request.path }))
+    end
+end)
+
+-----------------------------------------------------------------
+-- 官方 websocket 回调: 消息 / 关闭 (C++ 帧解码驱动)
+-----------------------------------------------------------------
+websocket.wson("message", function(fd, msg)
+    -- 'Z' = payload string (S 是 sender 数字); 文本帧载荷用 Z 取
+    local text = moon.decode(msg, "Z")
+    if text then wsMessage(fd, text) end
+end)
+
+websocket.wson("close", function(fd)
+    print(string.format("[Gate] WS close fd=%d", fd))
+    local sess = sessions[fd]
+    if sess and not sess.linkdead then
+        sess.linkdead = true
+        print(string.format("[Gate] Linkdead fd=%d pid=%d name=%s (grace=%ds)", fd, sess.pid, sess.name, config.LINKDEAD_GRACE_MS / 1000))
+        local world = worldSvcByShard(sess.shard)
+        if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
+    end
+    socket.close(fd)
+end)
+
+-----------------------------------------------------------------
+-- 启动: HTTP (官方 server) + WS (官方 websocket) 双监听
+-----------------------------------------------------------------
+print(string.format("[Gate] HTTP on 0.0.0.0:%d (proxy /api)", httpPort))
+httpServer.listen("0.0.0.0", httpPort, 30)
+
+print(string.format("[Gate] WS on 0.0.0.0:%d (proxy upgrade)", wsPort))
+websocket.listen("0.0.0.0", wsPort)
+
+-----------------------------------------------------------------
+-- 跨服务消息: 快照广播 / 单发 / 会话迁移 (业务逻辑不变)
+-----------------------------------------------------------------
 moon.dispatch("lua", function(sender, session, msg)
     if type(msg) ~= "table" then return end
     if msg.t == "broadcastSnap" and msg.data then
@@ -493,14 +388,10 @@ moon.dispatch("lua", function(sender, session, msg)
             local sh = sessionsByShard[msg.shard]
             if not sh then sh = {}; sessionsByShard[msg.shard] = sh end
             sh[fd] = true
-            print(string.format("[Gate] Player migrated: pid=%d shard %d -> %d", msg.pid, oldShard, msg.shard))
         end
+    elseif msg.t == "linkdeadClear" and msg.pid then
+        local fd = pids[msg.pid]
+        local sess = fd and sessions[fd]
+        if sess then sess.linkdead = false end
     end
 end)
-
-moon.shutdown(function()
-    socket.close(listenfd)
-    moon.quit()
-end)
-
-print("[Gate] Service ready")

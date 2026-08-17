@@ -322,11 +322,14 @@ end
 function M.heartbeat()
     moon.timeout(15000, function()
         moon.async(function()
-            -- 找一个健康连接探测
+            -- 找一个健康且空闲连接探测 (跳过 busy, 避免与 M.query 并发读同一连接
+            -- 导致 "Already reading" 连接损坏)
             local ok = false
             for _, e in ipairs(pool) do
-                if e.healthy then
+                if e.healthy and not e.busy then
+                    e.busy = true; e.busySince = os.time() * 1000
                     local res = e.conn:query("SELECT 1")
+                    e.busy = false; e.busySince = nil
                     if res.code == "SOCKET" or res.code == "CONNECTION" then
                         e.healthy = false
                     else
