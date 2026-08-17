@@ -143,3 +143,6 @@ docs/music/renders/
 /scripts/gravewyrm_trio.mjs
 /TESTING-TALENTS-2-0.md
 parse-spool/
+
+# self-host launcher exe (built from scripts/selfhost/launcher_moon.mjs; not committed)
+/dist-host-moon/WorldOfClaudeCraft-Moon.exe
