@@ -9,8 +9,9 @@ drove, and the layered root-cause analysis. Historical record, not source of tru
 | Question | Answer |
 |---|---|
 | Does the server carry **2000** concurrent battle players? | **Yes** — 2000/2000 joined, 0 failures, held the full 2 h, gates at ~40 % load |
-| Does the server carry **5000** concurrent battle players? | **Connectivity yes, gameplay no** — 5000/5000 joined and stayed connected, but snapshot delivery collapses to ~0.2 Hz/player when everyone is clustered (bottleneck = world shard snapshot build) |
+| Does the server carry **5000** concurrent battle players? | **Connectivity yes; data plane yes; sim is the ceiling** — 5000/5000 joined and held, snapshot frames collapsed ~100-300x (750 KB -> ~3 KB) and Hz rose ~0.2 -> ~2.7, with the remaining limit being world simulation CPU at ~3000 simultaneous fighters in one cluster |
 | What was the real bottleneck behind every ~950-1000 "join wall"? | The **same-machine load-test client** (one Node process), not the server |
+| What caused the 750 KB snapshot frames at 5000 clustered? | **Uncapped cross-shard ghost FULL records** (each ~5 KB), not the local-entity delta path |
 
 ## What shipped (commit `f28e9f04e`)
 
@@ -37,6 +38,33 @@ drove, and the layered root-cause analysis. Historical record, not source of tru
 - **Load harness** — `scripts/big_battle_load.mjs`
   - Progressive ramp, movement + combat simulation, per-observer snapshot
     metrics, `WS_PORTS` for direct gate connections, multi-process capable.
+
+## Snapshot optimization (P2, commit `a72c3fd9f`)
+
+Drove the clustered frame size from ~750 KB down to ~3 KB and snapshot Hz from
+~0.2 up to ~2.7 at 5000 players (best-case mean), without any client protocol
+change (the wire is still JSON full/lite/keep).
+
+- **Ghost LITE + budget** (`snapshot.lua`, `ghost.lua`, `grid.lua`) — the real
+  cause of the 750 KB frames: cross-shard ghosts were FULL records, uncapped,
+  re-sent whole on any change. Ghosts now emit FULL on first sight, LITE on
+  change, keep otherwise, and are capped inside `MAX_VISIBLE` with per-pid
+  rotation (no sort). `queryGhosts` gained a `maxCount` bound so a dense crowd
+  stops scanning the whole ghost set (~4845 ghosts) per observer.
+- **Frame cadence** (`world/init.lua`) — active players (battle/moving) build a
+  frame every `SNAP_ACTIVE_DIVISOR` (2) ticks, idle every `SNAP_IDLE_DIVISOR`
+  (4), with an immediate rebuild on idle->active so combat engagement never
+  waits on the idle beat. Combat events stay on their own channel.
+- **Combat priority** (`snapshot.lua`) — target/attacker entities reserve
+  budget slots before the nearest-first fill, so crowd culling never drops the
+  current fight.
+- `ghost.serialize` ships both `full` and `lite` wire records.
+
+Measured at 5000 clustered (10 x 500, 10 min): frames p50 ~3 KB (was 30-65 KB,
+p95 ~760-840 KB), gate traffic ~20 MB/s (was ~240 MB/s), snapshot Hz best-mean
+~2.65 (was ~0.2). The remaining ceiling is world simulation CPU — every shard
+runs ~156 active players through movement + combat + snapshot build each tick —
+not the snapshot data plane.
 
 ## Methodology (the important lesson)
 
@@ -98,30 +126,34 @@ Server-side ground truth is `[GateMetric]` in
    at 40-50 % capacity, `delayStreak=0` throughout.
 3. **Load-test client (same machine)** — the real source of every ~950-1000 join
    wall. Splitting the bots across processes takes 2000 and 5000 to 0 failures.
-4. **World shard snapshot build** — the true ceiling at **5000 clustered**. All
-   5000 bots spawn in one area, so every player's AOI holds ~156 moving
-   entities; with combat, every entity changes every tick, so delta encoding
-   cannot shrink frames. Frames balloon to ~750 KB-1.38 MB and the per-shard
-   per-tick build cost becomes O(players x visible) -> snapshot delivery drops
-   to ~0.2 Hz/player while connectivity stays perfect.
+4. **World shard snapshot build** — the ceiling at **5000 clustered** was the
+   **uncapped cross-shard ghost FULL records**: players spread by pid across 32
+   shards but spatially clustered, so every player's AOI held ~155 ghost FULL
+   records (~5 KB each) re-sent on any change. The local-entity delta path was
+   already capped at `MAX_VISIBLE` and was not the problem. After ghost LITE +
+   budget + query bound, the frame data plane is no longer the bottleneck; the
+   remaining cost is the per-shard simulation of ~156 active players per tick.
 
 ## Verdicts
 
 - The server **accepts and holds 5000 concurrent players** with the full scaling
-  stack (dual gate, WS direct, frame cap, keepalive reaping) healthy.
-- **5000 players in one geographic cluster is not playable**: snapshot feedback
-  latency reaches seconds. Real-world players spread across the map would not
-  create the same AOI density.
-- The next bottleneck is the **world snapshot builder** (P2): entity-level
-  distance-tiered refresh already exists but cannot help when every entity
-  moves/attacks every tick. Candidate levers: visible-entity cap per frame with
-  the tail coalesced into "keep", coarser tick cadence for distant entities, or
-  binary payload compression.
+  stack (dual gate, WS direct, frame cap, keepalive reaping) healthy, and the
+  snapshot data plane now delivers ~3 KB frames (100-300x smaller).
+- **5000 players all fighting in one geographic cluster** still lands around
+  ~2-3 Hz/player because the world shards are CPU-bound simulating ~3000
+  simultaneous combatants; real-world players spread across the map would not
+  create the same sim load. The plan's realistic acceptance cases (5000 static,
+  ~1000 combatants in a battle) are not yet re-measured after this work.
+- Remaining levers: validate the realistic scenarios (static 5000 >= 7-8 Hz,
+  ~1000-fighter battle >= 5 Hz); binary wire framing for a further constant
+  factor; distributed-spawn / split-machine testing.
 
 ## Open items
 
-- [ ] P2 snapshot build optimization (frame byte budget, distance-tiered refresh
-      under mass movement, binary framing).
+- [ ] Re-validate the acceptance cases post-P2: 5000 static and ~1000-fighter
+      battle (COMBAT_RATIO tuned), expecting >= 7-8 Hz and >= 5 Hz.
+- [ ] Binary wire framing (JSON string keys are ~40 % of frame bytes) — a
+      client+server protocol change, deferred.
 - [ ] A distributed-spawn (realistic) 5000-bot run to separate "clustered AOI
       density" from absolute world capacity.
 - [ ] Split-machine load testing (bots on a second host) to eliminate the
