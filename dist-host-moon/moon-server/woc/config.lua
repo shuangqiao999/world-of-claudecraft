@@ -101,6 +101,20 @@ M.GHOST_SYNC_INTERVAL_TICKS = 5
 M.MIGRATE_NONE = 0
 M.MIGRATE_INBOUND = 1
 M.MIGRATE_OUTBOUND = 2
+-- 空间迁移开关 (默认开, WOC_DISABLE_MIGRATION=1 可关): 玩家跨过区域边界且稳定停留后
+-- 迁到所在 region 的分片, 保证空间一致性 (本地 NPC/战斗)。检测做边界穿越+稳定窗口,
+-- 避免"出生点全体合并"与"边界抖动反复重迁"两类性能炸弹。
+M.ENABLE_PLAYER_MIGRATION = os.getenv("WOC_DISABLE_MIGRATION") ~= "1"
+-- 迁移检测间隔 (tick): 每 20 tick (1s) 评估一次, 不做每 tick region 哈希
+M.MIGRATE_CHECK_INTERVAL_TICKS = 20
+-- 稳定停留窗口 (秒): 跨入异区域分片后需连续停留这么久才迁移 (防边界抖动)
+M.MIGRATE_STABLE_SECONDS = 2
+-- 迁移冷却 (秒): 迁移后该时长内不再重迁 (防来回振荡)
+M.MIGRATE_COOLDOWN_SECONDS = 15
+-- 迁移最小旅行距离 (码): 玩家需离开上次"提交位置"超过此距离才评估迁移。
+-- 出生点/原地轻微位移绝不触发迁移 (消除"微小位置扰动触发完整迁移流程"的性能炸弹)。
+M.MIGRATE_MIN_TRAVEL = 50
+M.MIGRATE_MIN_TRAVEL_SQ = 50 * 50
 
 --- region 坐标 (整数格, floor; 负坐标正确)
 function M.regionOf(x, z)
@@ -259,7 +273,7 @@ function M.getWorldShards()
     end
     local shards = math.floor(M.getCpuCount() / 2)
     if shards < 1 then shards = 1 end
-    if shards > 32 then shards = 32 end
+    if shards > 64 then shards = 64 end
     cachedShards = shards
     return shards
 end

@@ -329,28 +329,27 @@ function H.interact(ctx, pid, cmd)
         end
     end
     if not best then
+        -- 跨分片 ghost NPC: 本分片无 quest/vendor 数据, 转发给归属分片应答 (迁移关闭后出生点 NPC 是 ghost)
+        if ctx.ghostEntities and ctx.forwardInteract then
+            local ghostBest, ghostBestD = nil, 36
+            for id, g in pairs(ctx.ghostEntities) do
+                if g.kind == "npc" then
+                    local dx, dz = g.x - e.pos.x, g.z - e.pos.z
+                    local d = dx * dx + dz * dz
+                    if d <= ghostBestD then ghostBest, ghostBestD = id, d end
+                end
+            end
+            if ghostBest then
+                local meta = ctx.players[pid]
+                ctx.forwardInteract(pid, ghostBest, meta and meta.qdone, meta and meta.qlog)
+                return true
+            end
+        end
         ctx.noteEvents({ { type = "log", text = "Nothing to interact with.", pid = pid } })
         return false
     end
     if best.kind == "npc" then
-        local lines = {}
-        if best.greeting and #best.greeting > 0 then table.insert(lines, best.greeting) end
-        local nQuests = 0
-        for _, qid in ipairs(best.questIds or {}) do
-            local qd = ctx.quest.getQuestTable()[qid]
-            if qd then
-                local meta = ctx.players[pid]
-                if meta and not meta.qdone[qid] and not meta.qlog[qid] then
-                    table.insert(lines, qd.name .. " (accept: /accept)")
-                    nQuests = nQuests + 1
-                end
-            end
-        end
-        if nQuests == 0 and #(best.vendorItems or {}) > 0 then
-            table.insert(lines, "Merchant — use buy/sell.")
-        end
-        if #lines == 0 then table.insert(lines, (best.name or "NPC") .. " has nothing for you.") end
-        for _, ln in ipairs(lines) do
+        for _, ln in ipairs(M.npcLines(ctx.quest.getQuestTable(), ctx.players[pid], best)) do
             ctx.noteEvents({ { type = "log", text = ln, pid = pid } })
         end
         return true
@@ -1813,6 +1812,30 @@ local HANDLERS = {}
 for k, fn in pairs(H) do HANDLERS[k] = fn end
 
 --- 统一分发入口: 返回 ok (boolean), 供调用方决定是否应答 commandOutcome
+--- 生成 NPC 交互应答行 (本地 NPC 与跨片 forward 共用)
+--- @param questTbl table quest 表 (nil 安全)
+--- @param meta table 玩家 meta (需含 qdone/qlog)
+--- @param npc table NPC 实体 (questIds/vendorItems/greeting/name)
+function M.npcLines(questTbl, meta, npc)
+    local lines = {}
+    if npc.greeting and #npc.greeting > 0 then table.insert(lines, npc.greeting) end
+    local nQuests = 0
+    for _, qid in ipairs(npc.questIds or {}) do
+        local qd = questTbl and questTbl[qid]
+        if qd then
+            if meta and not meta.qdone[qid] and not meta.qlog[qid] then
+                table.insert(lines, qd.name .. " (accept: /accept)")
+                nQuests = nQuests + 1
+            end
+        end
+    end
+    if nQuests == 0 and #(npc.vendorItems or {}) > 0 then
+        table.insert(lines, "Merchant — use buy/sell.")
+    end
+    if #lines == 0 then table.insert(lines, (npc.name or "NPC") .. " has nothing for you.") end
+    return lines
+end
+
 function M.dispatch(ctx, pid, cmd)
     if not pid or not cmd or not cmd.cmd then return false end
     if not ctx.entities[pid] then return false end

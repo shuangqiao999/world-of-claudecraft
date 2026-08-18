@@ -199,14 +199,14 @@ async function main() {
 
   log('starting Moon server...');
   const cpuCount = Number.parseInt(process.env.NUMBER_OF_PROCESSORS ?? '', 10) || os.cpus().length;
-  const worldShards = Number.parseInt(process.env.WOC_WORLD_SHARDS ?? '', 10) || Math.max(1, Math.min(Math.floor(cpuCount / 2), 32));
+  const worldShards = Number.parseInt(process.env.WOC_WORLD_SHARDS ?? '', 10) || Math.max(1, Math.min(Math.floor(cpuCount / 2), 64));
   const gateCount = Number.parseInt(process.env.WOC_GATE_COUNT ?? '', 10) || 2;
   const threadCount = Number.parseInt(process.env.WOC_THREADS ?? '', 10) || (5 + worldShards + (gateCount - 1));
   const dbPoolSize = Number.parseInt(process.env.DB_POOL_SIZE ?? '', 10) || Math.max(8, Math.min(cpuCount * 4, 64));
   log(`adaptive threads: cpu=${cpuCount} threads=${threadCount} worldShards=${worldShards} gates=${gateCount} dbPool=${dbPoolSize}`);
   const moonProc = spawn(MOON_EXE, [MOON_ENTRY], {
     cwd: MOON_CWD,
-    env: { ...process.env, DATABASE_URL: `postgres://${DB_USER}:${readPassword()}@127.0.0.1:${PG_PORT}/${DB_NAME}`, PORT: String(MOON_PORT), WOC_GATE_PORT: String(MOON_PORT), WOC_WS_PORT: String(WS_PORT), WOC_GATE_COUNT: String(gateCount), WOC_REALM: 'Claudemoon', WOC_THREADS: String(threadCount), WOC_WORLD_SHARDS: String(worldShards), DB_POOL_SIZE: String(dbPoolSize), STATIC_DIR: DIST_DIR },
+    env: { ...process.env, DATABASE_URL: `postgres://${DB_USER}:${readPassword()}@127.0.0.1:${PG_PORT}/${DB_NAME}`, PORT: String(MOON_PORT), WOC_GATE_PORT: String(MOON_PORT), WOC_WS_PORT: String(WS_PORT), WOC_GATE_COUNT: String(gateCount), WOC_SHARDS: String(worldShards), WOC_REALM: 'Claudemoon', WOC_THREADS: String(threadCount), WOC_WORLD_SHARDS: String(worldShards), DB_POOL_SIZE: String(dbPoolSize), STATIC_DIR: DIST_DIR },
     stdio: 'inherit', windowsHide: true,
   });
   moonProc.on('error', (e) => fail(`moon: ${e.message}`));

@@ -48,13 +48,13 @@ local function cpuCount()
     return math.max(1, math.min(n, 256))
 end
 
---- 世界分片数 (与 config.getWorldShards 同规则: WOC_SHARDS 覆盖, 否则 floor(cpu/2) 至多 32)
+--- 世界分片数 (与 config.getWorldShards 同规则: WOC_SHARDS 覆盖, 否则 floor(cpu/2) 至多 64, 随硬件自适应)
 local function worldShards()
     local n = tonumber(os.getenv("WOC_SHARDS"))
     if n and n >= 1 then return n end
     local s = math.floor(cpuCount() / 2)
     if s < 1 then s = 1 end
-    if s > 32 then s = 32 end
+    if s > 64 then s = 64 end
     return s
 end
 

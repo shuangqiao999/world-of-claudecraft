@@ -210,6 +210,15 @@ local phaseLastReport = 0
 local function phaseEnd(name, t0)
     phaseAcc[name] = (phaseAcc[name] or 0) + (moonCore.clock() - t0)
 end
+
+-- 生产环境把诊断写独立文件 log/world-diag.log (不刷 stdout), 非生产额外 print
+local function writeDiag(line)
+    pcall(function()
+        local f, err = io.open("log/world-diag.log", "a")
+        if f then f:write(line, "\n"); f:close() end
+    end)
+    if not config.isProduction() then print(line) end
+end
 local function countTbl(t)
     local n = 0
     for _ in pairs(t) do n = n + 1 end
@@ -233,7 +242,7 @@ local function phaseReport()
     table.sort(top, function(a, b) return a[2] > b[2] end)
     local topStr = {}
     for i = 1, math.min(3, #top) do topStr[#topStr + 1] = top[i][1] .. ":" .. top[i][2] end
-    print(string.format("[PhaseDiag] tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB ent=%d ply=%d snap=%d threat=%d/%d ai=%d grid=%d/%d mobSpawn=%d mobRemove=%d migrate=%d respawn=%d death=%d top=%s %s",
+    writeDiag(string.format(shardTag("[PhaseDiag]") .. " tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB ent=%d ply=%d snap=%d threat=%d/%d ai=%d grid=%d/%d mobSpawn=%d mobRemove=%d migrate=%d respawn=%d death=%d top=%s %s",
         tick, gcMs, memAfter, memBefore - memAfter,
         countTbl(entities), countTbl(players), countTbl(snapSessions),
         thrMobs, thrEntries, mobAI.stats(), gs.cells, gs.entities,
@@ -489,6 +498,20 @@ local function forwardPvpConsent(attackerId, targetId)
     return true
 end
 
+--- 跨分片交互转发: 玩家分片无 ghost NPC 的 quest/vendor 数据, 转发给归属分片应答
+--- (迁移关闭/出生点分布时, 玩家所在分片 != NPC 区域分片, 交互必须跨片)
+local function forwardInteract(pid, targetId, qdone, qlog)
+    local g = ghostEntities[targetId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, {
+        t = "interactForward", pid = pid, targetId = targetId,
+        qdone = qdone or {}, qlog = qlog or {},
+    })
+    return true
+end
+
 ----------------------------------------------
 -- 实体管理
 ----------------------------------------------
@@ -656,6 +679,11 @@ local function joinPlayer(pid, characterId, accountId, name, cls, level, state, 
     players[pid] = meta
     -- 实体持有 meta 引用, 供 aura 施加/过期时重算属性
     e.meta = meta
+    -- 迁移检测: 提交出生区域 (只有跨过区域边界且旅行足够远才评估迁移)
+    meta._lastRegionRx, meta._lastRegionRz = config.regionOf(e.pos.x, e.pos.z)
+    meta._migrateTravelX, meta._migrateTravelZ = e.pos.x, e.pos.z
+    meta._migrateCandidateSince = nil
+    meta._migrateCooldown = nil
     -- 同步骑术训练到实体 (startMount 检查 e.ridingTrained)
     e.ridingTrained = meta.ridingTrained or false
     grid.insert(e)
@@ -813,6 +841,9 @@ local function migratePlayerOut(pid)
     if not svc then return false end
     local st = serializeCharacter(pid)
     if not st then return false end
+
+    -- 迁移后冷却 (防止刚迁完立刻再次评估重迁)
+    meta._migrateCooldown = simTime + config.MIGRATE_COOLDOWN_SECONDS
 
     moon.send("lua", svc, {
         t = "playerMigrate",
@@ -1571,19 +1602,43 @@ local function doGameTick()
     if hasPlayers then
     processInputs()  -- TS: movement applied inside per-player loop, after prologue
 
-    -- 跨分片玩家迁移检测: 玩家走到相邻 region 且该 region 映射到其他分片
-    local migratePlayers = {}
-    for pid, meta in pairs(players) do
-        local pe = entities[pid]
-        if pe and not pe.dead and not meta.linkdeadSince then
-            local prx, prz = config.regionOf(pe.pos.x, pe.pos.z)
-            if config.regionToShard(prx, prz) ~= shardId then
-                table.insert(migratePlayers, pid)
+    -- 跨分片玩家迁移检测: 只有"旅行足够远"且"跨过区域边界"进入异分片区域并稳定停留才迁。
+    -- 出生点/原地轻微位移 (微小位置扰动) 绝不触发, 消除迁移性能炸弹。间隔采样评估。
+    if config.ENABLE_PLAYER_MIGRATION then
+        if tick % config.MIGRATE_CHECK_INTERVAL_TICKS == 0 then
+            local migratePlayers = {}
+            for pid, meta in pairs(players) do
+                local pe = entities[pid]
+                if pe and not pe.dead and not meta.linkdeadSince then
+                    -- 旅行距离门: 离开上次提交位置不足 MIGRATE_MIN_TRAVEL 的不评估
+                    local tdx = pe.pos.x - meta._migrateTravelX
+                    local tdz = pe.pos.z - meta._migrateTravelZ
+                    if tdx * tdx + tdz * tdz <= config.MIGRATE_MIN_TRAVEL_SQ then goto continue_migrate end
+                    local prx, prz = config.regionOf(pe.pos.x, pe.pos.z)
+                    if prx ~= meta._lastRegionRx or prz ~= meta._lastRegionRz then
+                        -- 跨过区域边界了
+                        if config.regionToShard(prx, prz) ~= shardId then
+                            -- 进入异分片区域: 开始稳定计时; 中途回到已提交区域则清除
+                            if not meta._migrateCandidateSince then meta._migrateCandidateSince = simTime end
+                            if simTime - meta._migrateCandidateSince >= config.MIGRATE_STABLE_SECONDS then
+                                table.insert(migratePlayers, pid)
+                            end
+                        else
+                            -- 新区域仍属本分片: 直接提交, 不迁移
+                            meta._lastRegionRx, meta._lastRegionRz = prx, prz
+                            meta._migrateCandidateSince = nil
+                        end
+                    elseif meta._migrateCandidateSince then
+                        -- 未跨边界但曾为候选 (抖动回到原区域): 重置稳定计时
+                        meta._migrateCandidateSince = nil
+                    end
+                end
+                ::continue_migrate::
+            end
+            for _, pid in ipairs(migratePlayers) do
+                migratePlayerOut(pid)
             end
         end
-    end
-    for _, pid in ipairs(migratePlayers) do
-        migratePlayerOut(pid)
     end
 
     for pid, meta in pairs(players) do
@@ -1803,20 +1858,18 @@ local function doGameTick()
 
     phaseEnd("save", t0)
 
-    -- 周期性状态日志 (含 tick 耗时); 生产模式不输出, 减少日志噪音
-    if not config.isProduction() and tick % (config.TICK_RATE * 10) == 0 then
+    -- 周期性状态日志 (采样 200 tick, 生产写 world-diag.log)
+    if tick % (config.TICK_RATE * 10) == 0 then
         local n = 0; for _ in pairs(players) do n = n + 1 end
         local m = 0; for _, e in pairs(entities) do if e.kind == "mob" and not e.dead then m = m + 1 end end
-        print(string.format(shardTag("[World]") .. " t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
+        writeDiag(string.format(shardTag("[World]") .. " t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
     end
 
-    -- 分相计时: 每 10 秒墙上时间打印一次 (tick 慢时不受 200-tick 间隔影响); 生产模式不输出
-    if not config.isProduction() then
-        local phaseNow = moonCore.clock()
-        if phaseNow - phaseLastReport >= 10 then
-            phaseLastReport = phaseNow
-            phaseReport()
-        end
+    -- 分相计时: 每 10 秒墙上时间采样一次 (tick 慢时不受 200-tick 间隔影响); 生产写 world-diag.log
+    local phaseNow = moonCore.clock()
+    if phaseNow - phaseLastReport >= 10 then
+        phaseLastReport = phaseNow
+        phaseReport()
     end
 end
 
@@ -1833,7 +1886,7 @@ local function gameTick()
     local elapsed = moonCore.clock() - start
     local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
     if tick % 200 == 0 then
-        print(string.format(shardTag("[TickDiag]") .. " tick=%d elapsed=%.2fms delay=%dms", tick, elapsed * 1000, delay))
+        writeDiag(string.format(shardTag("[TickDiag]") .. " tick=%d elapsed=%.2fms delay=%dms", tick, elapsed * 1000, delay))
     end
     moon.timeout(delay, gameTick)
 end
@@ -2018,6 +2071,17 @@ moon.dispatch("lua", function(sender, session, msg)
         if target and target.kind == "player" and not target.dead then
             combatState.flagPvp(target)
         end
+    elseif t == "interactForward" then
+        -- 跨分片交互: 归属分片解析真实 NPC, 用请求方 qdone/qlog 生成应答行并发回玩家
+        local npc = entities[msg.targetId]
+        if npc and npc.kind == "npc" then
+            local cd = require("world.command_dispatch")
+            local lines = cd.npcLines(quest.getQuestTable(),
+                { qdone = msg.qdone or {}, qlog = msg.qlog or {} }, npc)
+            for _, ln in ipairs(lines) do
+                noteEvents({ { type = "log", text = ln, pid = msg.pid } })
+            end
+        end
     elseif t == "entityMigrate" then
         -- 跨分片 mob 迁移入站: 以原 id 重建实体 + 恢复 AI/仇恨 (完整状态迁移)
         local ser = msg.entity
@@ -2054,7 +2118,7 @@ moon.dispatch("lua", function(sender, session, msg)
             joinPlayer(msg.pid, msg.characterId, msg.accountId, msg.name, msg.cls, msg.level, msg.state, msg.leaseNonce)
             -- 迁移冷却: 目标分片用本地 simTime 重新计时, 防边界振荡
             local meta = players[msg.pid]
-            if meta then meta._migrateCooldown = simTime + 5 end
+            if meta then meta._migrateCooldown = simTime + config.MIGRATE_COOLDOWN_SECONDS end
             -- 恢复瞬态战斗状态 (PvP 同意/决斗对象), 避免跨片迁移把 pvp_fight 重置回 idle
             local ne = entities[msg.pid]
             if ne then
@@ -2190,6 +2254,7 @@ moon.exports.handleCommand = function(pid, cmd)
         findNearestTarget = findNearestTarget, ghostEntities = ghostEntities,
         forwardCast = forwardCast,
         forwardPvpConsent = forwardPvpConsent,
+        forwardInteract = forwardInteract,
         createMobEntity = createMobEntity, allocId = allocId,
         createPedestrianEntity = createPedestrianEntity, despawnEntity = despawnEntity,
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,
