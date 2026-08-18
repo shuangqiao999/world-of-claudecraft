@@ -12,6 +12,7 @@ drove, and the layered root-cause analysis. Historical record, not source of tru
 | Does the server carry **5000** concurrent battle players? | **Connectivity yes; data plane yes; sim is the ceiling** — 5000/5000 joined and held, snapshot frames collapsed ~100-300x (750 KB -> ~3 KB) and Hz rose ~0.2 -> ~2.7, with the remaining limit being world simulation CPU at ~3000 simultaneous fighters in one cluster |
 | What was the real bottleneck behind every ~950-1000 "join wall"? | The **same-machine load-test client** (one Node process), not the server |
 | What caused the 750 KB snapshot frames at 5000 clustered? | **Uncapped cross-shard ghost FULL records** (each ~5 KB), not the local-entity delta path |
+| Why did snapshot Hz collapse to ~1 Hz even after the ghost fix? | **Spatial player migration** consolidated every new player onto the spawn region's shard (~4950 on one shard) — not the sim logic or combat |
 
 ## What shipped (commit `f28e9f04e`)
 
@@ -134,24 +135,62 @@ Server-side ground truth is `[GateMetric]` in
    budget + query bound, the frame data plane is no longer the bottleneck; the
    remaining cost is the per-shard simulation of ~156 active players per tick.
 
+## World shard CPU: spatial migration was the bomb (commit `871356332`)
+
+With the snapshot data plane fixed, Phase-0 profiling (`log/world-diag.log`, opened
+up in production) showed the per-shard tick was still at ~300 ms and snapshot Hz at
+~1.2. The profile was decisive:
+
+- Only **2-4 of 48 shards ever had players** (W0 eventually held ~4950), the rest
+  idle. `combat` was 5 ms/10 s and the per-player subsystem loop ~700 ms/10 s, but
+  `bcastBuild` was ~6100 ms/10 s — one shard building frames for ~2000 players.
+- Root cause: **spatial player migration** re-homed every player to the shard that
+  owns the region they stand in. The whole test (and every new character) spawns in
+  the single starter region, so everyone consolidated onto that one shard.
+
+Fix (migration stays a feature, detection no longer fires on jitter):
+- Evaluate migration only every `MIGRATE_CHECK_INTERVAL_TICKS` (1 s), only for
+  players who travelled > `MIGRATE_MIN_TRAVEL` (50 yd) from their commit point,
+  only after crossing a region boundary, only after `MIGRATE_STABLE_SECONDS` (2 s)
+  of stable stay, with a `MIGRATE_COOLDOWN_SECONDS` (15 s) cooldown.
+- Spawn/idle players never migrate -> they stay uniformly distributed on pid
+  shards. Genuine travellers still migrate to their region's shard (correct
+  spatial behaviour), and the boundary/cooldown gates kill the oscillation thrash.
+- Fixed along the way: `_migrateCooldown` was never set; `playerMigrate` sent
+  `cls = meta.cls` (always nil, dropping class on migration) -> `meta.class`.
+- `H.interact` can now talk to ghost NPCs: `interact` forwards to the owner shard,
+  `M.npcLines` is shared between the local and cross-shard paths.
+
+Measured at 5000 clustered, migration ON (smart):
+- Shards populated 2 -> **48/48**; snapshot Hz ~1.2 -> **3.8 at peak, ~6.6 best**;
+  5000/5000 held, 48 shards with 3 hot shards (W8/W9/W47, ~60-75 % bcastBuild)
+  absorbing the bots that genuinely travelled far across region boundaries.
+- Pure capacity baseline with migration OFF (`WOC_DISABLE_MIGRATION=1`) is a
+  flatter ~6.3 Hz; migration stays the production default.
+
 ## Verdicts
 
 - The server **accepts and holds 5000 concurrent players** with the full scaling
-  stack (dual gate, WS direct, frame cap, keepalive reaping) healthy, and the
-  snapshot data plane now delivers ~3 KB frames (100-300x smaller).
-- **5000 players all fighting in one geographic cluster** still lands around
-  ~2-3 Hz/player because the world shards are CPU-bound simulating ~3000
-  simultaneous combatants; real-world players spread across the map would not
-  create the same sim load. The plan's realistic acceptance cases (5000 static,
-  ~1000 combatants in a battle) are not yet re-measured after this work.
-- Remaining levers: validate the realistic scenarios (static 5000 >= 7-8 Hz,
-  ~1000-fighter battle >= 5 Hz); binary wire framing for a further constant
-  factor; distributed-spawn / split-machine testing.
+  stack (dual gate, WS direct, frame cap, keepalive reaping, smart migration)
+  healthy, and the snapshot data plane now delivers ~3 KB frames (100-300x
+  smaller).
+- **5000 players all fighting in one geographic cluster** lands around ~4-7 Hz
+  (best-case mean ~6.6) with migration ON and smart detection; the residual
+  cost is the few shards that absorbed the genuinely far-travelled bots, plus
+  the per-shard sim of ~100 combatants.
+- The plan's realistic acceptance cases (5000 static >= 7-8 Hz, ~1000-fighter
+  battle >= 5 Hz) are not yet re-measured after this work.
+- Remaining levers: validate the realistic scenarios; binary wire framing; and
+  the spatial-sharding interior-visibility limitation documented in
+  `prd/moon-sharding-interior-visibility.md`.
 
 ## Open items
 
-- [ ] Re-validate the acceptance cases post-P2: 5000 static and ~1000-fighter
-      battle (COMBAT_RATIO tuned), expecting >= 7-8 Hz and >= 5 Hz.
+- [ ] Re-validate the acceptance cases post-migration-fix: 5000 static and
+      ~1000-fighter battle (COMBAT_RATIO tuned), expecting >= 7-8 Hz and >= 5 Hz.
+- [ ] Region-interior NPC/entity visibility for pid-shard players — see
+      `prd/moon-sharding-interior-visibility.md` (region-wide ghost sync or
+      distributed spawn).
 - [ ] Binary wire framing (JSON string keys are ~40 % of frame bytes) — a
       client+server protocol change, deferred.
 - [ ] A distributed-spawn (realistic) 5000-bot run to separate "clustered AOI
