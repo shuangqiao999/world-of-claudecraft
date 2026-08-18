@@ -329,19 +329,26 @@ function H.interact(ctx, pid, cmd)
         end
     end
     if not best then
-        -- 跨分片 ghost NPC: 本分片无 quest/vendor 数据, 转发给归属分片应答 (迁移关闭后出生点 NPC 是 ghost)
-        if ctx.ghostEntities and ctx.forwardInteract then
-            local ghostBest, ghostBestD = nil, 36
+        -- 跨分片 ghost 内容实体: 本分片无数据, 转发给归属分片应答 (region 内部 NPC/节点/尸体)
+        if ctx.ghostEntities then
+            local ghostBest, ghostBestD, ghostKind = nil, 36, nil
             for id, g in pairs(ctx.ghostEntities) do
-                if g.kind == "npc" then
+                local interactive = (g.kind == "npc") or (g.kind == "node") or (g.kind == "object")
+                if interactive then
                     local dx, dz = g.x - e.pos.x, g.z - e.pos.z
                     local d = dx * dx + dz * dz
-                    if d <= ghostBestD then ghostBest, ghostBestD = id, d end
+                    if d <= ghostBestD then ghostBest, ghostBestD, ghostKind = id, d, g.kind end
                 end
             end
-            if ghostBest then
-                local meta = ctx.players[pid]
-                ctx.forwardInteract(pid, ghostBest, meta and meta.qdone, meta and meta.qlog)
+            if ghostBest and ghostKind then
+                if ghostKind == "npc" and ctx.forwardInteract then
+                    local meta = ctx.players[pid]
+                    ctx.forwardInteract(pid, ghostBest, meta and meta.qdone, meta and meta.qlog)
+                elseif ghostKind == "node" and ctx.forwardNode then
+                    ctx.forwardNode(pid, ghostBest)
+                elseif ghostKind == "object" and ctx.forwardLoot then
+                    ctx.forwardLoot(pid, ghostBest)
+                end
                 return true
             end
         end
@@ -369,7 +376,15 @@ function H.loot(ctx, pid, cmd)
     local id = n(cmd.id)
     if not id then return false end
     local corpse = ctx.entities[id]
-    if not corpse or not corpse.dead then return false end
+    if not corpse then
+        -- 跨分片 ghost 尸体: 转发给归属分片结算 loot, 归属分片回复后本分片入包
+        if ctx.ghostEntities and ctx.ghostEntities[id] and ctx.forwardLoot then
+            ctx.forwardLoot(pid, id)
+            return true
+        end
+        return false
+    end
+    if not corpse.dead then return false end
     local loot = corpse.loot
     if not loot or #loot == 0 then return false end
     local meta = ctx.players[pid]
@@ -584,6 +599,20 @@ function H.buy(ctx, pid, cmd)
         if other.kind == "npc" and next(other.vendorItems or {}) then
             local dx, dz = other.pos.x - e.pos.x, other.pos.z - e.pos.z
             if dx * dx + dz * dz <= 36 then npcStock = other.vendorItems break end
+        end
+    end
+    if not npcStock then
+        -- 跨分片 ghost 商店: 转发请求库存, 归属分片回复后本分片执行购买 (玩家 meta 在本分片)
+        if ctx.ghostEntities and ctx.forwardVendor then
+            for id, g in pairs(ctx.ghostEntities) do
+                if g.kind == "npc" then
+                    local dx, dz = g.x - e.pos.x, g.z - e.pos.z
+                    if dx * dx + dz * dz <= 36 then
+                        ctx.forwardVendor(pid, id, itemId)
+                        return true
+                    end
+                end
+            end
         end
     end
     local ok, result = ctx.vendor.buyItem(meta, e, itemId, npcStock)

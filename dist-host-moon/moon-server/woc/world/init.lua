@@ -121,6 +121,8 @@ local snapSessions = {} -- pid → { seenEntities, lastDyn, lastSent } 快照 de
 -- 跨分片 ghost 实体 (id → {x, z, json}); ghostByShard 按源分片分组, 便于全量替换
 local ghostEntities = {}
 local ghostByShard = {}
+-- region 内部内容 ghost 按 (源分片, region) 索引: ghostByRegion[src][regionKey] = {ghost...}
+local ghostByRegion = {}
 local ghostTick = 0
 
 -- 内存泄漏诊断: mob 生成/移除计数 (生成源按 templateId 归组)
@@ -512,6 +514,36 @@ local function forwardInteract(pid, targetId, qdone, qlog)
     return true
 end
 
+-- 跨分片商店购买: 请求归属分片的 NPC 库存, 回复后本分片执行购买 (玩家 meta 在本分片)
+local function forwardVendor(pid, vendorId, itemId)
+    local g = ghostEntities[vendorId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, { t = "vendorForward", pid = pid, vendorId = vendorId, item = itemId })
+    return true
+end
+
+-- 跨分片采集: 请求归属分片的节点模板/等级, 回复后本分片执行采集 (节点数据静态, 无消耗)
+local function forwardNode(pid, nodeId)
+    local g = ghostEntities[nodeId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, { t = "nodeForward", pid = pid, nodeId = nodeId })
+    return true
+end
+
+-- 跨分片拾取: 转发给归属分片结算 loot, 回复后本分片入包
+local function forwardLoot(pid, corpseId)
+    local g = ghostEntities[corpseId]
+    if not g or not g.ownerShard then return false end
+    local svc = moon.queryservice("world_" .. g.ownerShard)
+    if not svc then return false end
+    moon.send("lua", svc, { t = "lootForward", pid = pid, corpseId = corpseId })
+    return true
+end
+
 ----------------------------------------------
 -- 实体管理
 ----------------------------------------------
@@ -729,6 +761,8 @@ local serializeCharacter
 local function leavePlayer(pid)
     local meta = players[pid]; local e = entities[pid]
     if not meta then return end
+    -- Region 内部 ghost presence 清理 (登出/宽限清理)
+    clearPlayerPresence(meta)
     grid.remove(e)
     aura.cleanupDRTracker(pid)
     deeds.cleanupPlayer(pid)
@@ -805,6 +839,8 @@ end
 local function cleanupPlayerLocal(pid)
     local e = entities[pid]
     if not e then return end
+    -- Region 内部 ghost presence 清理 (迁移出)
+    clearPlayerPresence(players[pid])
     local px, pz = e.pos.x, e.pos.z
     grid.remove(e)
     aura.cleanupDRTracker(pid)
@@ -867,6 +903,56 @@ local function migratePlayerOut(pid)
     cleanupPlayerLocal(pid)
     print(string.format("[World] Player migrate out: pid=%d %s shard %d -> %d", pid, meta.name, shardId, ns))
     return true
+end
+
+----------------------------------------------
+-- Region 内部内容实体 ghost 同步 (方案 A)
+-- 玩家处于异分片 region 内部时, 该 region 归属分片把内部静态内容实体推送到玩家所在分片,
+-- 解决"pid 分片玩家看不到异 region 腹地 NPC/mob/节点"的缺陷。玩家实体不纳入同步。
+----------------------------------------------
+local regionRemoteMap = {}
+-- regionKey: 偏移编码, 支持负坐标 (rx/rz + 1000 偏移, 覆盖 ±270km 地图)
+local function regionKey(rx, rz) return (rx + 1000) * 1000000 + (rz + 1000) end
+local function regionKeyParse(key)
+    local rx = math.floor(key / 1000000) - 1000
+    local rz = (key % 1000000) - 1000
+    return rx, rz
+end
+
+local function sendPresence(rx, rz, shard, remove)
+    local owner = config.regionToShard(rx, rz)
+    if owner == shardId then return end
+    local svc = moon.queryservice("world_" .. owner)
+    if not svc then return end
+    moon.send("lua", svc, { t = "regionPresence", rx = rx, rz = rz, shard = shard, remove = remove == true })
+end
+
+-- 清除玩家跨 region presence (登出 / 迁移出 / 宽限清理)
+local function clearPlayerPresence(meta)
+    if meta and meta._regionRemote then
+        sendPresence(meta._regionRemote.rx, meta._regionRemote.rz, shardId, true)
+        meta._regionRemote = nil
+    end
+end
+
+-- 玩家 presence 上报: 处于异 region 时通知 owner 分片 (进入/换区/离开三态, 变化才发)
+local function updatePlayerPresence(pid, meta)
+    local e = entities[pid]
+    if not e then return end
+    local rx, rz = config.regionOf(e.pos.x, e.pos.z)
+    if config.regionToShard(rx, rz) == shardId then
+        if meta._regionRemote then
+            sendPresence(meta._regionRemote.rx, meta._regionRemote.rz, shardId, true)
+            meta._regionRemote = nil
+        end
+        return
+    end
+    if meta._regionRemote and meta._regionRemote.rx == rx and meta._regionRemote.rz == rz then return end
+    if meta._regionRemote then
+        sendPresence(meta._regionRemote.rx, meta._regionRemote.rz, shardId, true)
+    end
+    sendPresence(rx, rz, shardId, false)
+    meta._regionRemote = { rx = rx, rz = rz }
 end
 
 ----------------------------------------------
@@ -1428,6 +1514,78 @@ local function ghostSync()
     end
 end
 
+-- Region 内部内容实体 ghost 同步 (方案 A): 本分片拥有的 region 内存在其他分片玩家时,
+-- 把该 region 的静态内容实体 (NPC/mob/采集节点/可拾取物) 推送给他们, 解决异 region 内部不可见。
+-- 独立节奏 (边界 ghost 间隔 x GHOST_REGION_INTERNAL_MULT), _wireVer 缓存免重复序列化。
+-- regionLastTargets: 上次推送目标集, 用于对离开的远端分片发空列表清除陈旧 ghost。
+local regionInternalTick = 0
+local regionLastTargets = {}
+local function syncRegionInternalGhosts()
+    if not config.ENABLE_REGION_INTERNAL_GHOST then return end
+    regionInternalTick = regionInternalTick + 1
+    if regionInternalTick < config.GHOST_SYNC_INTERVAL_TICKS * config.GHOST_REGION_INTERNAL_MULT then return end
+    regionInternalTick = 0
+
+    for key, remotes in pairs(regionRemoteMap) do
+        local rx, rz = regionKeyParse(key)
+        -- 收集该 region 的内容实体 (排除玩家; 含 NPC/mob/节点/可拾取物/尸体)
+        local list = {}
+        for _, e in pairs(entities) do
+            if e.kind ~= "player" then
+                local k = e.kind
+                local isContent = (k == "npc" or k == "mob" or k == "node")
+                    or (e.lootable and (k == "object" or e.dead))
+                if isContent then
+                    local erx, erz = config.regionOf(e.pos.x, e.pos.z)
+                    if erx == rx and erz == rz then
+                        list[#list + 1] = ghost.serialize(e, shardId)
+                        if #list >= config.MAX_REGION_INTERNAL_GHOST then
+                            print(string.format("[World] REGION INTERNAL GHOST CAP: region=%d,%d capped at %d", rx, rz, config.MAX_REGION_INTERNAL_GHOST))
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        -- 发给当前远端
+        for sid in pairs(remotes) do
+            local svc = moon.queryservice("world_" .. sid)
+            if svc then
+                moon.send("lua", svc, { t = "regionInternalGhost", shardId = shardId, region = key, ghosts = list })
+            end
+        end
+        -- 对已离开的远端发空列表 (清除陈旧内部 ghost)
+        local last = regionLastTargets[key]
+        if last then
+            for sid in pairs(last) do
+                if not remotes[sid] then
+                    local svc = moon.queryservice("world_" .. sid)
+                    if svc then
+                        moon.send("lua", svc, { t = "regionInternalGhost", shardId = shardId, region = key, ghosts = {} })
+                    end
+                end
+            end
+        end
+        -- 记录本次目标集
+        local cur = {}
+        for sid in pairs(remotes) do cur[sid] = true end
+        regionLastTargets[key] = cur
+    end
+    -- 清理已完全无远端的 region 的 lastTargets 残留
+    for key in pairs(regionLastTargets) do
+        if not regionRemoteMap[key] then
+            local last = regionLastTargets[key]
+            for sid in pairs(last) do
+                local svc = moon.queryservice("world_" .. sid)
+                if svc then
+                    moon.send("lua", svc, { t = "regionInternalGhost", shardId = shardId, region = key, ghosts = {} })
+                end
+            end
+            regionLastTargets[key] = nil
+        end
+    end
+end
+
 --- 跨分片战斗: 目标为 ghost 时, 序列化攻击者战斗属性并转发给归属分片结算
 local function resolveGhostSwing(attacker, targetId, isOffhand)
     local g = ghostEntities[targetId]
@@ -1641,6 +1799,14 @@ local function doGameTick()
         end
     end
 
+    -- Region 内部 ghost presence 上报 (降采样 REGION_REMOTE_SCAN_INTERVAL_TICKS tick,
+    -- 玩家进入异 region 时通知该 region 归属分片, 触发内部内容实体推送)
+    if config.ENABLE_REGION_INTERNAL_GHOST and tick % config.REGION_REMOTE_SCAN_INTERVAL_TICKS == 0 then
+        for pid, meta in pairs(players) do
+            updatePlayerPresence(pid, meta)
+        end
+    end
+
     for pid, meta in pairs(players) do
         local e = entities[pid]
         if e then
@@ -1778,6 +1944,7 @@ local function doGameTick()
 
     -- Phase: 广播 — 每 tick 发快照+事件 (内部遍历 players 表, 空表时零开销)
     pcall(ghostSync)
+    pcall(syncRegionInternalGhosts)
     pcall(broadcastSnapshot)
     pcall(function() sendCombatEvents(combatEvents) end)
 
@@ -1976,6 +2143,25 @@ moon.dispatch("lua", function(sender, session, msg)
                 grid.ghostInsert(g)
             end
         end
+    elseif t == "regionInternalGhost" then
+        -- 接收 region 内部内容 ghost (方案 A): 按 (源分片, region) 全量替换, 与边界 ghost 独立共存
+        local src = msg.shardId
+        local key = msg.region
+        local byRegion = ghostByRegion[src]
+        if not byRegion then byRegion = {}; ghostByRegion[src] = byRegion end
+        if byRegion[key] then
+            for _, g in ipairs(byRegion[key]) do
+                ghostEntities[g.id] = nil
+                grid.ghostRemove(g)
+            end
+        end
+        byRegion[key] = msg.ghosts or {}
+        for _, g in ipairs(byRegion[key]) do
+            if not entities[g.id] then
+                ghostEntities[g.id] = g
+                grid.ghostInsert(g)
+            end
+        end
     elseif t == "combatForward" then
         -- 跨分片战斗: 归属分片用重建的攻击者快照结算伤害, 结果回传攻击者分片
         local target = entities[msg.targetId]
@@ -2071,6 +2257,20 @@ moon.dispatch("lua", function(sender, session, msg)
         if target and target.kind == "player" and not target.dead then
             combatState.flagPvp(target)
         end
+    elseif t == "regionPresence" then
+        -- 本分片拥有的 region 内出现/离开其他分片玩家: 维护内部 ghost 推送目标集
+        local key = regionKey(msg.rx or 0, msg.rz or 0)
+        if msg.remove then
+            local s = regionRemoteMap[key]
+            if s then
+                s[msg.shard] = nil
+                if next(s) == nil then regionRemoteMap[key] = nil end
+            end
+        else
+            local s = regionRemoteMap[key]
+            if not s then s = {}; regionRemoteMap[key] = s end
+            s[msg.shard] = true
+        end
     elseif t == "interactForward" then
         -- 跨分片交互: 归属分片解析真实 NPC, 用请求方 qdone/qlog 生成应答行并发回玩家
         local npc = entities[msg.targetId]
@@ -2081,6 +2281,55 @@ moon.dispatch("lua", function(sender, session, msg)
             for _, ln in ipairs(lines) do
                 noteEvents({ { type = "log", text = ln, pid = msg.pid } })
             end
+        end
+    elseif t == "vendorForward" then
+        -- 跨分片商店: 归属分片返回 NPC 库存, 玩家分片据此执行购买
+        local npc = entities[msg.vendorId]
+        if npc and npc.kind == "npc" then
+            moon.send("lua", sender, { t = "vendorStockReply", pid = msg.pid, item = msg.item, vendorItems = npc.vendorItems or {} })
+        end
+    elseif t == "vendorStockReply" then
+        -- 玩家分片收到库存: 执行购买 (meta/金币在本分片)
+        local meta = players[msg.pid]; local pe = entities[msg.pid]
+        if meta and pe and msg.item and msg.vendorItems then
+            local ok, result = vendor.buyItem(meta, pe, msg.item, msg.vendorItems)
+            noteEvents({ { type = "log", text = ok and ("Bought " .. ((result and result.name) or "")) or (result or "Failed"), pid = msg.pid } })
+        end
+    elseif t == "nodeForward" then
+        -- 跨分片采集: 归属分片返回节点模板/等级 (节点数据静态, 无需消耗)
+        local node = entities[msg.nodeId]
+        if node and node.kind == "node" then
+            moon.send("lua", sender, { t = "nodeReply", pid = msg.pid, tid = node.templateId, tier = node.nodeTier or 1 })
+        end
+    elseif t == "nodeReply" then
+        -- 玩家分片收到节点数据: 执行采集 (玩家 meta 在本分片)
+        local meta = players[msg.pid]; local pe = entities[msg.pid]
+        if meta and pe and msg.tid then
+            local ok, result = profession.harvestNode(meta, pe, msg.tid, msg.tier or 1)
+            noteEvents({ { type = "log", text = ok and ("Harvested " .. (result and result.item or "") .. " +" .. tostring(result and result.copper or 0) .. "c") or (result or "Failed"), pid = msg.pid } })
+        end
+    elseif t == "lootForward" then
+        -- 跨分片拾取: 归属分片校验尸体 + 出 loot, 返回给玩家分片入包
+        local corpse = entities[msg.corpseId]
+        if corpse and corpse.dead and corpse.loot and #corpse.loot > 0 then
+            local loot = corpse.loot
+            corpse.loot = nil
+            corpse.lootable = false
+            corpse.dead = false
+            moon.send("lua", sender, { t = "lootReply", pid = msg.pid, items = loot })
+        end
+    elseif t == "lootReply" then
+        -- 玩家分片收到 loot: 入包
+        local meta = players[msg.pid]
+        if meta and msg.items then
+            local got = 0
+            for _, it in ipairs(msg.items) do
+                if it.type ~= "copper" then
+                    local invItem = inventory.createItem(it.id, it.name or it.id, it.kind or "misc", it)
+                    if inventory.addItem(meta, invItem) then got = got + 1 end
+                end
+            end
+            if got > 0 then noteEvents({ { type = "loot", pid = msg.pid, item = { count = got } } }) end
         end
     elseif t == "entityMigrate" then
         -- 跨分片 mob 迁移入站: 以原 id 重建实体 + 恢复 AI/仇恨 (完整状态迁移)
@@ -2255,6 +2504,9 @@ moon.exports.handleCommand = function(pid, cmd)
         forwardCast = forwardCast,
         forwardPvpConsent = forwardPvpConsent,
         forwardInteract = forwardInteract,
+        forwardVendor = forwardVendor,
+        forwardNode = forwardNode,
+        forwardLoot = forwardLoot,
         createMobEntity = createMobEntity, allocId = allocId,
         createPedestrianEntity = createPedestrianEntity, despawnEntity = despawnEntity,
         marketOp = marketOp, mailOp = mailOp, guildBankOp = guildBankOp,

@@ -12,8 +12,18 @@ local M = {}
 --- @param ownerShard number 实体归属分片 (跨片战斗转发用)
 --- @return {id, x, z, ownerShard, kind, pedestrian, json, full, lite}
 ---   json/full 为完整 wire JSON (首见下发), lite 为变化时下发的 LITE JSON (P2a)
+--- _wireVer 缓存: 实体版本未变直接复用上次序列化结果 (静态 NPC/节点零重编码,
+--- 移动 mob 也只在变化时重建), 满足 region 内部 ghost 的开销控制要求。
 function M.serialize(e, ownerShard)
-    local full = snapshot.buildGhostWire(e)
+    local cache = e._ghostCache
+    if not cache or cache.ver ~= e._wireVer then
+        cache = {
+            ver = e._wireVer,
+            full = snapshot.buildGhostWire(e),
+            lite = snapshot.buildGhostLite(e),
+        }
+        e._ghostCache = cache
+    end
     return {
         id = e.id,
         x = e.pos.x,
@@ -21,9 +31,9 @@ function M.serialize(e, ownerShard)
         ownerShard = ownerShard,
         kind = e.kind,
         pedestrian = e.pedestrian or false,
-        json = full,
-        full = full,
-        lite = snapshot.buildGhostLite(e),
+        json = cache.full,
+        full = cache.full,
+        lite = cache.lite,
     }
 end
 

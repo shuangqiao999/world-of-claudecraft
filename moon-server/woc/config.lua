@@ -121,6 +121,17 @@ M.MIGRATE_COOLDOWN_SECONDS = 15
 M.MIGRATE_MIN_TRAVEL = 50
 M.MIGRATE_MIN_TRAVEL_SQ = 50 * 50
 
+-- Region 内部内容实体 ghost 同步 (方案 A): 玩家处于异分片 region 内部时,
+-- 由该 region 归属分片把内部静态内容实体 (NPC/mob/采集节点/可拾取物) 推送到玩家所在分片。
+-- 开关: WOC_ENABLE_REGION_INTERNAL_GHOST=0 可关 (关闭恢复修复前行为)。
+M.ENABLE_REGION_INTERNAL_GHOST = os.getenv("WOC_ENABLE_REGION_INTERNAL_GHOST") ~= "0"
+-- 内部 ghost 同步间隔倍率: 普通边界 ghost 间隔 (GHOST_SYNC_INTERVAL_TICKS=5) x 该值
+M.GHOST_REGION_INTERNAL_MULT = 3
+-- 单个 region 推送给单个远端分片的内部 ghost 最大数量 (截断 + 告警)
+M.MAX_REGION_INTERNAL_GHOST = 256
+-- presence 降采样间隔 (tick): 每 4 tick 扫一次本分片玩家, 更新 region_remote_map
+M.REGION_REMOTE_SCAN_INTERVAL_TICKS = 4
+
 --- region 坐标 (整数格, floor; 负坐标正确)
 function M.regionOf(x, z)
     return math.floor(x / M.REGION_SIZE), math.floor(z / M.REGION_SIZE)
