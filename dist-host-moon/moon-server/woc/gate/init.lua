@@ -291,8 +291,17 @@ end
 -----------------------------------------------------------------
 local hash = require("shared.password_hash")
 
+-- CORS 头: 桌面客户端 (Electron app:// 跨源) / 外部页面的 API 请求必须放行。
+-- 浏览器同源请求忽略这些头, 无副作用。
+local function writeCors(response)
+    response:write_header("Access-Control-Allow-Origin", "*")
+    response:write_header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+    response:write_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+end
+
 local function writeJson(response, data)
     response.status_code = 200
+    writeCors(response)
     response:write_header("Content-Type", "application/json")
     response:write(json.encode(data))
 end
@@ -348,13 +357,13 @@ httpServer.on("/api/characters", function(request, response)
         end
         writeJson(response, { id = c.id, name = c.name, class = c.class, level = c.level, skin = 0, forceRename = false })
     else
-        response.status_code = 405; response:write_header("Content-Type", "text/plain"); response:write("Method Not Allowed")
+        response.status_code = 405; writeCors(response); response:write_header("Content-Type", "text/plain"); response:write("Method Not Allowed")
     end
 end)
 
 httpServer.on("/api/realms", function(request, response)
     local body = '{"current":"' .. config.getRealm() .. '","realms":[{"name":"' .. config.getRealm() .. '","url":"","type":"Normal"}],"characters":{}}'
-    response.status_code = 200; response:write_header("Content-Type", "application/json"); response:write(body)
+    response.status_code = 200; writeCors(response); response:write_header("Content-Type", "application/json"); response:write(body)
 end)
 
 httpServer.on("/api/status", function(request, response)
@@ -370,14 +379,15 @@ httpServer.on("/health", function(request, response)
     writeJson(response, { status = "ok", timestamp = os.time(), db = dbUp() and "connected" or "pending" })
 end)
 
--- CORS preflight + 兜底
+-- CORS preflight + 兜底 (桌面端 app:// 跨源必须先过 preflight)
 httpServer.fallback(function(request, response, next)
     if request.method == "OPTIONS" then
-        response.status_code = 200
+        response.status_code = 204
+        writeCors(response)
         response:write_header("Content-Type", "application/json")
-        response:write("{}")
     else
         response.status_code = 404
+        writeCors(response)
         response:write_header("Content-Type", "application/json")
         response:write(json.encode({ error = "Not Found", path = request.path }))
     end
