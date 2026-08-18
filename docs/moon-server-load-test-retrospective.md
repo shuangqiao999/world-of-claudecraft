@@ -150,14 +150,27 @@ BOTS=500 DURATION_MS=600000 OBSERVERS=6 COMBAT_RATIO=0.6 node scripts/big_battle
 - **5000 人挤一个地理点战斗**：smart 迁移下 ~4-7Hz（best ~13.4），残余成本是承接走远 bot 的几个热分片 +
   每分片 ~100 战斗者的仿真。
 - 计划中的现实验收场景（静态 5000 ≥7-8Hz、~1000 战斗者 ≥5Hz）在本轮快照上限调参后已满足静态一项，战斗一项待复测。
-- 剩余事项：现实场景复测、二进制 wire、以及空间分片内部可见性限制（见
-  `prd/moon-sharding-interior-visibility.md`）。
+- 剩余事项：现实场景复测、二进制 wire（空间分片内部可见性已实现，见下节）。
+
+## Region 内部内容实体可见性修复（方案 A，commit `fb5089bfd`）
+
+Smart 迁移保留性能收益后暴露的架构缺陷：玩家逻辑分片 ≠ 所在 region 归属分片时，region 内部的
+NPC/mob/采集节点/可拾取物不做边界 ghost 同步，异 region 玩家看到"鬼城"。已按方案 A（区域级 ghost 同步）修复：
+
+- **presence 数据层**：`region_remote_map` + 每 4 tick 降采样上报，玩家处于异 region 时通知归属分片
+  （进入/换区/离开三态），登出/迁移/宽限清理钩子清 presence。
+- **内部 ghost 分发**：`syncRegionInternalGhosts` 按 15 tick 节奏推送 owned region 内容实体
+  （排除玩家，`_wireVer` 缓存零重编码，256 上限截断），接收端 `ghostByRegion` 按 region 替换，
+  与边界 135yd ghostSync 独立共存。
+- **交互全链路**：`H.interact` 支持 ghost node/object；新增 `vendorForward/nodeForward/lootForward`
+  三个跨片事务通道（owner 校验 -> reply -> 本分片应用），沿用 `forwardInteract` 模式。
+
+验证：出生点 0 实体 -> 8 NPC + 17 节点可见、interact 返回任务行；5000 压测 48/48 分片、
+快照 Hz best ~13.05（修复前基线 13.42）——功能达成、性能无退化。
 
 ## 待办
 
 - [ ] 迁移修复 + 20Hz 调参后复测验收场景：5000 静态与 ~1000 战斗者（调 COMBAT_RATIO），期望 ≥7-8Hz 与 ≥5Hz。
-- [ ] pid 分片玩家的 region 内部实体可见性 —— 见 `prd/moon-sharding-interior-visibility.md`
-      （区域级 ghost 广播或出生点分布）。
 - [ ] 二进制 wire 帧（JSON 字符串 key 约占帧体积 40%）—— 客户端 + 服务端协议级改动，延期。
 - [ ] 分布出生点的（真实感）5000-bot 运行，区分"扎堆 AOI 密度"与"绝对世界容量"。
 - [ ] 异机压测（bot 放第二台机器），彻底消除同机客户端测量上限。

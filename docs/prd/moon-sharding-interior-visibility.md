@@ -1,7 +1,8 @@
 # Moon 空间分片：pid 分片玩家的 region 内部可见性
 
-状态：**待开发 / 未实现** —— 在 5000-bot 压测战役中产出的后续修复规格（测量背景见
-`docs/moon-server-load-test-retrospective.md`）。开工前先读那份复盘。
+状态：**已实现（方案 A 区域级 ghost 同步）** —— 原始规格在 5000-bot 压测战役中产出
+（测量背景见 `docs/moon-server-load-test-retrospective.md`）。方案 A 已落地并验证，记录如下；
+若需回退，配置 `ENABLE_REGION_INTERNAL_GHOST=false`（`WOC_ENABLE_REGION_INTERNAL_GHOST=0`）即可。
 
 ## 问题
 
@@ -59,7 +60,34 @@ NPC、mob、采集节点、可拾取物体。
 3. 5000-bot 扎堆压测保持 >= 48/48 分片、快照 Hz >= 5（即修复不得重新引入迁移合并）。
 4. 无快照帧回归：内部 ghost 走 FULL/LITE/keep delta 路径，不进每 tick 热构建。
 
-## 参考点（开工前重新核对代码）
+## 已实现（方案 A）
+
+- **数据层**：`region_remote_map`（regionKey -> 远端分片集合）。每 `REGION_REMOTE_SCAN_INTERVAL_TICKS`
+  （4）tick 扫本分片玩家，玩家处于异 region 时向该 region 归属分片发 `regionPresence`（进入/换区/离开三态），
+  登出/迁移/宽限清理经 `leavePlayer`/`cleanupPlayerLocal` 钩子清 presence。
+- **ghostSync 扩展**：`syncRegionInternalGhosts` 按 `GHOST_SYNC_INTERVAL_TICKS * GHOST_REGION_INTERNAL_MULT`
+  （15）tick 节奏，收集 owned region 内容实体（NPC/mob/节点/可拾取物/尸体，**排除玩家**），
+  `ghost.serialize` 复用 `_wireVer` 缓存免重编码，`MAX_REGION_INTERNAL_GHOST`（256）截断告警，
+  推送 `regionInternalGhost` 到远端分片；对离开的远端发空列表清陈旧 ghost。
+  原有边界 135yd ghostSync 逻辑完整保留，两套共存。
+- **接收端**：`ghostByRegion[src][regionKey]` 全量替换，与 `ghostByShard` 独立，进入 `ghostEntities`/grid，
+  快照 P2a 预算渲染、`H.interact` 扫描、战斗 `combatForward` 天然生效。
+- **交互全链路**：`H.interact` ghost 分支扩展至 node/object；新增三个跨片事务通道
+  `vendorForward/vendorStockReply`（商店）、`nodeForward/nodeReply`（采集）、
+  `lootForward/lootReply`（拾取）——均沿用 `forwardInteract` 的 forward -> owner 校验 -> reply -> 本分片应用模式，
+  不改 `command_dispatch` 核心。
+- **配置**：`ENABLE_REGION_INTERNAL_GHOST`（总开关）、`GHOST_REGION_INTERNAL_MULT=3`、
+  `MAX_REGION_INTERNAL_GHOST=256`、`REGION_REMOTE_SCAN_INTERVAL_TICKS=4`（`config.lua`，环境可覆盖，重启生效；
+  sharetable 热更列为后续独立基础设施项）。
+
+### 验证结果
+
+- 功能：出生点 0 实体 -> 8 NPC + 17 节点可见；`interact` 返回任务行（Scourge's End accept）；
+  跨片购买链路执行（vendorForward reply 返回）。
+- 性能（5000 压测，内部 ghost ON）：5000/5000 接入保持、48/48 分片均衡、快照 Hz best ~13.05、
+  gap p50 ~82.7ms —— 与修复前基线（13.42/82.5）一致，无退化。
+
+## 参考点（重新核对代码）
 
 - 玩家出生：`moon-server/woc/world/init.lua` `createPlayerEntity`（pos = 0,0）与 `joinPlayer`。
 - NPC 按 region 归属：`moon-server/woc/world/npc_spawn.lua` spawnAll。
