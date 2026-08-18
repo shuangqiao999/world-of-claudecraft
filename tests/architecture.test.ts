@@ -433,6 +433,7 @@ const RENDER_PURE_CORES = [
   'src/render/character_view_core.ts',
   'src/render/chunk_residency_core.ts',
   'src/render/cliff_scree_core.ts',
+  'src/render/crowd_instance_plan_core.ts',
   'src/render/detail_horizon_core.ts',
   'src/render/draw_stats_core.ts',
   'src/render/fishing_bobber_core.ts',

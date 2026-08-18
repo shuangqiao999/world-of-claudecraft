@@ -152,6 +152,11 @@ import {
   characterLodBandsInto,
   showsStaticFarMesh,
 } from './crowd_lod';
+import {
+  CrowdInstanceSlots,
+  crowdInstanceWriteMatrix,
+  shouldCrowdInstance,
+} from './crowd_instance_plan_core';
 import { daisVisualLift } from './dais_lift';
 import { currentDayNightPhase, currentLunarPhase, dayNightPhaseOverride } from './day_night_clock';
 import {
@@ -548,6 +553,16 @@ const SPARKLE_DRAW_RANGE_SQ = 40 * 40;
 // Keep the full rig just past nameplate range so nearby characters and held
 // weapons stay readable on low while the 80u draw cap still bounds total cost.
 const ENTITY_LOD_RANGE_SQ = 58 * 58;
+
+// Frozen far-crowd instancing (crowd_instance_plan_core.ts decides membership).
+// The per-group InstancedMesh buffer is sized to the highest slot index ever
+// handed out and only GROWS (doubling), so boundary oscillation never reallocs
+// per frame; an empty group is kept alive for IDLE_FRAMES so a re-crossing
+// entity reuses its buffer instead of paying a rebuild. Groups are keyed by
+// visualPoolKey (color/skin are in the key, so the shared material is
+// homogeneous by construction).
+const CROWD_INSTANCE_INITIAL_CAPACITY = 32;
+const CROWD_INSTANCE_IDLE_DISPOSE_FRAMES = 300;
 
 // Crowd-adaptive character LOD (articulated-rig + shadow ranges, and the mid-band
 // animation cadence) lives in `crowd_lod.ts`: pure policy, unit-tested there.
@@ -1006,6 +1021,10 @@ export interface EntityView {
   viewLights: THREE.PointLight[]; // point lights this view contributes to the budget
   shadowOn: boolean;
   isFar: boolean;
+  /** True when this frozen far visual joins the shared crowd InstancedMesh this
+   *  frame (set in the entity loop where `active` is known; reconciled in
+   *  `syncCrowdInstances`, which re-gates on `group.visible`). */
+  crowdInstanceFar: boolean;
   // hidden until its shader programs finish linking off-thread (async-compile gate)
   compilePending: boolean;
   // Resolves when compilePending clears after the non-cancellable link settles.
@@ -1077,6 +1096,23 @@ export interface EntityView {
   tiltOnProp: boolean;
   /** Countdown to the next gradient resample (seconds). */
   tiltSampleT: number;
+}
+
+/** One shared InstancedMesh drawing a frozen-far visual pool key's crowd. */
+interface CrowdInstanceGroup {
+  /** the visualPoolKey this group's material/geometry is keyed on */
+  key: string;
+  mesh: THREE.InstancedMesh;
+  /** the group's shared far-LOD materials (every member's
+   *  `visual.farMeshSharedMaterials` identity; a member that differs falls
+   *  back to the per-entity frozen mesh). */
+  material: THREE.Material | THREE.Material[];
+  /** entityId -> instance slot (pure index math, see crowd_instance_plan_core) */
+  slots: CrowdInstanceSlots;
+  /** any matrix changed since the last upload */
+  dirty: boolean;
+  /** consecutive frames this group drew zero instances */
+  idleFrames: number;
 }
 
 function collectCasters(root: THREE.Object3D, into: THREE.Object3D[]): void {
@@ -1924,6 +1960,10 @@ export class Renderer {
   private lastQualityChange: RendererQualityChangeStats | null = null;
   private visualPool = new Map<string, CharacterVisual[]>();
   private pooledVisualCount = 0;
+  /** frozen far-crowd instancing: visualPoolKey -> shared InstancedMesh group.
+   *  Groups only ever grow their buffer capacity (never per-frame realloc) and
+   *  are disposed only after `CROWD_INSTANCE_IDLE_DISPOSE_FRAMES` empty. */
+  private crowdInstanceGroups = new Map<string, CrowdInstanceGroup>();
   private objectPool = new Map<string, PooledObjectView[]>();
   private pooledObjectCount = 0;
   private prewarmDepthMaterials = new Map<string, THREE.MeshDepthMaterial>();
@@ -4771,6 +4811,7 @@ export class Renderer {
     visual.root.rotation.set(0, 0, 0);
     visual.root.scale.set(1, 1, 1);
     visual.setFar(false);
+    visual.setInstancedFar(false);
     visual.setGhost(false);
     return visual;
   }
@@ -4792,6 +4833,140 @@ export class Renderer {
     }
     pool.push(visual);
     this.pooledVisualCount++;
+  }
+
+  // -------------------------------------------------------------------------
+  // Frozen far-crowd instancing
+  // (policy + slot math live in crowd_instance_plan_core.ts; this is the thin
+  // Three painter that owns the per-pool-key InstancedMesh groups)
+  // -------------------------------------------------------------------------
+
+  private createCrowdInstanceGroup(
+    key: string,
+    visual: CharacterVisual,
+  ): CrowdInstanceGroup | null {
+    const geometry = visual.farMeshGeometry;
+    const material = visual.farMeshSharedMaterials;
+    if (!geometry || !material) return null;
+    const mesh = new THREE.InstancedMesh(geometry, material, CROWD_INSTANCE_INITIAL_CAPACITY);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.castShadow = true;
+    // Instances are spread around the camera; the geometry's own bounds (at the
+    // mesh origin) cannot cull for them. Per-entity visibility already culled.
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    const group: CrowdInstanceGroup = {
+      key,
+      mesh,
+      material,
+      slots: new CrowdInstanceSlots(),
+      dirty: false,
+      idleFrames: 0,
+    };
+    this.crowdInstanceGroups.set(key, group);
+    return group;
+  }
+
+  /** Grow the group's instance buffer (doubling, matrices copied) only when the
+   *  slot high-water mark passes capacity - never per frame. */
+  private ensureCrowdInstanceCapacity(group: CrowdInstanceGroup): void {
+    const capacity = group.mesh.instanceMatrix.count;
+    if (group.slots.highWater <= capacity) return;
+    const newCap = Math.max(CROWD_INSTANCE_INITIAL_CAPACITY, capacity * 2);
+    const old = group.mesh;
+    const mesh = new THREE.InstancedMesh(old.geometry, group.material, newCap);
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.castShadow = true;
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.array.set(old.instanceMatrix.array.subarray(0, old.count * 16) as Float32Array);
+    mesh.count = old.count;
+    this.scene.add(mesh);
+    this.scene.remove(old);
+    old.dispose();
+    group.mesh = mesh;
+    group.dirty = true;
+  }
+
+  /** Free a view's instance slot (no-op when it holds none). */
+  private dropCrowdInstance(id: number, key: string | null): void {
+    if (!key) return;
+    const group = this.crowdInstanceGroups.get(key);
+    if (!group) return;
+    group.slots.remove(id);
+  }
+
+  /**
+   * Reconcile the shared crowd InstancedMesh groups against this frame's final
+   * membership. Runs after the entity loop (visibility + transforms settled)
+   * and after the matrixWorldAutoUpdate gate. Membership is re-derived per
+   * view from the entity loop's flag plus `group.visible` (a culled or
+   * off-screen view keeps a stale flag but must not hold a stale instance), and
+   * the shared material identity is a runtime guard: a member whose far
+   * materials differ from its group's falls back to the per-entity frozen mesh.
+   * The instance matrix is the farMesh world matrix (forced fresh), which
+   * carries the group transform, poseWrap swim pose, and the farMesh corpse
+   * tip; the buffer upload is skipped in steady state (compare-write).
+   */
+  private syncCrowdInstances(): void {
+    for (const [id, v] of this.views) {
+      const key = v.crowdInstanceFar && v.group.visible ? v.visualPoolKey : null;
+      if (!key || !v.visual) {
+        if (v.visual?.isInstanceFar) v.visual.setInstancedFar(false);
+        this.dropCrowdInstance(id, v.visualPoolKey);
+        continue;
+      }
+      const material = v.visual.farMeshSharedMaterials;
+      if (!material) {
+        if (v.visual.isInstanceFar) v.visual.setInstancedFar(false);
+        this.dropCrowdInstance(id, key);
+        continue;
+      }
+      let group: CrowdInstanceGroup | null = this.crowdInstanceGroups.get(key) ?? null;
+      if (!group) {
+        group = this.createCrowdInstanceGroup(key, v.visual);
+        if (!group) {
+          if (v.visual.isInstanceFar) v.visual.setInstancedFar(false);
+          this.dropCrowdInstance(id, key);
+          continue;
+        }
+      } else if (group.material !== material) {
+        // material identity drifted (tier/skin edge): keep the per-entity mesh
+        if (v.visual.isInstanceFar) v.visual.setInstancedFar(false);
+        this.dropCrowdInstance(id, key);
+        continue;
+      }
+      if (!v.visual.isInstanceFar) v.visual.setInstancedFar(true);
+      this.ensureCrowdInstanceCapacity(group);
+      const slot = group.slots.alloc(id);
+      v.group.updateMatrixWorld(true);
+      const src = v.visual.farMeshWorldMatrix;
+      if (src) {
+        if (group.dirty) {
+          group.mesh.instanceMatrix.array.set(src, slot * 16);
+        } else if (crowdInstanceWriteMatrix(group.mesh.instanceMatrix.array as Float32Array, slot, src)) {
+          group.dirty = true;
+        }
+      }
+    }
+    for (const group of this.crowdInstanceGroups.values()) {
+      const count = group.slots.activeCount;
+      if (count !== group.mesh.count) group.mesh.count = count;
+      group.mesh.visible = count > 0; // an empty group skips the no-op draw
+      if (group.dirty) {
+        group.mesh.instanceMatrix.needsUpdate = true;
+        group.dirty = false;
+      }
+      if (count === 0) {
+        group.idleFrames++;
+        if (group.idleFrames > CROWD_INSTANCE_IDLE_DISPOSE_FRAMES) {
+          this.scene.remove(group.mesh);
+          group.mesh.dispose();
+          this.crowdInstanceGroups.delete(group.key);
+        }
+      } else {
+        group.idleFrames = 0;
+      }
+    }
   }
 
   private objectPoolKeyFor(e: Entity): string | null {
@@ -7338,6 +7513,7 @@ export class Renderer {
       viewLights,
       shadowOn: true,
       isFar: false,
+      crowdInstanceFar: false,
       compilePending: false,
       compileReady: null,
       mountCompilePending: false,
@@ -8839,6 +9015,10 @@ export class Renderer {
     // misses a re-candidate (an entity replaced by another of a different id can
     // leave the mirror size unchanged).
     this._viewScanDirty = true;
+    // Drop any crowd-instance slot and reset the visual's shared-mesh routing so
+    // a pooled visual never hands a stale instanceFar flag to its next owner.
+    this.dropCrowdInstance(id, v.visualPoolKey);
+    if (v.visual?.isInstanceFar) v.visual.setInstancedFar(false);
     // A pending weapon-skin application must never land on a dropped (or
     // pooled and reused) view.
     this.weaponSkinApplies.cancel(id);
@@ -9234,17 +9414,21 @@ export class Renderer {
           // past the articulated gate the static-pose proxy carries the
           // shadow; an active form's own rig keeps casting instead. A mounted
           // rider also skips the proxy: its baked ground-level idle silhouette
-          // would render under the raised body.
-          v.visual?.setProxyShadow(
-            !wantShadow &&
-              inProxyBand &&
-              !polyed &&
-              !bear &&
-              !cat &&
-              !travel &&
-              !v.mountVisual &&
-              !fireballForm,
-          );
+          // would render under the raised body. Crowd-instanced visuals hand
+          // their shadow to the shared InstancedMesh instead (the per-entity
+          // proxy would double-draw it).
+          if (!v.visual?.isInstanceFar) {
+            v.visual?.setProxyShadow(
+              !wantShadow &&
+                inProxyBand &&
+                !polyed &&
+                !bear &&
+                !cat &&
+                !travel &&
+                !v.mountVisual &&
+                !fireballForm,
+            );
+          }
           // sheep/forms keep articulated shadows through the whole proxy band:
           // a frozen humanoid proxy silhouette would be wrong under a form
           const wantFormShadow = wantShadow || inProxyBand;
@@ -9674,7 +9858,23 @@ export class Renderer {
       v.visual.root.position.y = v.mountLift;
       v.visual.root.position.z = v.mountLift > 0 && mountSpec ? mountSpec.seatFwd : 0;
       // distant rigs swap to the single-draw baked idle-pose mesh
-      v.visual.setFar(v.isFar && active === v.visual && !fireballForm);
+      const drawFar = v.isFar && active === v.visual && !fireballForm;
+      v.visual.setFar(drawFar);
+      // Frozen far visuals without per-entity material state collapse into the
+      // shared crowd InstancedMesh (decided here where `active` is known; the
+      // reconcile re-gates on group.visible and applies setInstancedFar).
+      // `farStateActive` exemptions keep their own frozen mesh so a
+      // stealthed/glowing/tinted body never renders from the shared material.
+      // Any view culled or off-screen keeps a stale flag, but
+      // syncCrowdInstances drops it via `group.visible`.
+      v.crowdInstanceFar = shouldCrowdInstance({
+        isFar: v.isFar,
+        baseVisualActive: active === v.visual,
+        fireballForm,
+        farStateActive: v.visual.farStateActive,
+        poolKey: v.visualPoolKey,
+        visible: true, // finalized later this frame; reconcile re-checks it
+      });
 
       // animation state machine inputs, derived from render-space motion with
       // hysteresis so a one-frame speed dip can't reset the walk clip.
@@ -10149,8 +10349,18 @@ export class Renderer {
       // mid-cast always animate every frame no matter how dense the crowd.
       let animate = true;
       if (!actionablePose) {
-        const cadence = animCadenceFrames(d2, lodBands);
-        animate = cadence <= 1 || (this.frameIdx + e.id) % cadence === 0;
+        if (v.crowdInstanceFar) {
+          // Instanced far band: the shared InstancedMesh draws; the mixer stays
+          // frozen (no keep-warm tick, so no per-rig clip sampling or bone
+          // matrix rebuild). update() still runs the cheap non-animate branch
+          // below, which keeps the farMesh corpse tip fresh for the instance
+          // matrix. On re-entry the mixer resumes from the pose it had when it
+          // froze, so the boundary does not pop.
+          animate = false;
+        } else {
+          const cadence = animCadenceFrames(d2, lodBands);
+          animate = cadence <= 1 || (this.frameIdx + e.id) % cadence === 0;
+        }
       }
       if (runCharacterPresentation) active.update(dt, st, animate);
       else active.advanceOffscreen(dt);
@@ -10336,6 +10546,14 @@ export class Renderer {
       v.group.matrixWorldAutoUpdate = v.group.visible || this.lightOwnerGroups.has(v.group);
       if (v.group.visible) visibleViews++;
     }
+
+    // Frozen far-crowd instancing: reconcile the shared InstancedMesh groups
+    // against this frame's final membership (visibility + transforms settled
+    // above). Runs AFTER the matrixWorldAutoUpdate gate so instanced views are
+    // visible (their subtrees recompose); the matrices are read from the forced
+    // farMesh world updates, so the shared draw always tracks the group it
+    // replaces.
+    this.syncCrowdInstances();
 
     // selection ring
     const target = p.targetId !== null ? sim.entities.get(p.targetId) : null;

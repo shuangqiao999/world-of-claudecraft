@@ -504,6 +504,11 @@ export class CharacterVisual {
 
   private shadowOn = true;
   private far = false;
+  /** True while this visual's frozen far mesh is drawn by the shared crowd
+   *  InstancedMesh instead of the per-entity farMesh (see `setInstancedFar`).
+   *  Only ever true for a non-exempt frozen far visual (farStateActive is
+   *  false), so the per-entity farMesh stays the always-correct fallback. */
+  private instanceFar = false;
   private soulRend = false;
   private shadowform = false;
   private moonkin = false;
@@ -807,8 +812,11 @@ export class CharacterVisual {
       // Compress at the start of the pull, back to neutral as the body rises.
       CLIMB_BODY_DUCK * climb * (1 - env01(this.climbPhase, 0.1, 0.55));
 
-    // distant corpses show the static idle far mesh, tip it over
-    if (this.farMesh?.visible) {
+    // distant corpses show the static idle far mesh, tip it over. The pose is
+    // also kept fresh while the crowd InstancedMesh draws this visual (the
+    // instance matrix is read from farMesh.matrixWorld, so the tip must stay
+    // current even though the per-entity farMesh is hidden).
+    if (this.farMesh && (this.farMesh.visible || this.instanceFar)) {
       if (s.dead) {
         this.farMesh.rotation.z = Math.PI / 2;
         this.farMesh.position.y = this.height * 0.16;
@@ -1295,6 +1303,64 @@ export class CharacterVisual {
 
   get isFar(): boolean {
     return this.far;
+  }
+
+  /**
+   * Route this visual's frozen far draw through the shared crowd InstancedMesh.
+   * The per-entity farMesh and its shadow proxy stay hidden (the instance draws
+   * them); the baked idle-pose material state (corpse tip) keeps updating via
+   * `update()`, whose matrix the painter reads for the instance matrix. On exit
+   * the per-entity farMesh visibility restores (`this.far` still reflects the
+   * LOD band); the shadow proxy is left for the renderer's per-frame shadow
+   * gate to restore. Only ever called for a non-exempt frozen visual, so the
+   * shared material is safe (no ghost/glow/tint state to represent per-instance).
+   */
+  setInstancedFar(on: boolean): void {
+    if (on === this.instanceFar) return;
+    this.instanceFar = on;
+    if (this.farMesh) this.farMesh.visible = on ? false : this.far;
+    if (on && this.shadowProxy) this.shadowProxy.visible = false;
+  }
+
+  get isInstanceFar(): boolean {
+    return this.instanceFar;
+  }
+
+  /** Any active per-entity far-mesh material state. A visual with one must keep
+   *  its OWN frozen mesh: instancing shares one material per group and would
+   *  drop the treatment (a stealthed body must stay translucent, never render
+   *  opaque from the shared mesh - the crowd knob must not leak a hidden body). */
+  get farStateActive(): boolean {
+    return (
+      this.ghosted ||
+      this.shadowform ||
+      this.moonkin ||
+      this.metamorph ||
+      this.soulRend ||
+      this.auraGlowIntensity > 0.01 ||
+      this.runeTint !== null
+    );
+  }
+
+  /** The tinted far-LOD materials (matCache-deduped per tint/skin/tier). Shared
+   *  per crowd-instance group; null when this visual has no baked idle geometry. */
+  get farMeshSharedMaterials(): THREE.Material | THREE.Material[] | null {
+    return this.farMaterials;
+  }
+
+  /** The per-entity farMesh world matrix (elements), refreshed via
+   *  `group.updateMatrixWorld(true)` by the painter before reading. Null when
+   *  the visual has no far mesh. */
+  get farMeshWorldMatrix(): Float32Array | null {
+    // Matrix4.elements is a Float32Array at runtime (the .d.ts widens it to
+    // number[]); the painter feeds it straight into the instance buffer.
+    return (this.farMesh?.matrixWorld.elements as Float32Array | undefined) ?? null;
+  }
+
+  /** The baked idle-pose geometry this visual shares per visual key (the
+   *  far-mesh geometry the crowd InstancedMesh reuses). */
+  get farMeshGeometry(): THREE.BufferGeometry | null {
+    return this.farMesh?.geometry ?? null;
   }
 
   setGhost(on: boolean, style: GhostStyle = 'spirit'): void {
