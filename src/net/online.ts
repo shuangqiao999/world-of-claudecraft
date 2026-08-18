@@ -240,6 +240,35 @@ export function buildWebSocketUrl(protocol: string, host: string): string {
   return runtimeWebSocketUrl(protocol, host, DESKTOP_API_ORIGIN);
 }
 
+// WS 直连 (self-host 多 gate): 浏览器直连 gate 的 WS 端口, 绕过 Node 代理
+// (代理仅剩静态 + /api, 从 240MB/s 数据路径上移走)。端口列表来自 /api/status
+// 的 wsPorts, 由 realmStatus/后台预热填充; 取不到时回退走代理 (旧行为)。
+// openSocket 保持同步: 未预热时先走代理, 后台拉取 wsPorts, 重连即直连。
+let cachedWsPorts: number[] | null = null;
+let wsPortsWarmed = false;
+
+function seedWsPorts(ports: number[]): void {
+  if (ports.length) cachedWsPorts = ports;
+  wsPortsWarmed = true;
+}
+
+function warmWsPorts(base: string): void {
+  if (wsPortsWarmed) return;
+  wsPortsWarmed = true;
+  void (async () => {
+    try {
+      const res = await fetch(apiUrl('/api/status', base), { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        const d = await res.json();
+        if (Array.isArray(d.wsPorts)) {
+          const ports = d.wsPorts.map((n: unknown) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0);
+          if (ports.length) cachedWsPorts = ports;
+        }
+      }
+    } catch { /* 保持代理路径 */ }
+  })();
+}
+
 export {
   apiUrl,
   DESKTOP_API_ORIGIN,
@@ -388,6 +417,7 @@ export class Api {
       if (!res.ok) return { online: false, players: 0, cap: 0 };
       const d = await res.json();
       const cap = typeof d.players_cap === 'number' && d.players_cap > 0 ? d.players_cap : 0;
+      if (Array.isArray(d.wsPorts)) seedWsPorts(d.wsPorts.map((n: unknown) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0));
       return { online: true, players: d.players_online ?? 0, cap };
     } catch {
       return { online: false, players: 0, cap: 0 };
@@ -1967,10 +1997,28 @@ export class ClientWorld implements IWorld {
     if (this.connected) this.socketClosed();
   }
 
+  private wsPortIdx = 0;
+
+  // WS 直连 (P1): self-host 浏览器直连 gate WS 端口 (绕过 Node 代理);
+  // 桌面/原生/云端走原路径。wsPorts 未预热时回退走代理 (旧行为)。
+  private resolveWsUrl(): string {
+    const desktopOrNative = Boolean(NATIVE_API_ORIGIN || DESKTOP_API_ORIGIN);
+    if (this.base && desktopOrNative) {
+      return `${this.base.replace(/^http/, 'ws')}/ws`;
+    }
+    if (!desktopOrNative) {
+      if (cachedWsPorts && cachedWsPorts.length) {
+        const host = new URL(this.base && /^https?:/.test(this.base) ? this.base : location.origin).hostname;
+        const port = cachedWsPorts[this.wsPortIdx++ % cachedWsPorts.length];
+        return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${host}:${port}/ws`;
+      }
+      warmWsPorts(this.base);
+    }
+    return this.base ? `${this.base.replace(/^http/, 'ws')}/ws` : buildWebSocketUrl(location.protocol, location.host);
+  }
+
   private openSocket(): void {
-    const wsUrl = this.base
-      ? `${this.base.replace(/^http/, 'ws')}/ws`
-      : buildWebSocketUrl(location.protocol, location.host);
+    const wsUrl = this.resolveWsUrl();
     this.ws = new WebSocket(wsUrl);
     this.ws.onopen = () => {
       this.ws.send(

@@ -1,11 +1,11 @@
 -- World of ClaudeCraft — Gate Service (API + WebSocket)
 -- 由 Node.js 代理层 (launcher_moon.mjs) 对外统一 8787, 内部分流:
---   /api/* 与 /health  → moon 的 HTTP 端口 (config.getPort(), 默认 8788)
---   WS upgrade        → moon 的 WS 端口 (WOC_WS_PORT, 默认 8789)
--- 底层 HTTP/WS 改用 moon 自带模块 (C++ 解析/缓冲/心跳):
---   moon.http.server   : HTTP 解析 + 路由 + keepalive
---   moon.http.websocket: WS 帧/掩码/心跳, 免手写背压与掩码循环
--- 会话/认证/广播等业务逻辑保持不变。
+--   /api/* 与 /health  → gate_0 的 HTTP 端口 (config.getPort(), 默认 8788)
+--   WS upgrade        → 轮询到 gate_0..gate_{N-1} 的 WS 端口 (WOC_WS_PORT + 2k, 默认 8789 起)
+-- 多 gate 实例 (P1): 服务名 gate_k (k=0..N-1), 各自独立 HTTP/WS 端口 + 独立线程,
+-- 分摊 wsWrite 负载。会话由接受连接的 gate 持有 (fd 归属), 断线重连落到其他 gate 时
+-- 通过查询 world 分片做跨 gate resume (重新采纳 pid, world 无感知)。
+-- 底层 HTTP/WS 用 moon 自带模块 (C++ 解析/缓冲/心跳)。
 
 local moon = require("moon")
 local socket = require("moon.socket")
@@ -18,6 +18,15 @@ local websocket = require("moon.http.websocket")
 
 -- 速率限制 (Phase 3)
 local rateLimit = require("world.msg_rate_limit")
+
+-- 本 gate 实例索引: 从服务名 "gate_k" 解析 (与 world 分片同模式)
+local gateIndex = 0
+local gateCount = config.getGateCount()
+do
+    local name = moon.name or ""
+    local idx = name:match("^gate_(%d+)$")
+    if idx then gateIndex = tonumber(idx) end
+end
 
 -- DB Service 路由 (单一数据库入口, 无直连 PG)
 local sessions, pids = {}, {}
@@ -48,6 +57,14 @@ local function shardOf(pid)
     return pid % worldShardCount
 end
 
+-- pid 分配: pid = gateIndex * GATE_PID_STRIDE + 本地计数。
+-- stride(100M) % worldShardCount == 0 → pid%shards 仍为轮询; stride 避开 world 实体 id(<32M)。
+-- gateOf(pid) 由 world 同规则反解, 无需注册表。
+local function allocPid()
+    nextEntityId = nextEntityId + 1
+    return gateIndex * config.GATE_PID_STRIDE + nextEntityId
+end
+
 -- 连接限流 (令牌桶): 防止 login 风暴瞬间压垮 world 快照广播 + DB 连接池
 local joinTokens = config.JOIN_RATE_LIMIT
 local joinLastRefill = os.time()
@@ -67,9 +84,10 @@ local function joinGate()
     end
 end
 
--- 端口: HTTP 用 config.getPort (launcher 转发 /api), WS 用 WOC_WS_PORT
-local httpPort = config.getPort()
-local wsPort = tonumber(os.getenv("WOC_WS_PORT")) or (httpPort + 1)
+-- 端口: gate_k HTTP = config.getPort + 2k (gate_0 即 launcher 转发的 /api 端口),
+--      gate_k WS   = WOC_WS_PORT + 2k (gate_0 即默认 8789)
+local httpPort = config.getPort() + 2 * gateIndex
+local wsPort = (tonumber(os.getenv("WOC_WS_PORT")) or (config.getPort() + 1)) + 2 * gateIndex
 
 -----------------------------------------------------------------
 -- DB Service 调用 (moon.call 跨 worker, 无直连)
@@ -130,13 +148,15 @@ local function handleAuth(fd, msg)
             if oldShard then oldShard[oldFd] = nil end
             existing.fd = fd
             existing.linkdead = false
+            existing.awaitingPong = false
+            existing.noPongStreak = 0
             sessions[fd] = existing
             pids[existing.pid] = fd
             sessionsByChar[characterId] = existing
             local sh = sessionsByShard[existing.shard]
             if not sh then sh = {}; sessionsByShard[existing.shard] = sh end
             sh[fd] = true
-            print(string.format("[Gate] Auth RESUME char=%d pid=%d (linkdead recovered)", characterId, existing.pid))
+            print(string.format("[Gate%d] Auth RESUME char=%d pid=%d (linkdead recovered)", gateIndex, characterId, existing.pid))
             wsWrite(fd, jh.buildHelloFrame(existing.pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
             if world then
                 moon.send("lua", world, { t = "playerResumed", pid = existing.pid })
@@ -144,18 +164,50 @@ local function handleAuth(fd, msg)
             return
         end
 
+        -- 跨 gate resume (P1): 本地无该角色的 session, 但存在活跃租约 → 角色仍在 world 中
+        -- (可能正挂在其他 gate 的宽限期里)。有租约才查 world (一次廉价 DB 查询代替 32 次轮询)。
+        local held = dbCall("getCharacterLease", characterId)
+        if held then
+            local h = nil
+            for i = 0, worldShardCount - 1 do
+                local svc = moon.queryservice("world_" .. i)
+                if svc then
+                    local resp = moon.call("lua", svc, { t = "queryPlayerGate", characterId = characterId })
+                    if resp and resp.ok then h = resp; break end
+                end
+            end
+            if h then
+                if not h.linkdead then
+                    wsWrite(fd, jh.buildErrorFrame("already in world")); socket.close(fd); return
+                end
+                -- 跨 gate 采纳原 pid/shard: world 无感知, 实体保持原位
+                local pid, shard = h.pid, h.shard
+                sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = held.nonce, lastInputSeq = 0, linkdead = false, shard = shard, awaitingPong = false, noPongStreak = 0, lastSnapSentAt = 0, skippedSnaps = 0 }
+                pids[pid] = fd
+                sessionsByChar[characterId] = sessions[fd]
+                local sh = sessionsByShard[shard]
+                if not sh then sh = {}; sessionsByShard[shard] = sh end
+                sh[fd] = true
+                print(string.format("[Gate%d] Auth RESUME cross-gate char=%d pid=%d (adopted from gate_%d)", gateIndex, characterId, pid, h.gateIndex))
+                wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
+                local world = worldSvcByShard(shard)
+                if world then moon.send("lua", world, { t = "playerResumed", pid = pid }) end
+                return
+            end
+        end
+
         local nonce = string.format("%s%d", tostring(require("random").rand_range(100000, 999999)), os.time())
         dbCall("acquireLease", characterId, accountId, nonce)
-        local pid = nextEntityId; nextEntityId = nextEntityId + 1
+        local pid = allocPid()
         local shard = shardOf(pid)
-        sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false, shard = shard }
+        sessions[fd] = { fd = fd, accountId = accountId, characterId = characterId, pid = pid, name = cr.name, cls = cr.class, leaseNonce = nonce, lastInputSeq = 0, linkdead = false, shard = shard, awaitingPong = false, noPongStreak = 0, lastSnapSentAt = 0, skippedSnaps = 0 }
         pids[pid] = fd
         sessionsByChar[characterId] = sessions[fd]
         local sh = sessionsByShard[shard]
         if not sh then sh = {}; sessionsByShard[shard] = sh end
         sh[fd] = true
         wsWrite(fd, jh.buildHelloFrame(pid, config.WORLD_SEED, cr.name, cr.class, config.getRealm(), {}, nil))
-        print(string.format("[Gate] Auth OK: fd=%d pid=%d name=%s cls=%s shard=%d", fd, pid, cr.name, cr.class, shard))
+        print(string.format("[Gate%d] Auth OK: fd=%d pid=%d name=%s cls=%s shard=%d", gateIndex, fd, pid, cr.name, cr.class, shard))
         local world = worldSvcByShard(shard)
         if world then
             local sd = cr.state; if type(sd)=="string" then local ok, d = pcall(json.decode, sd); if ok then sd = d end end
@@ -165,11 +217,46 @@ local function handleAuth(fd, msg)
 end
 
 -----------------------------------------------------------------
+-- 统一会话拆除: 从 socket 索引表移除; linkdead 保留 sessionsByChar 供宽限内重连,
+-- 非 linkdead (踢出/登出) 立即清 sessionsByChar + rateLimit。
+-- 返回被拆除的会话 (无则 nil)。
+-----------------------------------------------------------------
+local function detachSession(fd, asLinkdead)
+    local sess = sessions[fd]
+    if not sess then return nil end
+    local sh = sessionsByShard[sess.shard]
+    if sh then sh[fd] = nil end
+    sessions[fd] = nil
+    pids[sess.pid] = nil
+    if asLinkdead then
+        sess.linkdead = true
+        -- 宽限期到期仍无人重连 → 彻底清理 (sessionsByChar + rateLimit)
+        moon.timeout(config.LINKDEAD_GRACE_MS, function()
+            local cur = sessionsByChar[sess.characterId]
+            if cur == sess and sess.linkdead then
+                sessionsByChar[sess.characterId] = nil
+                rateLimit.cleanup(sess.pid)
+            end
+        end)
+    else
+        if sessionsByChar[sess.characterId] == sess then sessionsByChar[sess.characterId] = nil end
+        rateLimit.cleanup(sess.pid)
+    end
+    return sess
+end
+
+-----------------------------------------------------------------
 -- WS 消息分发 — 业务逻辑不变 (由官方 websocket 回调驱动)
 -----------------------------------------------------------------
 local function wsMessage(fd, text)
     local ok, msg = pcall(json.decode, text)
     if not ok then return end
+    local sess = sessions[fd]
+    if sess then
+        sess.awaitingPong = false
+        sess.noPongStreak = 0
+        sess.skippedSnaps = 0
+    end
     local t = msg.t
     if t == config.ONLINE_WORLD_AUTH_TYPE then
         handleAuth(fd, msg)
@@ -178,8 +265,9 @@ local function wsMessage(fd, text)
         if not rateLimit.allowMessage(sess.pid) then
             if rateLimit.isKicked(sess.pid) then
                 wsWrite(fd, jh.buildErrorFrame("Too many messages. Disconnected."))
-                socket.close(fd)
-                sessions[fd] = nil
+                detachSession(fd, false)
+                local world = worldSvcByShard(sess.shard)
+                if world then moon.send("lua", world, { t = "playerLeave", pid = sess.pid, characterId = sess.characterId, leaseNonce = sess.leaseNonce }) end
             end
             return
         end
@@ -188,16 +276,12 @@ local function wsMessage(fd, text)
             moon.send("lua", world, { t = "playerInput", pid = sess.pid, seq = msg.seq, mi = msg.mi, facing = msg.facing })
         else moon.send("lua", world, { t = "playerCommand", pid = sess.pid, msg = msg }) end
     elseif t == "logout" then
-        local sess = sessions[fd]; if not sess then socket.close(fd); return end
+        local sess = detachSession(fd, false)
+        if not sess then socket.close(fd); return end
         print(string.format("[Gate] Logout fd=%d pid=%d", fd, sess.pid))
-        rateLimit.cleanup(sess.pid)
         if dbUp() and sess.leaseNonce then moon.async(function() dbCall("releaseLease", sess.characterId, sess.leaseNonce) end) end
         local world = worldSvcByShard(sess.shard)
         if world then moon.send("lua", world, { t = "playerLeave", pid = sess.pid, characterId = sess.characterId, leaseNonce = sess.leaseNonce }) end
-        pids[sess.pid] = nil; sessions[fd] = nil
-        local sh = sessionsByShard[sess.shard]
-        if sh then sh[fd] = nil end
-        if sessionsByChar[sess.characterId] == sess then sessionsByChar[sess.characterId] = nil end
         socket.close(fd)
     end
 end
@@ -275,7 +359,11 @@ end)
 
 httpServer.on("/api/status", function(request, response)
     local n = 0; for _ in pairs(sessions) do n = n + 1 end
-    writeJson(response, { ok = true, realm = config.getRealm(), players_online = n, players_cap = config.MAX_PLAYERS_PER_REALM, steam = { enabled = false }, epic = { enabled = false }, dev_commands = true, profiler_invulnerability = true })
+    -- WS 直连 (P1): 暴露所有 gate 的 WS 端口 (base + 2k), 客户端直连绕过 Node 代理
+    local baseWs = tonumber(os.getenv("WOC_WS_PORT")) or (config.getPort() + 1)
+    local wsPorts = {}
+    for k = 0, gateCount - 1 do wsPorts[k + 1] = baseWs + 2 * k end
+    writeJson(response, { ok = true, realm = config.getRealm(), players_online = n, players_cap = config.MAX_PLAYERS_PER_REALM, wsPorts = wsPorts, steam = { enabled = false }, epic = { enabled = false }, dev_commands = true, profiler_invulnerability = true })
 end)
 
 httpServer.on("/health", function(request, response)
@@ -296,7 +384,7 @@ httpServer.fallback(function(request, response, next)
 end)
 
 -----------------------------------------------------------------
--- 官方 websocket 回调: 消息 / 关闭 (C++ 帧解码驱动)
+-- 官方 websocket 回调: 消息 / 关闭 / pong (C++ 帧解码驱动)
 -----------------------------------------------------------------
 websocket.wson("message", function(fd, msg)
     -- 'Z' = payload string (S 是 sender 数字); 文本帧载荷用 Z 取
@@ -306,9 +394,8 @@ end)
 
 websocket.wson("close", function(fd)
     print(string.format("[Gate] WS close fd=%d", fd))
-    local sess = sessions[fd]
-    if sess and not sess.linkdead then
-        sess.linkdead = true
+    local sess = detachSession(fd, true)
+    if sess then
         print(string.format("[Gate] Linkdead fd=%d pid=%d name=%s (grace=%ds)", fd, sess.pid, sess.name, config.LINKDEAD_GRACE_MS / 1000))
         local world = worldSvcByShard(sess.shard)
         if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
@@ -316,14 +403,123 @@ websocket.wson("close", function(fd)
     socket.close(fd)
 end)
 
+-- 浏览器对 WS ping 自动回 pong: 收到即视为连接仍存活 (且接收路径在排空)
+websocket.wson("pong", function(fd)
+    local sess = sessions[fd]
+    if sess then
+        sess.awaitingPong = false
+        sess.noPongStreak = 0
+        sess.skippedSnaps = 0
+    end
+end)
+
+-----------------------------------------------------------------
+-- WS 保活清扫 + 负载自适应降级 (对齐 TS server/game.ts pingLiveSessions):
+-- 每 WS_KEEPALIVE_PING_MS ping 一次。收割主条件 = 该会话本轮仍 awaitingPong
+-- (上一轮 ping 无 pong) 且清扫准时 (事件循环未卡顿); 叠加 noPongStreak 防护:
+-- 连续 2 轮无 pong 才真正收割, 避免瞬时 gate 压力误踢活跃玩家。
+-- skippedSnaps ≥ GATE_STALLED_SKIP_REAP 仅用于日志分级 (Stalled/Keepalive reap),
+-- 不控制断开。迟到清扫 (delayed) 证明进程卡顿: 不收割、只重 ping, 并把快照
+-- 下发帧率降级; 退出降级用独立 recoverStreak 连续 on-time 计数 (修永久锁降级)。
+-----------------------------------------------------------------
+local keepalivePingMs = config.WS_KEEPALIVE_PING_MS
+local keepaliveStallFactor = config.WS_KEEPALIVE_STALL_FACTOR
+local lastKeepaliveSweepAt = moon.clock()
+local snapIntervalSec = 1 / config.SNAP_SEND_HZ
+local degradedIntervalSec = 1 / config.SNAP_SEND_HZ_DEGRADED
+local sweepDelayStreak = 0 -- 卡顿计数 (进入降级)
+local recoverStreak = 0    -- 连续 on-time 计数 (退出降级)
+local metricReap = 0       -- 收割计数 (埋点)
+
+local function applySnapInterval(intervalSec)
+    if intervalSec ~= snapIntervalSec then
+        snapIntervalSec = intervalSec
+        print(string.format("[Gate] Snap send interval -> %fs (%dHz)", snapIntervalSec, math.floor(1 / snapIntervalSec + 0.5)))
+    end
+end
+
+local function pingLiveSessions()
+    local now = moon.clock()
+    local elapsed = (now - lastKeepaliveSweepAt) * 1000
+    local delayed = elapsed > keepaliveStallFactor * keepalivePingMs
+
+    -- 帧率自适应: 卡顿进降级; 连续 on-time 退出降级
+    if delayed then
+        sweepDelayStreak = sweepDelayStreak + 1
+        recoverStreak = 0
+        applySnapInterval(degradedIntervalSec)
+    else
+        recoverStreak = recoverStreak + 1
+        if recoverStreak >= 2 then
+            applySnapInterval(1 / config.SNAP_SEND_HZ)
+            recoverStreak = 0
+        end
+    end
+
+    for fd, sess in pairs(sessions) do
+        if not sess.linkdead then
+            if sess.awaitingPong then
+                sess.noPongStreak = (sess.noPongStreak or 0) + 1
+            else
+                sess.noPongStreak = 0
+            end
+            sess.awaitingPong = true
+            if sess.noPongStreak >= 2 and not delayed then
+                local stalled = (sess.skippedSnaps or 0) >= config.GATE_STALLED_SKIP_REAP
+                print(string.format("[Gate] %s reap fd=%d pid=%d name=%s skip=%d noPong=%d",
+                    stalled and "Stalled" or "Keepalive", fd, sess.pid, sess.name, sess.skippedSnaps or 0, sess.noPongStreak))
+                metricReap = metricReap + 1
+                detachSession(fd, true)
+                local world = worldSvcByShard(sess.shard)
+                if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
+                socket.close(fd)
+            else
+                websocket.write_ping(fd, "ka")
+            end
+        end
+    end
+    lastKeepaliveSweepAt = now
+    moon.timeout(keepalivePingMs, pingLiveSessions)
+end
+
+-----------------------------------------------------------------
+-- 服务端埋点 (P3): 每 10s 追加一行到 log/gate-metrics.log
+-----------------------------------------------------------------
+local metricTick = moon.clock()
+local metricSent = 0
+local metricBytes = 0
+local metricSkip = 0
+local function writeGateMetrics()
+    local now = moon.clock()
+    local dt = math.max(now - metricTick, 0.001)
+    local n = 0
+    for _ in pairs(sessions) do n = n + 1 end
+    local line = string.format("[GateMetric] t=%.1f sessions=%d sends=%d/s bytes=%d/s skip=%d reap=%d interval=%.3fs delayStreak=%d",
+        now, n,
+        math.floor(metricSent / dt), math.floor(metricBytes / dt), metricSkip, metricReap,
+        snapIntervalSec, sweepDelayStreak)
+    print(line)
+    pcall(function()
+        local f, err = io.open("log/gate-metrics.log", "a")
+        if f then f:write(line, "\n"); f:close() end
+    end)
+    metricTick = now; metricSent = 0; metricBytes = 0; metricSkip = 0; metricReap = 0
+    moon.timeout(10000, writeGateMetrics)
+end
+
 -----------------------------------------------------------------
 -- 启动: HTTP (官方 server) + WS (官方 websocket) 双监听
 -----------------------------------------------------------------
-print(string.format("[Gate] HTTP on 0.0.0.0:%d (proxy /api)", httpPort))
+print(string.format("[Gate%d] HTTP on 0.0.0.0:%d (proxy /api)", gateIndex, httpPort))
 httpServer.listen("0.0.0.0", httpPort, 30)
 
-print(string.format("[Gate] WS on 0.0.0.0:%d (proxy upgrade)", wsPort))
+print(string.format("[Gate%d] WS on 0.0.0.0:%d (proxy upgrade)", gateIndex, wsPort))
 websocket.listen("0.0.0.0", wsPort)
+
+-- 保活清扫: 首轮延迟一个 interval, 之后自走
+moon.timeout(keepalivePingMs, pingLiveSessions)
+-- 埋点: 首轮延迟 10s, 之后自走
+moon.timeout(10000, writeGateMetrics)
 
 -----------------------------------------------------------------
 -- 跨服务消息: 快照广播 / 单发 / 会话迁移 (业务逻辑不变)
@@ -332,22 +528,36 @@ moon.dispatch("lua", function(sender, session, msg)
     if type(msg) ~= "table" then return end
     if msg.t == "broadcastSnap" and msg.data then
         if type(msg.data) == "table" then
-            -- 快照 (pid→frame): 只发给本分片会话。sender 是 world_N, 从服务名解析分片
+            -- 快照 (pid→frame): 只发给本分片会话。sender 是 world_N, 从服务名解析分片。
+            -- P0.1 帧率上限: 每个会话按 snapIntervalSec 节流下发 (客户端 delta 合并, 跳帧安全)。
             local shard = msg.shard
+            local now = moon.clock()
             local sh = (shard ~= nil) and sessionsByShard[shard]
+            local function sendSnap(sess, fd, frame)
+                if now - (sess.lastSnapSentAt or 0) < snapIntervalSec then
+                    sess.skippedSnaps = (sess.skippedSnaps or 0) + 1
+                    metricSkip = metricSkip + 1
+                    return
+                end
+                wsWrite(fd, frame)
+                sess.lastSnapSentAt = now
+                sess.skippedSnaps = 0
+                metricSent = metricSent + 1
+                metricBytes = metricBytes + #frame
+            end
             if sh then
                 for fd in pairs(sh) do
                     local sess = sessions[fd]
                     if sess and not sess.linkdead then
                         local frame = msg.data[sess.pid]
-                        if frame then wsWrite(fd, frame) end
+                        if frame then sendSnap(sess, fd, frame) end
                     end
                 end
             else
                 -- 兼容无 shard 标记: 全量遍历
                 for fd, sess in pairs(sessions) do
                     local frame = msg.data[sess.pid]
-                    if frame and not sess.linkdead then wsWrite(fd, frame) end
+                    if frame and not sess.linkdead then sendSnap(sess, fd, frame) end
                 end
             end
         else

@@ -118,8 +118,10 @@ function waitForMoon(sec = 90) {
 }
 
 // ---------- firewall ----------
-function addFirewallRule() {
-  spawnSync('netsh.exe', ['advfirewall', 'firewall', 'add', 'rule', `name=World of ClaudeCraft Moon (self-host)`, 'dir=in', 'action=allow', 'protocol=TCP', `localport=${PUBLIC_PORT}`, 'profile=private,domain'], { stdio: 'ignore', windowsHide: true });
+function addFirewallRule(ports) {
+  for (const port of ports) {
+    spawnSync('netsh.exe', ['advfirewall', 'firewall', 'add', 'rule', `name=World of ClaudeCraft Moon (self-host) ${port}`, 'dir=in', 'action=allow', 'protocol=TCP', `localport=${port}`, 'profile=private,domain'], { stdio: 'ignore', windowsHide: true });
+  }
 }
 function lanUrls() {
   const urls = [];
@@ -198,12 +200,13 @@ async function main() {
   log('starting Moon server...');
   const cpuCount = Number.parseInt(process.env.NUMBER_OF_PROCESSORS ?? '', 10) || os.cpus().length;
   const worldShards = Number.parseInt(process.env.WOC_WORLD_SHARDS ?? '', 10) || Math.max(1, Math.min(Math.floor(cpuCount / 2), 32));
-  const threadCount = Number.parseInt(process.env.WOC_THREADS ?? '', 10) || (5 + worldShards);
+  const gateCount = Number.parseInt(process.env.WOC_GATE_COUNT ?? '', 10) || 2;
+  const threadCount = Number.parseInt(process.env.WOC_THREADS ?? '', 10) || (5 + worldShards + (gateCount - 1));
   const dbPoolSize = Number.parseInt(process.env.DB_POOL_SIZE ?? '', 10) || Math.max(8, Math.min(cpuCount * 4, 64));
-  log(`adaptive threads: cpu=${cpuCount} threads=${threadCount} worldShards=${worldShards} dbPool=${dbPoolSize}`);
+  log(`adaptive threads: cpu=${cpuCount} threads=${threadCount} worldShards=${worldShards} gates=${gateCount} dbPool=${dbPoolSize}`);
   const moonProc = spawn(MOON_EXE, [MOON_ENTRY], {
     cwd: MOON_CWD,
-    env: { ...process.env, DATABASE_URL: `postgres://${DB_USER}:${readPassword()}@127.0.0.1:${PG_PORT}/${DB_NAME}`, PORT: String(MOON_PORT), WOC_GATE_PORT: String(MOON_PORT), WOC_WS_PORT: String(WS_PORT), WOC_REALM: 'Claudemoon', WOC_THREADS: String(threadCount), WOC_WORLD_SHARDS: String(worldShards), DB_POOL_SIZE: String(dbPoolSize), STATIC_DIR: DIST_DIR },
+    env: { ...process.env, DATABASE_URL: `postgres://${DB_USER}:${readPassword()}@127.0.0.1:${PG_PORT}/${DB_NAME}`, PORT: String(MOON_PORT), WOC_GATE_PORT: String(MOON_PORT), WOC_WS_PORT: String(WS_PORT), WOC_GATE_COUNT: String(gateCount), WOC_REALM: 'Claudemoon', WOC_THREADS: String(threadCount), WOC_WORLD_SHARDS: String(worldShards), DB_POOL_SIZE: String(dbPoolSize), STATIC_DIR: DIST_DIR },
     stdio: 'inherit', windowsHide: true,
   });
   moonProc.on('error', (e) => fail(`moon: ${e.message}`));
@@ -213,11 +216,33 @@ async function main() {
 
   const proxyServer = http.createServer(handleStaticRequest);
 
-  // WebSocket upgrade proxy → moon 的 WS 端口 (WOC_WS_PORT, 默认 MOON_PORT+1)
+  // WebSocket upgrade proxy → 轮询到各 gate 的 WS 端口 (WOC_WS_PORT + 2k, 默认 8789/8791/...)
+  // 黑洞连接防护: 任一端关闭/出错都显式销毁另一端 (不依赖 pipe 默认只在干净 FIN 时才互关),
+  // 加 connect 超时与 TCP keepalive, 使静默掉线 (无 FIN/RST) 的死连接也能被回收,
+  // 避免 socket 在代理与 moon 两侧累积到 moon 停止接受新连接 (此前只能重启恢复)。
+  let wsRoundRobin = 0;
   proxyServer.on('upgrade', (req, socket, head) => {
-    const moon = net.connect(WS_PORT, '127.0.0.1', () => {
+    const targetPort = WS_PORT + 2 * ((wsRoundRobin++) % gateCount);
+    let moon;
+    let connectTimer;
+    let tornDown = false;
+    const teardown = () => {
+      if (tornDown) return;
+      tornDown = true;
+      if (connectTimer) clearTimeout(connectTimer);
+      socket.destroy();
+      if (moon) moon.destroy();
+    };
+    socket.on('error', teardown);
+    socket.on('close', teardown);
+    socket.on('end', teardown);
+    socket.setKeepAlive(true, 30_000);
+    connectTimer = setTimeout(teardown, 10_000);
+    moon = net.connect(targetPort, '127.0.0.1', () => {
+      if (tornDown) return;
+      clearTimeout(connectTimer);
       const lines = [`${req.method} ${req.url} HTTP/1.1`];
-      const hdrs = { ...req.headers, host: `127.0.0.1:${WS_PORT}`, connection: 'Upgrade' };
+      const hdrs = { ...req.headers, host: `127.0.0.1:${targetPort}`, connection: 'Upgrade' };
       for (const [k, v] of Object.entries(hdrs)) { if (v !== undefined) lines.push(`${k}: ${v}`); }
       lines.push('', '');
       moon.write(lines.join('\r\n'));
@@ -225,15 +250,19 @@ async function main() {
       socket.pipe(moon);
       moon.pipe(socket);
     });
-    moon.on('error', () => socket.destroy());
-    socket.on('error', () => moon.destroy());
+    moon.on('error', teardown);
+    moon.on('close', teardown);
+    moon.setKeepAlive(true, 30_000);
   });
 
   proxyServer.listen(PUBLIC_PORT, () => {
-    addFirewallRule();
+    // 放行 8787 (静态+/api) + 所有 gate 的 WS 端口 (8789+2k), 供浏览器直连
+    const wsPorts = Array.from({ length: gateCount }, (_, k) => WS_PORT + 2 * k);
+    addFirewallRule([PUBLIC_PORT, ...wsPorts]);
     log(`UP.`);
     log(`local:    http://localhost:${PUBLIC_PORT}`);
     for (const u of lanUrls()) log(`lan:      ${u}`);
+    log(`ws direct: ${wsPorts.join(', ')} (browser connects straight to gates)`);
     log(`register, create character, enter the world.`);
     log(`Ctrl+C to stop.`);
   });

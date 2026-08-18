@@ -87,6 +87,12 @@ function M.register(dbMod)
         return true
     end)
 
+    -- 多 gate 跨实例 resume: 角色在 world 中 (活跃/宽限期) 必有未过期租约
+    dbMod:register("getCharacterLease", function(characterId)
+        return qOne("SELECT nonce, expires_at FROM character_leases WHERE character_id=%s AND expires_at > now()",
+            characterId)
+    end)
+
     dbMod:register("releaseLease", function(characterId, nonce)
         local holder = M.getLeaseHolder()
         if nonce then

@@ -13,6 +13,30 @@ end
 M.DEFAULT_PORT = 8787
 M.WS_MAX_PAYLOAD = 16384
 M.AUTH_TIMEOUT_MS = 10000
+-- WS 保活 (对齐 TS server/game.ts WS_KEEPALIVE_PING_MS): 每 30s ping 一次,
+-- 上一轮未收到 pong (浏览器自动应答) 即视为黑洞连接并回收, 防止死 socket 累积到拒连
+M.WS_KEEPALIVE_PING_MS = 30000
+-- 清扫迟到阈值 (对齐 server/keepalive_sweep.ts KEEPALIVE_STALL_FACTOR):
+-- 事件循环卡顿导致的迟到清扫不得误踢, 只重新 ping
+M.WS_KEEPALIVE_STALL_FACTOR = 1.5
+-- 快照下发帧率上限 (gate 层发送节流): world 分片按 20Hz 逐玩家造帧,
+-- gate 按此上限下发, 降低单线程 wsWrite 负载。客户端是 delta 合并模型, 跳帧安全。
+M.SNAP_SEND_HZ = 10
+-- 事件循环卡顿 (keepalive 清扫迟到) 时自动降级到的帧率
+M.SNAP_SEND_HZ_DEGRADED = 5
+-- Gate P0.3 僵连接回收：连续跳过快照帧数阈值（仅用于日志分级, 不控制断开）
+M.GATE_STALLED_SKIP_REAP = 60
+-- 多 gate 分片 (P1): gate 实例数 (每个 gate 独立 HTTP/WS 端口 + 独立线程, 分摊 wsWrite)
+M.GATE_COUNT = 2
+-- 每个 gate 的 pid 取值步长: pid = gateIndex * stride + 本地计数。
+-- 必须避开 world 实体 id (shardId*1000000+seq, 最大约 32M) → 100M 起步无冲突;
+-- 且 stride % worldShardCount == 0 (100M % 32 == 0), 保证 pid%shards 仍是轮询分片。
+M.GATE_PID_STRIDE = 100000000
+M.getGateCount = function()
+    local n = tonumber(os.getenv("WOC_GATE_COUNT"))
+    if n and n >= 1 then return n end
+    return M.GATE_COUNT
+end
 
 ----------------------------------------
 -- 仿真

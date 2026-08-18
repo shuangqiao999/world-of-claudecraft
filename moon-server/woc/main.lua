@@ -58,15 +58,22 @@ local function worldShards()
     return s
 end
 
+--- Gate 实例数 (WOC_GATE_COUNT 覆盖, 默认 2)
+local function gateCount()
+    local n = tonumber(os.getenv("WOC_GATE_COUNT"))
+    if n and n >= 1 then return n end
+    return 2
+end
+
 ----------------------------------------
 -- Moon 运行时配置
 -- Moon 在启动时创建一个临时 VM，设置 __init__ = true
 -- 然后执行此文件，return 的 table 即服务端配置
 ----------------------------------------
 if _G["__init__"] then
-    -- 线程数 = 固定服务 5 + 世界分片 (各分片独立线程), 随硬件自适应; WOC_THREADS 可覆盖(低于 5+shards 兜底)
-    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + worldShards())
-    if threads < 5 + worldShards() then threads = 5 + worldShards() end
+    -- 线程数 = 固定服务 5 + 世界分片 + (gate 数-1) (各分片/各 gate 独立线程), 随硬件自适应; WOC_THREADS 可覆盖
+    local threads = tonumber(envOr("WOC_THREADS", "")) or (5 + worldShards() + (gateCount() - 1))
+    if threads < 5 + worldShards() + (gateCount() - 1) then threads = 5 + worldShards() + (gateCount() - 1) end
     return {
         -- 工作线程数 (自适应: 固定服务 5 + 世界分片)
         thread = threads,
@@ -128,17 +135,24 @@ moon.async(function()
     })
     print(string.format("[Main] DB service created: 0x%X", dbService))
 
-    -- 2. Gate Service (HTTP + WS on single port)
-    local gateService = moon.new_service({
-        name = "gate",
-        file = "gate/init.lua",
-        unique = true,
-        threadid = 2,
-    })
-    print(string.format("[Main] Gate service created: 0x%X", gateService))
+    -- 2. Gate Services (HTTP + WS, 多实例分摊 wsWrite)
+    --    每个 gate 独立端口: gate_k HTTP = port+2k, WS = wsPort+2k; 独立线程
+    local gateCount = require("config").getGateCount()
+    for k = 0, gateCount - 1 do
+        local gname = "gate_" .. k
+        local sid = moon.new_service({
+            name = gname,
+            file = "gate/init.lua",
+            unique = true,
+            threadid = 2 + k,
+            gateIndex = k,
+            gateCount = gateCount,
+        })
+        print(string.format("[Main] Gate %s created: 0x%X (thread %d)", gname, sid, 2 + k))
+    end
 
     -- 3. World Services (核心游戏逻辑, 按分片数跨线程并行)
-    --    线程布局: 1=db, 2=gate, 3=social, 4=market, 5=mail, 6..5+N=world shards
+    --    线程布局: 1=db, 2..2+N-1=gate_0..gate_{N-1}, 2+N=social, 3+N=market, 4+N=mail, 5+N..=world shards
     local worldShardCount = require("config").getWorldShards()
     local worldServices = {}
     for i = 0, worldShardCount - 1 do
@@ -147,12 +161,12 @@ moon.async(function()
             name = name,
             file = "world/init.lua",
             unique = true,
-            threadid = 6 + i,
+            threadid = 5 + gateCount + i,
             shardId = i,
             shardCount = worldShardCount,
         })
         worldServices[i] = sid
-        print(string.format("[Main] World shard %s created: 0x%X (thread %d)", name, sid, 6 + i))
+        print(string.format("[Main] World shard %s created: 0x%X (thread %d)", name, sid, 5 + gateCount + i))
     end
     -- 世界分片数查询统一走 config.getWorldShards() (各服务 VM 独立, moon.exports 不跨服务)
     print(string.format("[Main] World shards: %d (adaptive, cpu=%d)", worldShardCount, require("config").getCpuCount()))
@@ -162,7 +176,7 @@ moon.async(function()
         name = "social",
         file = "social/init.lua",
         unique = true,
-        threadid = 3,
+        threadid = 2 + gateCount,
     })
     print(string.format("[Main] Social service created: 0x%X", socialService))
 
@@ -171,7 +185,7 @@ moon.async(function()
         name = "market",
         file = "market/init.lua",
         unique = true,
-        threadid = 4,
+        threadid = 3 + gateCount,
     })
     print(string.format("[Main] Market service created: 0x%X", marketService))
 
@@ -180,7 +194,7 @@ moon.async(function()
         name = "mail",
         file = "mail/init.lua",
         unique = true,
-        threadid = 5,
+        threadid = 4 + gateCount,
     })
     print(string.format("[Main] Mail service created: 0x%X", mailService))
 
@@ -194,7 +208,11 @@ end)
 ----------------------------------------
 moon.shutdown(function()
     print("[Main] Shutting down...")
-    local services = { "mail", "market", "social", "gate", "db" }
+    local services = { "mail", "market", "social", "db" }
+    -- gate 实例
+    for k = 0, (require("config").getGateCount() - 1) do
+        table.insert(services, "gate_" .. k)
+    end
     -- 世界分片
     for i = 0, (require("config").getWorldShards() - 1) do
         table.insert(services, "world_" .. i)

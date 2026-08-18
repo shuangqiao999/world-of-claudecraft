@@ -154,13 +154,23 @@ local function allocId() nextId = nextId + 1; return shardId * 1000000 + nextId 
 
 -- 服务查找
 local function dbSvc() return moon.queryservice("db") end
-local function gateSvc() return moon.queryservice("gate") end
+-- 多 gate (P1): gate 由 pid 反解 (pid = gateIndex * GATE_PID_STRIDE + seq), 无需注册表
+local function gateOf(pid) return math.floor(pid / config.GATE_PID_STRIDE) end
+local function gateSvcFor(pid) return moon.queryservice("gate_" .. gateOf(pid)) end
+local function allGateSvcs()
+    local list = {}
+    for k = 0, config.getGateCount() - 1 do
+        local s = moon.queryservice("gate_" .. k)
+        if s then list[#list + 1] = s end
+    end
+    return list
+end
 
 -- 帮助函数
 -- 事件路由: 个人事件 (带 pid/toPid) 只发相关玩家; 世界事件 (无 pid) 广播全部
 -- 与 server/game.ts routeEvents 的 per-session 语义对齐, 避免私聊/个人 loot 泄漏
 local function noteEvents(evs)
-    if not gateSvc() or not evs or #evs == 0 then return end
+    if not evs or #evs == 0 then return end
     local perPid = {}
     local world = {}
     for _, ev in ipairs(evs) do
@@ -173,10 +183,14 @@ local function noteEvents(evs)
         end
     end
     if #world > 0 then
-        moon.send("lua", gateSvc(), { t = "broadcastSnap", shard = shardId, data = jh.buildEventsFrame(world) })
+        -- 世界事件: 广播到所有 gate (各 gate 只发给本分片会话)
+        for _, gs in ipairs(allGateSvcs()) do
+            moon.send("lua", gs, { t = "broadcastSnap", shard = shardId, data = jh.buildEventsFrame(world) })
+        end
     end
     for targetPid, evs2 in pairs(perPid) do
-        moon.send("lua", gateSvc(), { t = "sendToPlayer", pid = targetPid, frame = jh.buildEventsFrame(evs2) })
+        local gs = gateSvcFor(targetPid)
+        if gs then moon.send("lua", gs, { t = "sendToPlayer", pid = targetPid, frame = jh.buildEventsFrame(evs2) }) end
     end
 end
 
@@ -308,7 +322,7 @@ local function guildBankOp(pid, msg)
             noteEvents({ { type = "log", text = ok and ("Expanded to " .. total .. " slots") or tostring(total), pid = pid } })
         elseif op == "log" then
             local entries = guildBank.getLog(guild.id)
-            local gs = gateSvc()
+            local gs = gateSvcFor(pid)
             if gs then
                 local json = require("json")
                 local frame = json.encode({ t = "gbanklog", ok = true, entries = entries })
@@ -816,7 +830,7 @@ local function migratePlayerOut(pid)
     })
 
     -- 通知 gate 更新会话路由
-    local gs = gateSvc()
+    local gs = gateSvcFor(pid)
     if gs then moon.send("lua", gs, { t = "playerMigrated", pid = pid, shard = ns }) end
 
     cleanupPlayerLocal(pid)
@@ -1416,7 +1430,7 @@ autoAttack.setGhostResolver(resolveGhostSwing)
 autoAttack.setGhostRangedResolver(resolveGhostRanged)
 
 local function broadcastSnapshot()
-    if not gateSvc() then return end
+    if next(allGateSvcs()) == nil then return end
     local frames = {}
     local tb = moonCore.clock()
     for pid, meta in pairs(players) do
@@ -1433,13 +1447,24 @@ local function broadcastSnapshot()
     phaseEnd("bcastBuild", tb)
     local ts = moonCore.clock()
     if next(frames) then
-        moon.send("lua", gateSvc(), { t = "broadcastSnap", shard = shardId, data = frames })
+        -- 多 gate: 按 pid 反解 gate, 每 gate 只收本 gate 玩家帧 (减消息体积)
+        local byGate = {}
+        for pid, frame in pairs(frames) do
+            local gi = gateOf(pid)
+            local m = byGate[gi]
+            if not m then m = {}; byGate[gi] = m end
+            m[pid] = frame
+        end
+        for gi, m in pairs(byGate) do
+            local gs = moon.queryservice("gate_" .. gi)
+            if gs then moon.send("lua", gs, { t = "broadcastSnap", shard = shardId, data = m }) end
+        end
     end
     phaseEnd("bcastSend", ts)
 end
 
 local function sendCombatEvents(combatEvents)
-    if not gateSvc() or #combatEvents == 0 then return end
+    if #combatEvents == 0 then return end
     -- 战斗事件大多带 pid (个人) — 走 per-session 路由, 世界事件广播
     noteEvents(combatEvents)
 end
@@ -1830,6 +1855,23 @@ moon.dispatch("lua", function(sender, session, msg)
             if re then combatState.idle(re) end
             print(string.format("[World] Resume: pid=%d name=%s", msg.pid, meta.name))
         end
+    elseif t == "queryPlayerGate" then
+        -- 多 gate 跨实例 resume 查询: 角色在本分片则返回 pid/shard/所属 gate/linkdead
+        local found = false
+        for pid, meta in pairs(players) do
+            if meta.characterId == msg.characterId then
+                moon.response("lua", sender, session, {
+                    ok = true,
+                    pid = pid,
+                    shard = shardId,
+                    gateIndex = gateOf(pid),
+                    linkdead = meta.linkdeadSince ~= nil,
+                })
+                found = true
+                break
+            end
+        end
+        if not found then moon.response("lua", sender, session, { ok = false }) end
     elseif t == "playerInput" then
         local pid = msg.pid
         local e = entities[pid]
@@ -1841,7 +1883,7 @@ moon.dispatch("lua", function(sender, session, msg)
         if hc then
             local ok = hc(msg.pid, msg.msg)
             if msg.msg and msg.msg.rid then
-                local gs = gateSvc()
+                local gs = gateSvcFor(msg.pid)
                 if gs then moon.send("lua", gs, { t = "commandOutcome", pid = msg.pid, rid = msg.msg.rid, ok = ok }) end
             end
         end
@@ -2033,7 +2075,7 @@ pushSocialFrame = function(pid)
     if not meta or not meta.characterId then return end
     moon.async(function()
         local svc = moon.queryservice("social")
-        local gs = gateSvc()
+        local gs = gateSvcFor(pid)
         if not svc or not gs then return end
         local charId = meta.characterId
         local friends = moon.call("lua", svc, { op = "friend_list", charId = charId })
@@ -2281,7 +2323,7 @@ end
 
 moon.async(function()
     moon.sleep(1500)
-    local db = dbSvc(); local gs = gateSvc()
+    local db = dbSvc(); local gs = gateSvcFor(1000) -- gate_0 探测
     if db then print(string.format("[World] DB=0x%X", db)) end
     if gs then print(string.format("[World] Gate=0x%X", gs)) end
 end)
