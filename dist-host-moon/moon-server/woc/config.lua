@@ -21,7 +21,10 @@ M.WS_KEEPALIVE_PING_MS = 30000
 M.WS_KEEPALIVE_STALL_FACTOR = 1.5
 -- 快照下发帧率上限 (gate 层发送节流): world 分片按 20Hz 逐玩家造帧,
 -- gate 按此上限下发, 降低单线程 wsWrite 负载。客户端是 delta 合并模型, 跳帧安全。
-M.SNAP_SEND_HZ = 10
+-- 注: 20Hz 输入 + 非 20Hz 上限会因对齐假象降速 (15Hz 上限实际只发 ~10Hz)。
+-- 设为 20 = gate 与 world tick 自然对齐, 下发速度 = world 造帧速度 (低负载满 20Hz,
+-- 高负载由 world 造帧天然限速); 事件循环卡顿仍由 SNAP_SEND_HZ_DEGRADED=5 保护。
+M.SNAP_SEND_HZ = 20
 -- 事件循环卡顿 (keepalive 清扫迟到) 时自动降级到的帧率
 M.SNAP_SEND_HZ_DEGRADED = 5
 -- Gate P0.3 僵连接回收：连续跳过快照帧数阈值（仅用于日志分级, 不控制断开）
@@ -81,9 +84,11 @@ M.HALF_RATE_RADIUS_SQ = 70 * 70
 M.HALF_RATE_DIVISOR = 2
 M.QUARTER_RATE_DIVISOR = 4
 -- 快照帧级分频 (P2b): 活跃玩家(战斗/移动)每 N tick 造一帧, 静止玩家每 M tick 造一帧。
--- world 帧率降到 gate 10Hz 上限以内, 减少 world 造帧 CPU; 客户端插值兜底视觉平滑。
-M.SNAP_ACTIVE_DIVISOR = 2
-M.SNAP_IDLE_DIVISOR = 4
+-- world 造帧在迁移修复后有余量: active 每 tick 造帧 (低负载由 gate 15Hz 上限截断,
+-- 高负载下 tick 速率即造帧速率, 不再被 divisor 减半); idle 每 2 tick (10Hz) 满足静态 ≥7-8Hz。
+-- 客户端位置插值兜底视觉平滑, 战斗事件走独立通道不受影响。
+M.SNAP_ACTIVE_DIVISOR = 1
+M.SNAP_IDLE_DIVISOR = 2
 
 -- 连接限流: 每秒最多放行的新 join 数 (login 风暴保护, 防止瞬间压垮 world 快照广播 + DB 连接池)。
 -- 0 = 不限。WOC_JOIN_RATE_LIMIT 可覆盖。
