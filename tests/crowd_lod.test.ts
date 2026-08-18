@@ -30,36 +30,36 @@ describe('character LOD allocation budget', () => {
 
 describe('crowdLodScaleSq', () => {
   it('leaves ordinary scenes at full range', () => {
-    for (const rigs of [0, 1, 5, 13, 14]) expect(crowdLodScaleSq(rigs)).toBe(1);
+    for (const rigs of [0, 1, 5, 9, 10]) expect(crowdLodScaleSq(rigs)).toBe(1);
   });
 
   it('floors at the minimum scale once the crowd is dense', () => {
-    const floor = 0.6 * 0.6;
+    const floor = 0.5 * 0.5;
     expect(crowdLodScaleSq(48)).toBeCloseTo(floor, 9);
     expect(crowdLodScaleSq(200)).toBeCloseTo(floor, 9);
   });
 
   it('decreases monotonically between the knees and never leaves (floor, 1]', () => {
-    let prev = crowdLodScaleSq(14);
-    for (let rigs = 15; rigs <= 48; rigs++) {
+    let prev = crowdLodScaleSq(11);
+    for (let rigs = 12; rigs <= 48; rigs++) {
       const s = crowdLodScaleSq(rigs);
       expect(s).toBeLessThan(prev);
-      expect(s).toBeGreaterThanOrEqual(0.6 * 0.6 - 1e-9);
+      expect(s).toBeGreaterThanOrEqual(0.5 * 0.5 - 1e-9);
       expect(s).toBeLessThanOrEqual(1);
       prev = s;
     }
   });
 
-  it('pulls the 25yd shadow band in to 15yd at full crowd', () => {
+  it('pulls the 25yd shadow band in to 12.5yd at full crowd', () => {
     // ranges compare squared, so the linear range is sqrt(scaleSq) * base
     const band = 25 * Math.sqrt(crowdLodScaleSq(48));
-    expect(band).toBeCloseTo(15, 6);
+    expect(band).toBeCloseTo(12.5, 6);
   });
 });
 
 describe('midAnimCadence', () => {
   it('animates mid-band rigs every 2nd frame in ordinary scenes', () => {
-    for (const rigs of [0, 1, 13, 14]) expect(midAnimCadence(rigs)).toBe(2);
+    for (const rigs of [0, 1, 9, 10]) expect(midAnimCadence(rigs)).toBe(2);
   });
 
   it('stretches to every 4th frame in a dense crowd', () => {
@@ -156,7 +156,7 @@ const calmBands = (scale = FAR_ANIM_RANGE_SCALE_MAX, pressure = 0) =>
 
 describe('farAnimCadence', () => {
   it('refreshes a calm far-band pose every 4th frame', () => {
-    for (const rigs of [0, 1, 13, 14]) expect(farAnimCadence(rigs)).toBe(4);
+    for (const rigs of [0, 1, 9, 10]) expect(farAnimCadence(rigs)).toBe(4);
   });
 
   it('stretches to every 6th frame in a dense crowd', () => {
@@ -207,9 +207,10 @@ describe('farAnimRangeScale', () => {
   });
 
   it('takes the worse of the crowd and pressure signals, never their average', () => {
-    // half-crowd alone eases to 1.15; adding spent budget must not soften that
+    // half-crowd alone eases to ~1.13 (soft knee now at 10 rigs); adding spent
+    // budget must not soften that
     const crowdOnly = farAnimRangeScale(FAR_ANIM_RANGE_SCALE_MAX, 31, 0);
-    expect(crowdOnly).toBeCloseTo(1.15, 6);
+    expect(crowdOnly).toBeCloseTo(1.1342105, 7);
     expect(farAnimRangeScale(FAR_ANIM_RANGE_SCALE_MAX, 31, 1)).toBe(1);
   });
 
@@ -262,8 +263,8 @@ describe('characterLodBands', () => {
   it('reproduces the legacy bands exactly for a dense crowd even on a full tier', () => {
     const dense = characterLodBands(48, SHADOW_BASE_SQ, LOD_BASE_SQ, FAR_ANIM_RANGE_SCALE_MAX);
     expect(dense.staticRangeSq).toBe(dense.lodRangeSq);
-    expect(Math.sqrt(dense.lodRangeSq)).toBeCloseTo(58 * 0.6, 6);
-    expect(Math.sqrt(dense.shadowRangeSq)).toBeCloseTo(15, 6);
+    expect(Math.sqrt(dense.lodRangeSq)).toBeCloseTo(58 * 0.5, 6);
+    expect(Math.sqrt(dense.shadowRangeSq)).toBeCloseTo(12.5, 6);
   });
 
   it('orders its band edges and its cadence ladder monotonically', () => {

@@ -1478,6 +1478,11 @@ export class Renderer {
   private tmpPuff = new THREE.Vector3();
   private viewCandidates: ViewCandidate[] = [];
   private viewCandidatePool: ViewCandidate[] = [];
+  // Incremental view-candidate guard: the missing-view scan only runs when the
+  // mirror size changed or a view was torn down (either can need a fresh
+  // candidate), instead of sweeping the whole mirror every frame.
+  private _viewScanDirty = true;
+  private _lastMirrorSize = -1;
   private readonly characterLodPlan: CharacterLodBands = {
     shadowRangeSq: 0,
     lodRangeSq: 0,
@@ -8829,6 +8834,11 @@ export class Renderer {
   private removeView(id: number, terminal = false): void {
     const v = this.views.get(id);
     if (!v) return;
+    // A view teardown means the entity could re-enter and need a fresh view;
+    // force the next frame's candidate scan so the incremental guard below never
+    // misses a re-candidate (an entity replaced by another of a different id can
+    // leave the mirror size unchanged).
+    this._viewScanDirty = true;
     // A pending weapon-skin application must never land on a dropped (or
     // pooled and reused) view.
     this.weaponSkinApplies.cancel(id);
@@ -9026,7 +9036,15 @@ export class Renderer {
     // Dynamic worlds create nearby views lazily and drop views for leavers or
     // entities that moved well outside the draw band.
     createdViews += this.createRequiredViews(p, createdViewTypes);
-    this.collectMissingViewCandidates(p, this.entityViewCreateRangeSq, false);
+    // Only re-scan for missing views when the mirror could have grown a new
+    // entity or a teardown freed a slot (both set _viewScanDirty / change the
+    // size). A stable scene pays zero for the candidate sweep.
+    const mirrorSize = sim.entities.size;
+    if (this._viewScanDirty || mirrorSize !== this._lastMirrorSize) {
+      this.collectMissingViewCandidates(p, this.entityViewCreateRangeSq, false);
+      this._lastMirrorSize = mirrorSize;
+      this._viewScanDirty = false;
+    }
     createdViews += this.createCandidateViews(
       this.runtimeViewCreateBudget(dt),
       createdViewTypes,
@@ -9679,9 +9697,15 @@ export class Renderer {
       // snapshots, so mixing the two timelines produces a visible pose pop.
       const wl = waterLevelAt(ax, az, this.sim.cfg.seed);
       const feetDepth = wl - ay;
+      // Frozen far rigs (v.isFar) draw a single-draw static mesh; the water/
+      // terrain sample reads below feed only the articulated pose, so skip them
+      // (cosmetic-only; the wasWading/wasSubmerged latches re-settle over the
+      // couple frames after the rig unfreezes). This is the crowd cost that
+      // scales: one frozen body stops paying a groundHeight read per frame.
+      const fullDerivation = !v.isFar;
       const floorSampleDepth = v.wasSwimming ? SWIM_EXIT_FEET_DEPTH : SWIM_ENTER_FEET_DEPTH;
       const floorDepth =
-        !e.dead && feetDepth >= floorSampleDepth
+        fullDerivation && !e.dead && feetDepth >= floorSampleDepth
           ? wl - groundHeight(ax, az, this.sim.cfg.seed)
           : Number.NEGATIVE_INFINITY;
       const swimming = isSwimmingAtDepth(v.wasSwimming, e.dead, feetDepth, floorDepth);
@@ -9756,7 +9780,7 @@ export class Renderer {
       // predictor's onGround inside a rift (the predictor samples the same flat
       // ground, so it would still report airborne on the platform).
       const inRift = isRiftPos(ax) && this.sim.riftFloor !== null;
-      if (e.kind === 'player' && e.onGround && !swimming) {
+      if (e.kind === 'player' && e.onGround && !swimming && fullDerivation) {
         const heurSeed = this.sim.cfg.seed;
         let effGround = groundHeight(ax, az, heurSeed);
         if (inRift) {
@@ -9792,8 +9816,8 @@ export class Renderer {
       const dyRaw = v.hasPrevY ? y - v.prevRenderY : 0;
       v.prevRenderY = y;
       v.hasPrevY = true;
-      if (airborne && dt > 1e-4) v.fallSpeed = Math.max(v.fallSpeed, -dyRaw / dt);
-      const smoothY = stepSmoothHeight(v.stepSmooth, y, settled, dt);
+      if (fullDerivation && airborne && dt > 1e-4) v.fallSpeed = Math.max(v.fallSpeed, -dyRaw / dt);
+      const smoothY = fullDerivation ? stepSmoothHeight(v.stepSmooth, y, settled, dt) : y;
       if (smoothY !== y) {
         v.group.position.y = smoothY;
         if (isSelf) selfPos.y = smoothY;

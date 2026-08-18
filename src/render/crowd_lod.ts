@@ -22,9 +22,9 @@
 // band adds, and it collapses to exactly 1 as the crowd grows, so a throng keeps
 // today's FPS-first behaviour bit for bit.
 
-const CROWD_LOD_SOFT_RIGS = 14;
+const CROWD_LOD_SOFT_RIGS = 10;
 const CROWD_LOD_HARD_RIGS = 48;
-const CROWD_LOD_MIN_SCALE = 0.6;
+const CROWD_LOD_MIN_SCALE = 0.5;
 
 /**
  * Ceiling on the linear range multiplier the animated far band may add on top of
@@ -42,7 +42,7 @@ const STATIC_LOD_CADENCE = 6;
 // Frame-budget pressure (render_budget.ts: 1 means "at the drop threshold") over
 // which the extension eases out, so the extra articulated rigs are the FIRST
 // thing surrendered on a machine that is already struggling.
-const FAR_ANIM_PRESSURE_EASE = 0.8;
+const FAR_ANIM_PRESSURE_EASE = 0.6;
 const FAR_ANIM_PRESSURE_DROP = 1;
 
 /** Squared distance scale for the LOD / shadow bands. Distances compare squared. */

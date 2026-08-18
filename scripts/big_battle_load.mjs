@@ -23,7 +23,8 @@ function wsUrlFor() {
     const host = new URL(BASE).hostname;
     return `ws://${host}:${WS_PORTS[wsIdx++ % WS_PORTS.length]}/ws`;
   }
-  return WS_BASE;
+  // 单端口服务端 (TS server / 代理): WS 挂在 /ws
+  return BASE.replace(/^http/, 'ws') + '/ws';
 }
 const BOTS = Number(process.env.BOTS ?? 2000);
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 100);
@@ -32,6 +33,7 @@ const RAMP_INTERVAL_MS = Number(process.env.RAMP_INTERVAL_MS ?? 20000);
 const DURATION_MS = Number(process.env.DURATION_MS ?? 7200000);
 const MOVE_RATIO = Number(process.env.MOVE_RATIO ?? 1.0);
 const COMBAT_RATIO = Number(process.env.COMBAT_RATIO ?? 0.6);
+const DELAY_COMBAT_MS = Number(process.env.DELAY_COMBAT_MS ?? 0);
 const OBSERVERS = Number(process.env.OBSERVERS ?? 24);
 const SAMPLE_MS = Number(process.env.SAMPLE_MS ?? 15000);
 const CLEANUP = process.env.CLEANUP === '1';
@@ -39,8 +41,43 @@ const REALM = process.env.REALM_NAME ?? 'Claudemoon';
 const WORLD_SHARDS = Number(process.env.WORLD_SHARDS ?? 32);
 const RUN = Math.random().toString(36).slice(2, 6);
 const SEED_HASH = 'seed:token-only';
+// TS 服务端要求角色 state 为有效初始状态 (空对象会导致 join 反序列化抛错)。
+// 用 API 建一个模板角色读取其 state, 批量 DB seed 复用。模板失败时回退 '{}'。
+const SEED_STATE_FROM_API = process.env.SEED_STATE_FROM_API === '1';
 
 if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is required'); process.exit(1); }
+
+async function apiTemplateState(pool) {
+  // 优先复用库中已有的有效角色 state (API 建过即存在), 完全绕开 register 限流
+  const existing = await pool.query(
+    `SELECT state FROM characters WHERE state IS NOT NULL AND state != '{}'::jsonb AND length(state::text) > 10 ORDER BY id DESC LIMIT 1`,
+  );
+  if (existing.rows[0] && existing.rows[0].state && Object.keys(existing.rows[0].state).length > 0) {
+    return existing.rows[0].state;
+  }
+  // 回退: API 建模板角色 (register 有 IP 限流, 限流时退避重试)
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const U = 'tpl' + Date.now().toString(36).slice(-6);
+    const r = await fetch(BASE + '/api/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: U, password: 'secret123', email: U + '@t.local' }),
+    });
+    if (r.status === 429) { await new Promise((res) => setTimeout(res, 3000)); continue; }
+    if (r.status !== 200) return null;
+    const tok = (await r.json()).token;
+    const c = await fetch(BASE + '/api/characters', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok },
+      body: JSON.stringify({ name: 'Tpl' + Date.now().toString(36).slice(-4), class: 'warrior' }),
+    });
+    if (c.status !== 200) return null;
+    const charId = (await c.json()).id;
+    const row = await pool.query('SELECT state FROM characters WHERE id=$1', [charId]);
+    if (row.rows[0] && row.rows[0].state && Object.keys(row.rows[0].state).length > 0) {
+      return row.rows[0].state;
+    }
+  }
+  return null;
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const now = () => performance.now();
@@ -56,12 +93,18 @@ async function seedBots(pool) {
     tokens.push(randomBytes(32).toString('hex'));
   }
   const client = await pool.connect();
+  // TS 服务端要求有效初始 state: 先取模板 (限流重试), 失败中止而非回退空对象
+  const templateState = SEED_STATE_FROM_API ? (await apiTemplateState(pool)) : null;
+  if (SEED_STATE_FROM_API && !templateState) {
+    client.release();
+    throw new Error('template state fetch failed (register rate-limited?)');
+  }
   try {
     await client.query('BEGIN');
     const accts = await client.query(
       `INSERT INTO accounts (username, password_hash)
        SELECT u, $2 FROM unnest($1::text[]) AS u
-       ON CONFLICT (username) DO NOTHING
+       ON CONFLICT DO NOTHING
        RETURNING id, username`,
       [usernames, SEED_HASH],
     );
@@ -75,10 +118,10 @@ async function seedBots(pool) {
     );
     const chars = await client.query(
       `INSERT INTO characters (account_id, name, class, realm, state)
-       SELECT a, n, 'warrior', $3, '{}'::jsonb FROM unnest($1::int[], $2::text[]) AS p(a, n)
-       ON CONFLICT (name) DO NOTHING
+       SELECT a, n, 'warrior', $3, $4::jsonb FROM unnest($1::int[], $2::text[]) AS p(a, n)
+       ON CONFLICT DO NOTHING
        RETURNING id, account_id`,
-      [accountIds, names, REALM],
+      [accountIds, names, REALM, JSON.stringify(templateState ?? {})],
     );
     if (chars.rows.length !== BOTS) throw new Error(`char seed: ${chars.rows.length}/${BOTS}`);
     const charByAcct = new Map(chars.rows.map((r) => [r.account_id, r.id]));
@@ -138,34 +181,39 @@ function trackView(bot, snap) {
 function startActivity(bot, { combat, moving }) {
   if (!combat && !moving) return () => {};
   let lastFacing = Math.random() * Math.PI * 2;
-  const combatTimer = setInterval(() => {
-    if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN || bot.dead) return;
-    if (bot.view.size === 0) return;
-    const nowMs = Date.now();
-    if (nowMs - bot.lastCombatAt < 1500) return;
-    if (bot.target) return; // already engaged; server clears target on death/switch
-    bot.lastCombatAt = nowMs;
-    // target preference: mob/npc -> normal attack (auto-engage), player -> PvP,
-    // unknown kind -> auto-resolve nearest enemy
-    let mobId = null, playerId = null;
-    for (const [id, k] of bot.view) {
-      if (mobId === null && (k === 'mob' || k === 'npc')) mobId = id;
-      if (playerId === null && k === 'player') playerId = id;
-      if (mobId !== null && playerId !== null) break;
-    }
-    try {
-      if (mobId !== null) bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'attack', id: mobId }));
-      else if (playerId !== null) bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'pvp_attack', id: playerId }));
-      else bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'attack' }));
-    } catch {}
-  }, combat ? 800 : 2000);
+  // 战斗延迟 (DELAY_COMBAT_MS): TS 服务端需先缓缓加人、全部进场后再开打, 避免瞬间并发
+  const combatStart = setTimeout(() => {
+    if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN) return;
+    const combatTimer = setInterval(() => {
+      if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN || bot.dead) return;
+      if (bot.view.size === 0) return;
+      const nowMs = Date.now();
+      if (nowMs - bot.lastCombatAt < 1500) return;
+      if (bot.target) return; // already engaged; server clears target on death/switch
+      bot.lastCombatAt = nowMs;
+      // target preference: mob/npc -> normal attack (auto-engage), player -> PvP,
+      // unknown kind -> auto-resolve nearest enemy
+      let mobId = null, playerId = null;
+      for (const [id, k] of bot.view) {
+        if (mobId === null && (k === 'mob' || k === 'npc')) mobId = id;
+        if (playerId === null && k === 'player') playerId = id;
+        if (mobId !== null && playerId !== null) break;
+      }
+      try {
+        if (mobId !== null) bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'attack', id: mobId }));
+        else if (playerId !== null) bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'pvp_attack', id: playerId }));
+        else bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'attack' }));
+      } catch {}
+    }, combat ? 800 : 2000);
+    bot._combatTimer = combatTimer;
+  }, DELAY_COMBAT_MS);
   const moveTimer = setInterval(() => {
     if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN || bot.dead) return;
     lastFacing = lastFacing + (Math.random() - 0.5) * 1.5;
     const mi = Math.random() < 0.6 ? { f: 1 } : Math.random() < 0.5 ? { sl: 1 } : { sl: 0.5 };
     try { bot.ws.send(JSON.stringify({ t: 'input', mi, facing: lastFacing })); } catch {}
   }, 250);
-  return () => { clearInterval(combatTimer); clearInterval(moveTimer); };
+  return () => { clearTimeout(combatStart); clearInterval(bot._combatTimer); clearInterval(moveTimer); };
 }
 
 async function main() {
