@@ -210,11 +210,14 @@ local phaseAcc = {}
 local phaseOrder = { "prologue", "player", "combat", "misc", "broadcast", "bcastBuild", "bcastSend", "brood", "engaged", "save" }
 local phaseLastReport = 0
 local function phaseEnd(name, t0)
+    if not config.ENABLE_WORLD_DIAG then return end
     phaseAcc[name] = (phaseAcc[name] or 0) + (moonCore.clock() - t0)
 end
 
--- 生产环境把诊断写独立文件 log/world-diag.log (不刷 stdout), 非生产额外 print
+-- world 诊断 (默认关): 生产环境写独立文件 log/world-diag.log (不刷 stdout), 非生产额外 print;
+-- WOC_ENABLE_WORLD_DIAG=1 可重开。
 local function writeDiag(line)
+    if not config.ENABLE_WORLD_DIAG then return end
     pcall(function()
         local f, err = io.open("log/world-diag.log", "a")
         if f then f:write(line, "\n"); f:close() end

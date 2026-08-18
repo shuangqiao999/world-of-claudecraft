@@ -125,6 +125,9 @@ M.MIGRATE_MIN_TRAVEL_SQ = 50 * 50
 -- 由该 region 归属分片把内部静态内容实体 (NPC/mob/采集节点/可拾取物) 推送到玩家所在分片。
 -- 开关: WOC_ENABLE_REGION_INTERNAL_GHOST=0 可关 (关闭恢复修复前行为)。
 M.ENABLE_REGION_INTERNAL_GHOST = os.getenv("WOC_ENABLE_REGION_INTERNAL_GHOST") ~= "0"
+-- world 分片逐阶段诊断 (TickDiag/PhaseDiag/[World]), 默认关 (零开销);
+-- WOC_ENABLE_WORLD_DIAG=1 开启, 输出到 log/world-diag.log。
+M.ENABLE_WORLD_DIAG = os.getenv("WOC_ENABLE_WORLD_DIAG") == "1"
 -- 内部 ghost 同步间隔倍率: 普通边界 ghost 间隔 (GHOST_SYNC_INTERVAL_TICKS=5) x 该值
 M.GHOST_REGION_INTERNAL_MULT = 3
 -- 单个 region 推送给单个远端分片的内部 ghost 最大数量 (截断 + 告警)
