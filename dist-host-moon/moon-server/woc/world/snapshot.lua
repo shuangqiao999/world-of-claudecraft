@@ -466,84 +466,108 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
     else keepArr = {}; session.keepArr = keepArr end
 
     -- 查询可视实体 (螺旋最近优先, 提前停止: 只需最近 maxVisible*2 个再按 leave 半径过滤)
-    local maxVisible = config.MAX_VISIBLE_ENTITIES or 50
+    local maxVisible = config.MAX_VISIBLE_ENTITIES or 25
     local visible = grid.queryRadius(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS, entities, maxVisible * 2)
 
-    -- 本次可见实体集合 (用于清理离场实体的 seen 记录)
+    -- 本次可见实体集合 (用于清理离场实体的 seen 记录; 只记录真正下发的实体)
     local seenThisTick = session.seenThisTick
     if seenThisTick then for k in pairs(seenThisTick) do seenThisTick[k] = nil end
     else seenThisTick = {}; session.seenThisTick = seenThisTick end
+    -- 已下发实体集合 (避免 P2c 预扫与主通道重复发射)
+    local emitSet = session.emitSet
+    if emitSet then for k in pairs(emitSet) do emitSet[k] = nil end
+    else emitSet = {}; session.emitSet = emitSet end
 
-    -- AOI: visible 已按螺旋(中心优先)顺序返回, 直接截断最近 N 个, 无需排序/候选表
+    local function inLeave(other, distSq)
+        local leaveSq = (other.kind == "player" or other.kind == "pet")
+            and config.INTEREST_DROP_RADIUS_SQ or config.NPC_DROP_RADIUS_SQ
+        return distSq <= leaveSq
+    end
+
+    -- 实体发射 (FULL/LITE/keep), 复用原逻辑; 返回 false 表示已被本 tick 发射过
+    local function emitEntity(other, distSq)
+        if emitSet[other.id] then return false end
+        emitSet[other.id] = true
+        seenThisTick[other.id] = true
+        local seenBefore = session.seenEntities[other.id]
+        local idHash = identityHash(other)
+
+        if not seenBefore or seenBefore ~= idHash then
+            -- Full record (首次或身份变化)
+            session.seenEntities[other.id] = idHash
+            entsArr[#entsArr + 1] = buildEntityFull(other)
+            session.lastDyn[other.id] = nil
+            session.lastStamp[other.id] = nil
+            session.lastRefresh[other.id] = tick
+            session.lastSentTick[other.id] = tick
+        else
+            -- 距离分级更新频率: 全速(45yd 内/目标/攻击者), 半速(70yd), 更远 1/4 速
+            local isFullRate = distSq <= config.FULL_RATE_RADIUS_SQ
+                or (e.targetId == other.id)
+                or (other.aggroTargetId == e.id)
+            if not isFullRate then
+                local divisor = (distSq <= config.HALF_RATE_RADIUS_SQ)
+                    and config.HALF_RATE_DIVISOR or config.QUARTER_RATE_DIVISOR
+                local lastSent = session.lastSentTick[other.id] or -divisor
+                if tick - lastSent < divisor then
+                    keepArr[#keepArr + 1] = other.id
+                    return true
+                end
+            end
+
+            -- Lite record: _wireVer 脏标记 + 周期刷新(冷字段), 仅变化时才 JSON 编码
+            local ver = other._wireVer or 0
+            local lastVer = session.lastStamp[other.id]
+            local lastRefresh = session.lastRefresh[other.id] or -LITE_REFRESH_TICKS
+            if ver == lastVer and tick - lastRefresh < LITE_REFRESH_TICKS then
+                keepArr[#keepArr + 1] = other.id
+            else
+                -- 双缓冲: 复用 scratch 表填充, 变化时与 lastDyn 交换, 避免每 tick 分配
+                local dyn = session.scratchDyn[other.id]
+                if not dyn then dyn = {}; session.scratchDyn[other.id] = dyn end
+                if other.kind == "mob" or other.kind == "npc" then
+                    fillMobDyn(dyn, other)
+                else
+                    fillEntityDyn(dyn, other)
+                end
+                session.lastStamp[other.id] = ver
+                session.lastRefresh[other.id] = tick
+                local lastDyn = session.lastDyn[other.id]
+                if not liteEqual(dyn, lastDyn) then
+                    session.lastDyn[other.id] = dyn
+                    session.scratchDyn[other.id] = lastDyn
+                    session.lastSentTick[other.id] = tick
+                    entsArr[#entsArr + 1] = jh.safeEncode(dyn)
+                else
+                    keepArr[#keepArr + 1] = other.id
+                end
+            end
+        end
+        return true
+    end
+
+    -- P2c 战斗关键实体优先: 目标 / 攻击者先拿预算 (扎堆时战斗反馈不被闲逛实体挤出)
     local shown = 0
     for _, other in ipairs(visible) do
+        if shown >= maxVisible then break end
         if other.id ~= pid then
             local dx = other.pos.x - anchorPos.x
             local dz = other.pos.z - anchorPos.z
             local distSq = dx * dx + dz * dz
-
-            local leaveSq = (other.kind == "player" or other.kind == "pet")
-                and config.INTEREST_DROP_RADIUS_SQ or config.NPC_DROP_RADIUS_SQ
-            if distSq <= leaveSq then
-                seenThisTick[other.id] = true
-                local seenBefore = session.seenEntities[other.id]
-                local idHash = identityHash(other)
-
-                if not seenBefore or seenBefore ~= idHash then
-                    -- Full record (首次或身份变化)
-                    session.seenEntities[other.id] = idHash
-                    entsArr[#entsArr + 1] = buildEntityFull(other)
-                    session.lastDyn[other.id] = nil
-                    session.lastStamp[other.id] = nil
-                    session.lastRefresh[other.id] = tick
-                    session.lastSentTick[other.id] = tick
-                else
-                    -- 距离分级更新频率: 全速(55yd 内/目标/攻击者), 半速(80yd), 更远 1/4 速
-                    local isFullRate = distSq <= config.FULL_RATE_RADIUS_SQ
-                        or (e.targetId == other.id)
-                        or (other.aggroTargetId == e.id)
-                    if not isFullRate then
-                        local divisor = (distSq <= config.HALF_RATE_RADIUS_SQ)
-                            and config.HALF_RATE_DIVISOR or config.QUARTER_RATE_DIVISOR
-                        local lastSent = session.lastSentTick[other.id] or -divisor
-                        if tick - lastSent < divisor then
-                            keepArr[#keepArr + 1] = other.id
-                            goto continue_entity
-                        end
-                    end
-
-                    -- Lite record: _wireVer 脏标记 + 周期刷新(冷字段), 仅变化时才 JSON 编码
-                    local ver = other._wireVer or 0
-                    local lastVer = session.lastStamp[other.id]
-                    local lastRefresh = session.lastRefresh[other.id] or -LITE_REFRESH_TICKS
-                    if ver == lastVer and tick - lastRefresh < LITE_REFRESH_TICKS then
-                        keepArr[#keepArr + 1] = other.id
-                    else
-                        -- 双缓冲: 复用 scratch 表填充, 变化时与 lastDyn 交换, 避免每 tick 分配
-                        local dyn = session.scratchDyn[other.id]
-                        if not dyn then dyn = {}; session.scratchDyn[other.id] = dyn end
-                        if other.kind == "mob" or other.kind == "npc" then
-                            fillMobDyn(dyn, other)
-                        else
-                            fillEntityDyn(dyn, other)
-                        end
-                        session.lastStamp[other.id] = ver
-                        session.lastRefresh[other.id] = tick
-                        local lastDyn = session.lastDyn[other.id]
-                        if not liteEqual(dyn, lastDyn) then
-                            session.lastDyn[other.id] = dyn
-                            session.scratchDyn[other.id] = lastDyn
-                            session.lastSentTick[other.id] = tick
-                            entsArr[#entsArr + 1] = jh.safeEncode(dyn)
-                        else
-                            keepArr[#keepArr + 1] = other.id
-                        end
-                    end
-                end
-                ::continue_entity::
-
-                shown = shown + 1
-                if shown >= maxVisible then break end
+            if inLeave(other, distSq) and (e.targetId == other.id or other.aggroTargetId == e.id) then
+                if emitEntity(other, distSq) then shown = shown + 1 end
+            end
+        end
+    end
+    -- 主通道: 螺旋最近优先填充剩余预算
+    for _, other in ipairs(visible) do
+        if shown >= maxVisible then break end
+        if other.id ~= pid then
+            local dx = other.pos.x - anchorPos.x
+            local dz = other.pos.z - anchorPos.z
+            local distSq = dx * dx + dz * dz
+            if inLeave(other, distSq) then
+                if emitEntity(other, distSq) then shown = shown + 1 end
             end
         end
     end
@@ -558,23 +582,41 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
         end
     end
 
-    -- 跨分片 ghost 实体 (边界可见性): 用 ghost 空间索引只查 AOI 内 ghost (不再扫全表)
-    if next(ghostEntities) ~= nil then
+    -- 跨分片 ghost (P2a): 预算 = maxVisible - 本地已用; 首见 FULL, 变化 LITE, 否则 keep;
+    -- 超出预算的 ghost 摘除镜像 (重入场重发 FULL)。按 pid 旋转取序, 免排序。
+    local budget = maxVisible - shown
+    if next(ghostEntities) ~= nil and budget > 0 then
         local ghostSeen = session.ghostSeen
         if not ghostSeen then ghostSeen = {}; session.ghostSeen = ghostSeen end
-        local ghostThisTick = {}
-        local ghosts = grid.queryGhosts(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS)
-        for _, g in ipairs(ghosts) do
+        local ghostThisTick = session.ghostThisTick
+        if ghostThisTick then for k in pairs(ghostThisTick) do ghostThisTick[k] = nil end
+        else ghostThisTick = {}; session.ghostThisTick = ghostThisTick end
+        local ghosts = grid.queryGhosts(anchorPos.x, anchorPos.z, config.INTEREST_QUERY_RADIUS, maxVisible * 2)
+        local n = #ghosts
+        local start = n > 0 and (pid % n) + 1 or 1
+        local emitted = 0
+        for step = 0, n - 1 do
+            local gi = ((start - 1 + step) % n) + 1
+            local g = ghosts[gi]
             ghostThisTick[g.id] = true
-            if ghostSeen[g.id] ~= g.json then
-                ghostSeen[g.id] = g.json
-                entsArr[#entsArr + 1] = g.json
+            if emitted >= budget then
+                ghostSeen[g.id] = nil
             else
-                keepArr[#keepArr + 1] = g.id
+                local prev = ghostSeen[g.id]
+                if prev == nil then
+                    ghostSeen[g.id] = g.full
+                    entsArr[#entsArr + 1] = g.full
+                elseif prev ~= g.lite then
+                    ghostSeen[g.id] = g.lite
+                    entsArr[#entsArr + 1] = g.lite
+                else
+                    keepArr[#keepArr + 1] = g.id
+                end
+                emitted = emitted + 1
             end
         end
         grid.releaseGhosts(ghosts)
-        -- 清理离场 ghost
+        -- 清理已离场 ghost
         for gid in pairs(ghostSeen) do
             if not ghostThisTick[gid] then ghostSeen[gid] = nil end
         end
@@ -593,6 +635,17 @@ end
 --- 跨分片 ghost: 构建完整 wire 记录 (供相邻分片渲染, 只读)
 function M.buildGhostWire(e)
     return buildEntityFull(e)
+end
+
+--- 跨分片 ghost (P2a): 构建 LITE wire 记录 (首见 FULL 后, 变化走 LITE, 大幅压缩帧体积)
+function M.buildGhostLite(e)
+    local dyn = {}
+    if e.kind == "mob" or e.kind == "npc" then
+        fillMobDyn(dyn, e)
+    else
+        fillEntityDyn(dyn, e)
+    end
+    return jh.safeEncode(dyn)
 end
 
 --- 构建广播快照 (返回 {pid → frame} 映射) — 旧接口保留给兼容

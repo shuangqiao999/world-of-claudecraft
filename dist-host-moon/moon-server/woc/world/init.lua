@@ -1439,10 +1439,26 @@ local function broadcastSnapshot()
             session = { seenEntities = {}, lastDyn = {}, lastSent = {} }
             snapSessions[pid] = session
         end
-        local ok, frame = pcall(snapshot.buildForPlayer, entities, players, ghostEntities, pid, session, tick, simTime)
-        if not ok then
-            print(string.format("[World] SNAPSHOT ERROR pid=%d: %s", pid, tostring(frame)))
-        elseif frame then frames[pid] = frame end
+        -- P2b 帧级分频: 战斗/移动中每 SNAP_ACTIVE_DIVISOR tick 造一帧, 静止每
+        -- SNAP_IDLE_DIVISOR tick 一帧。world 帧率压到 gate 10Hz 上限以内, 省造帧 CPU;
+        -- 客户端位置插值兜底视觉平滑, 战斗事件走独立通道不依赖快照帧率。
+        local pe = entities[pid]
+        if pe then
+            local lastVer = session._lastFrameVer or 0
+            local ver = pe._wireVer or 0
+            local active = pe.autoAttack or (pe.combatState and pe.combatState ~= "idle") or (ver ~= lastVer)
+            local divisor = active and config.SNAP_ACTIVE_DIVISOR or config.SNAP_IDLE_DIVISOR
+            -- 静止降频, 但一动/进战斗立即补帧 (idle→active 不等下一个 idle 节拍)
+            if not session.nextFrameAt or tick >= session.nextFrameAt or (active and not session._lastActive) then
+                session.nextFrameAt = tick + divisor
+                session._lastActive = active
+                session._lastFrameVer = ver
+                local ok, frame = pcall(snapshot.buildForPlayer, entities, players, ghostEntities, pid, session, tick, simTime)
+                if not ok then
+                    print(string.format("[World] SNAPSHOT ERROR pid=%d: %s", pid, tostring(frame)))
+                elseif frame then frames[pid] = frame end
+            end
+        end
     end
     phaseEnd("bcastBuild", tb)
     local ts = moonCore.clock()

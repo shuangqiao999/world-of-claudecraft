@@ -166,8 +166,8 @@ function M.ghostRemove(g)
     ghostCellOf[g.id] = nil
 end
 
---- 查询 AOI 内 ghost (包围盒 cell 扫描, 过滤精确距离)
-function M.queryGhosts(x, z, radius)
+--- 查询 AOI 内 ghost (包围盒 cell 扫描, 过滤精确距离; maxCount 提前截断, 防止扎堆时扫全表)
+function M.queryGhosts(x, z, radius, maxCount)
     local result = table.remove(ghostPool)
     if result then for i = #result, 1, -1 do result[i] = nil end else result = {} end
     local radiusSq = radius * radius
@@ -183,6 +183,7 @@ function M.queryGhosts(x, z, radius)
                     local dz = g.z - z
                     if dx * dx + dz * dz <= radiusSq then
                         result[#result + 1] = g
+                        if maxCount and #result >= maxCount then return result end
                     end
                 end
             end

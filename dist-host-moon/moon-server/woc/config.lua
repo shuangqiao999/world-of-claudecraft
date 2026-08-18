@@ -80,6 +80,10 @@ M.FULL_RATE_RADIUS_SQ = 45 * 45
 M.HALF_RATE_RADIUS_SQ = 70 * 70
 M.HALF_RATE_DIVISOR = 2
 M.QUARTER_RATE_DIVISOR = 4
+-- 快照帧级分频 (P2b): 活跃玩家(战斗/移动)每 N tick 造一帧, 静止玩家每 M tick 造一帧。
+-- world 帧率降到 gate 10Hz 上限以内, 减少 world 造帧 CPU; 客户端插值兜底视觉平滑。
+M.SNAP_ACTIVE_DIVISOR = 2
+M.SNAP_IDLE_DIVISOR = 4
 
 -- 连接限流: 每秒最多放行的新 join 数 (login 风暴保护, 防止瞬间压垮 world 快照广播 + DB 连接池)。
 -- 0 = 不限。WOC_JOIN_RATE_LIMIT 可覆盖。
