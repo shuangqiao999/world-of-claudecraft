@@ -439,7 +439,6 @@ local snapIntervalSec = 1 / config.SNAP_SEND_HZ
 local degradedIntervalSec = 1 / config.SNAP_SEND_HZ_DEGRADED
 local sweepDelayStreak = 0 -- 卡顿计数 (进入降级)
 local recoverStreak = 0    -- 连续 on-time 计数 (退出降级)
-local metricReap = 0       -- 收割计数 (埋点)
 
 local function applySnapInterval(intervalSec)
     if intervalSec ~= snapIntervalSec then
@@ -478,7 +477,6 @@ local function pingLiveSessions()
                 local stalled = (sess.skippedSnaps or 0) >= config.GATE_STALLED_SKIP_REAP
                 print(string.format("[Gate] %s reap fd=%d pid=%d name=%s skip=%d noPong=%d",
                     stalled and "Stalled" or "Keepalive", fd, sess.pid, sess.name, sess.skippedSnaps or 0, sess.noPongStreak))
-                metricReap = metricReap + 1
                 detachSession(fd, true)
                 local world = worldSvcByShard(sess.shard)
                 if world then moon.send("lua", world, { t = "playerDisconnected", pid = sess.pid }) end
@@ -493,31 +491,6 @@ local function pingLiveSessions()
 end
 
 -----------------------------------------------------------------
--- 服务端埋点 (P3): 每 10s 追加一行到 log/gate-metrics.log
------------------------------------------------------------------
-local metricTick = moon.clock()
-local metricSent = 0
-local metricBytes = 0
-local metricSkip = 0
-local function writeGateMetrics()
-    local now = moon.clock()
-    local dt = math.max(now - metricTick, 0.001)
-    local n = 0
-    for _ in pairs(sessions) do n = n + 1 end
-    local line = string.format("[GateMetric] t=%.1f sessions=%d sends=%d/s bytes=%d/s skip=%d reap=%d interval=%.3fs delayStreak=%d",
-        now, n,
-        math.floor(metricSent / dt), math.floor(metricBytes / dt), metricSkip, metricReap,
-        snapIntervalSec, sweepDelayStreak)
-    print(line)
-    pcall(function()
-        local f, err = io.open("log/gate-metrics.log", "a")
-        if f then f:write(line, "\n"); f:close() end
-    end)
-    metricTick = now; metricSent = 0; metricBytes = 0; metricSkip = 0; metricReap = 0
-    moon.timeout(10000, writeGateMetrics)
-end
-
------------------------------------------------------------------
 -- 启动: HTTP (官方 server) + WS (官方 websocket) 双监听
 -----------------------------------------------------------------
 print(string.format("[Gate%d] HTTP on 0.0.0.0:%d (proxy /api)", gateIndex, httpPort))
@@ -528,8 +501,6 @@ websocket.listen("0.0.0.0", wsPort)
 
 -- 保活清扫: 首轮延迟一个 interval, 之后自走
 moon.timeout(keepalivePingMs, pingLiveSessions)
--- 埋点: 首轮延迟 10s, 之后自走
-moon.timeout(10000, writeGateMetrics)
 
 -----------------------------------------------------------------
 -- 跨服务消息: 快照广播 / 单发 / 会话迁移 (业务逻辑不变)
@@ -546,14 +517,11 @@ moon.dispatch("lua", function(sender, session, msg)
             local function sendSnap(sess, fd, frame)
                 if now - (sess.lastSnapSentAt or 0) < snapIntervalSec then
                     sess.skippedSnaps = (sess.skippedSnaps or 0) + 1
-                    metricSkip = metricSkip + 1
                     return
                 end
                 wsWrite(fd, frame)
                 sess.lastSnapSentAt = now
                 sess.skippedSnaps = 0
-                metricSent = metricSent + 1
-                metricBytes = metricBytes + #frame
             end
             if sh then
                 for fd in pairs(sh) do

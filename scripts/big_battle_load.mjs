@@ -34,6 +34,12 @@ const DURATION_MS = Number(process.env.DURATION_MS ?? 7200000);
 const MOVE_RATIO = Number(process.env.MOVE_RATIO ?? 1.0);
 const COMBAT_RATIO = Number(process.env.COMBAT_RATIO ?? 0.6);
 const DELAY_COMBAT_MS = Number(process.env.DELAY_COMBAT_MS ?? 0);
+// 真实玩家探索半径: bot 在出生点周围随机游走, 配合 smart 迁移分布到各 region 分片
+const WP_RADIUS = Number(process.env.WP_RADIUS ?? 120);
+const WP_DWELL_MIN = Number(process.env.WP_DWELL_MIN ?? 8000);
+const WP_DWELL_MAX = Number(process.env.WP_DWELL_MAX ?? 25000);
+// 死亡后自动释放灵魂并复活 (真实玩家行为): 死亡 ~RESPAWN_DELAY_MS 后自动 release → 灵魂医者复活继续
+const RESPAWN_DELAY_MS = Number(process.env.RESPAWN_DELAY_MS ?? 30000);
 const OBSERVERS = Number(process.env.OBSERVERS ?? 24);
 const SAMPLE_MS = Number(process.env.SAMPLE_MS ?? 15000);
 const CLEANUP = process.env.CLEANUP === '1';
@@ -149,6 +155,13 @@ function Bot(seeded) {
   this.lastCombatAt = 0;
   this.dead = false;
   this.target = null; // last server-reported target id (self.tgt)
+  this.posX = 0;
+  this.posZ = 0;
+  this.wpX = 0; // waypoint (real-player exploration)
+  this.wpZ = 0;
+  this.wpUntil = 0;
+  this.respawnAt = 0; // auto-release after death (real-player revive)
+  this.released = false;
   this.snaps = 0;
   this.connect = () => new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrlFor());
@@ -180,7 +193,6 @@ function trackView(bot, snap) {
 
 function startActivity(bot, { combat, moving }) {
   if (!combat && !moving) return () => {};
-  let lastFacing = Math.random() * Math.PI * 2;
   // 战斗延迟 (DELAY_COMBAT_MS): TS 服务端需先缓缓加人、全部进场后再开打, 避免瞬间并发
   const combatStart = setTimeout(() => {
     if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN) return;
@@ -208,10 +220,30 @@ function startActivity(bot, { combat, moving }) {
     bot._combatTimer = combatTimer;
   }, DELAY_COMBAT_MS);
   const moveTimer = setInterval(() => {
-    if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN || bot.dead) return;
-    lastFacing = lastFacing + (Math.random() - 0.5) * 1.5;
-    const mi = Math.random() < 0.6 ? { f: 1 } : Math.random() < 0.5 ? { sl: 1 } : { sl: 0.5 };
-    try { bot.ws.send(JSON.stringify({ t: 'input', mi, facing: lastFacing })); } catch {}
+    if (!bot.ws || bot.ws.readyState !== WebSocket.OPEN) return;
+    // 死亡自动复活: 宽限期后释放灵魂 (release → 灵魂医者复活 → 继续游走战斗)
+    if (bot.dead) {
+      if (!bot.released && Date.now() >= bot.respawnAt) {
+        bot.released = true;
+        try { bot.ws.send(JSON.stringify({ t: 'cmd', cmd: 'release' })); } catch {}
+      }
+      return;
+    }
+    // 路径点游走: 向一个随机目标走, 到达/超时/被击杀后换新目标 (像真实玩家探索/巡游)。
+    // 游走让 bot 离开出生点, 触发 smart 迁移把会话分布到各 region 分片。
+    const dx = bot.wpX - bot.posX;
+    const dz = bot.wpZ - bot.posZ;
+    const reached = dx * dx + dz * dz < 12;
+    if (reached || bot.wpUntil < Date.now()) {
+      const ang = Math.random() * Math.PI * 2;
+      const rad = 5 + Math.random() * WP_RADIUS;
+      bot.wpX = Math.cos(ang) * rad;
+      bot.wpZ = Math.sin(ang) * rad;
+      bot.wpUntil = Date.now() + WP_DWELL_MIN + Math.random() * (WP_DWELL_MAX - WP_DWELL_MIN);
+    }
+    const facing = Math.atan2(bot.wpX - bot.posX, bot.wpZ - bot.posZ);
+    const mi = Math.random() < 0.9 ? { f: 1 } : Math.random() < 0.5 ? { sl: 1 } : { sl: 0.5 };
+    try { bot.ws.send(JSON.stringify({ t: 'input', mi, facing })); } catch {}
   }, 250);
   return () => { clearTimeout(combatStart); clearInterval(bot._combatTimer); clearInterval(moveTimer); };
 }
@@ -260,8 +292,14 @@ async function main() {
             if (bot.snaps % 3 === 0) {
               let m; try { m = JSON.parse(s); } catch { return; }
               if (m.self) {
-                if (m.self.hp <= 0) bot.dead = true;
+                if (m.self.hp <= 0) {
+                  if (!bot.dead) { bot.dead = true; bot.respawnAt = Date.now() + RESPAWN_DELAY_MS; }
+                } else if (bot.dead) {
+                  bot.dead = false; // 复活 (灵魂医者) 后恢复活动
+                  bot.released = false;
+                }
                 bot.target = m.self.tgt ?? null;
+                if (typeof m.self.x === 'number') { bot.posX = m.self.x; bot.posZ = m.self.z; }
               }
               trackView(bot, m);
             }

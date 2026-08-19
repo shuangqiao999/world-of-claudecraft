@@ -58,11 +58,21 @@ local function worldShards()
     return s
 end
 
---- Gate 实例数 (WOC_GATE_COUNT 覆盖, 默认 2)
+--- Gate 实例数 (以 config.lua 的 M.GATE_COUNT 为准, 线程数需与之一致; __init__ 临时 VM 无法 require config, 直接解析文件)
 local function gateCount()
-    local n = tonumber(os.getenv("WOC_GATE_COUNT"))
-    if n and n >= 1 then return n end
-    return 2
+    local ioLib = io
+    if ioLib then
+        for _, p in ipairs({ "config.lua", "woc/config.lua", "../woc/config.lua" }) do
+            local f = ioLib.open(p, "r")
+            if f then
+                local s = f:read("*a")
+                f:close()
+                local n = s and s:match("M%.GATE_COUNT%s*=%s*(%d+)")
+                if n and tonumber(n) and tonumber(n) >= 1 then return tonumber(n) end
+            end
+        end
+    end
+    return 4
 end
 
 ----------------------------------------

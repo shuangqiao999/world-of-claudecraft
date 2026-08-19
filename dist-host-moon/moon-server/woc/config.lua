@@ -30,14 +30,12 @@ M.SNAP_SEND_HZ_DEGRADED = 5
 -- Gate P0.3 僵连接回收：连续跳过快照帧数阈值（仅用于日志分级, 不控制断开）
 M.GATE_STALLED_SKIP_REAP = 60
 -- 多 gate 分片 (P1): gate 实例数 (每个 gate 独立 HTTP/WS 端口 + 独立线程, 分摊 wsWrite)
-M.GATE_COUNT = 2
+M.GATE_COUNT = 4
 -- 每个 gate 的 pid 取值步长: pid = gateIndex * stride + 本地计数。
 -- 必须避开 world 实体 id (shardId*1000000+seq, 最大约 32M) → 100M 起步无冲突;
 -- 且 stride % worldShardCount == 0 (100M % 32 == 0), 保证 pid%shards 仍是轮询分片。
 M.GATE_PID_STRIDE = 100000000
 M.getGateCount = function()
-    local n = tonumber(os.getenv("WOC_GATE_COUNT"))
-    if n and n >= 1 then return n end
     return M.GATE_COUNT
 end
 
@@ -91,8 +89,8 @@ M.SNAP_ACTIVE_DIVISOR = 1
 M.SNAP_IDLE_DIVISOR = 2
 
 -- 连接限流: 每秒最多放行的新 join 数 (login 风暴保护, 防止瞬间压垮 world 快照广播 + DB 连接池)。
--- 0 = 不限。WOC_JOIN_RATE_LIMIT 可覆盖。
-M.JOIN_RATE_LIMIT = tonumber(os.getenv("WOC_JOIN_RATE_LIMIT")) or 150
+-- 默认 5000/s/gate (覆盖 50000 人入场峰值); 0 = 不限。WOC_JOIN_RATE_LIMIT 可覆盖。
+M.JOIN_RATE_LIMIT = tonumber(os.getenv("WOC_JOIN_RATE_LIMIT")) or 5000
 
 ----------------------------------------
 -- 空间分片 (Spatial Sharding)
@@ -125,9 +123,6 @@ M.MIGRATE_MIN_TRAVEL_SQ = 50 * 50
 -- 由该 region 归属分片把内部静态内容实体 (NPC/mob/采集节点/可拾取物) 推送到玩家所在分片。
 -- 开关: WOC_ENABLE_REGION_INTERNAL_GHOST=0 可关 (关闭恢复修复前行为)。
 M.ENABLE_REGION_INTERNAL_GHOST = os.getenv("WOC_ENABLE_REGION_INTERNAL_GHOST") ~= "0"
--- world 分片逐阶段诊断 (TickDiag/PhaseDiag/[World]), 默认关 (零开销);
--- WOC_ENABLE_WORLD_DIAG=1 开启, 输出到 log/world-diag.log。
-M.ENABLE_WORLD_DIAG = os.getenv("WOC_ENABLE_WORLD_DIAG") == "1"
 -- 内部 ghost 同步间隔倍率: 普通边界 ghost 间隔 (GHOST_SYNC_INTERVAL_TICKS=5) x 该值
 M.GHOST_REGION_INTERNAL_MULT = 3
 -- 单个 region 推送给单个远端分片的内部 ghost 最大数量 (截断 + 告警)
@@ -157,8 +152,8 @@ M.REGION_NEIGHBORS = {
 ----------------------------------------
 -- 玩家限制
 ----------------------------------------
-M.MAX_PLAYERS_PER_REALM = 5000
-M.MAX_WS_PER_IP_HARD = 20
+M.MAX_PLAYERS_PER_REALM = 50000
+M.MAX_WS_PER_IP_HARD = 50000
 
 ----------------------------------------
 -- 保存

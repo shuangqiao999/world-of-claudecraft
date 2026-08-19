@@ -125,12 +125,6 @@ local ghostByShard = {}
 local ghostByRegion = {}
 local ghostTick = 0
 
--- 内存泄漏诊断: mob 生成/移除计数 (生成源按 templateId 归组)
-local mobSpawnCount = 0
-local mobRemoveCount = 0
-local mobMigrateCount = 0
-local mobSpawnByTemplate = {}
-
 -- 分片标识: 从服务名 "world_N" 解析 (main.lua 以 world_0..world_N-1 创建)
 local shardId = 0
 local shardCount = 1
@@ -203,57 +197,6 @@ local function safeCall(modName, fn)
         print(string.format("[World] TICK ERROR in %s: %s", modName, tostring(result)))
     end
     return ok and result or {}
-end
-
--- 分相计时 (PhaseDiag): 每 200 tick (10s) 打印各相耗时(ms) + 内存/GC
-local phaseAcc = {}
-local phaseOrder = { "prologue", "player", "combat", "misc", "broadcast", "bcastBuild", "bcastSend", "brood", "engaged", "save" }
-local phaseLastReport = 0
-local function phaseEnd(name, t0)
-    if not config.ENABLE_WORLD_DIAG then return end
-    phaseAcc[name] = (phaseAcc[name] or 0) + (moonCore.clock() - t0)
-end
-
--- world 诊断 (默认关): 生产环境写独立文件 log/world-diag.log (不刷 stdout), 非生产额外 print;
--- WOC_ENABLE_WORLD_DIAG=1 可重开。
-local function writeDiag(line)
-    if not config.ENABLE_WORLD_DIAG then return end
-    pcall(function()
-        local f, err = io.open("log/world-diag.log", "a")
-        if f then f:write(line, "\n"); f:close() end
-    end)
-    if not config.isProduction() then print(line) end
-end
-local function countTbl(t)
-    local n = 0
-    for _ in pairs(t) do n = n + 1 end
-    return n
-end
-local function phaseReport()
-    local parts = {}
-    for _, name in ipairs(phaseOrder) do
-        table.insert(parts, string.format("%s=%.2f", name, (phaseAcc[name] or 0) * 1000))
-    end
-    local memBefore = collectgarbage("count")
-    local gcT0 = moonCore.clock()
-    collectgarbage("collect")
-    local memAfter = collectgarbage("count")
-    local gcMs = (moonCore.clock() - gcT0) * 1000
-    local thrMobs, thrEntries = threatMod.stats()
-    local gs = grid.stats()
-    local rsp, deaths = mobLifecycle.stats()
-    local top = {}
-    for tid, n in pairs(mobSpawnByTemplate) do top[#top + 1] = { tid, n } end
-    table.sort(top, function(a, b) return a[2] > b[2] end)
-    local topStr = {}
-    for i = 1, math.min(3, #top) do topStr[#topStr + 1] = top[i][1] .. ":" .. top[i][2] end
-    writeDiag(string.format(shardTag("[PhaseDiag]") .. " tick=%d gc=%.2fms mem=%.0fKB freed=%.0fKB ent=%d ply=%d snap=%d threat=%d/%d ai=%d grid=%d/%d mobSpawn=%d mobRemove=%d migrate=%d respawn=%d death=%d top=%s %s",
-        tick, gcMs, memAfter, memBefore - memAfter,
-        countTbl(entities), countTbl(players), countTbl(snapSessions),
-        thrMobs, thrEntries, mobAI.stats(), gs.cells, gs.entities,
-        mobSpawnCount, mobRemoveCount, mobMigrateCount, rsp, deaths, table.concat(topStr, ","),
-        table.concat(parts, " ")))
-    phaseAcc = {}
 end
 
 local function marketOp(pid, msg, cb)
@@ -599,9 +542,6 @@ local function createPlayerEntity(pid, cls, name, level, stateData)
 end
 
 local function createMobEntity(templateId, name, level, pos, opts)
-    mobSpawnCount = mobSpawnCount + 1
-    local tid = templateId or "?"
-    mobSpawnByTemplate[tid] = (mobSpawnByTemplate[tid] or 0) + 1
     local id = allocId()
     local e = Entity.new(id, "mob", templateId, name, level, pos)
     -- 野外敌对类稳定标记 (区别于动态 combat 标志 hostile): 客户端自动追随/攻击
@@ -675,7 +615,6 @@ local function migrateMobOut(e)
     mobAI.cleanup(e.id)
     grid.remove(e)
     entities[e.id] = nil
-    mobMigrateCount = mobMigrateCount + 1
     print(string.format("[Mob] Migrate out: id=%d %s shard %d -> %d", e.id, e.templateId, shardId, ns))
     return true
 end
@@ -1627,7 +1566,6 @@ autoAttack.setGhostRangedResolver(resolveGhostRanged)
 local function broadcastSnapshot()
     if next(allGateSvcs()) == nil then return end
     local frames = {}
-    local tb = moonCore.clock()
     for pid, meta in pairs(players) do
         local session = snapSessions[pid]
         if not session then
@@ -1655,8 +1593,6 @@ local function broadcastSnapshot()
             end
         end
     end
-    phaseEnd("bcastBuild", tb)
-    local ts = moonCore.clock()
     if next(frames) then
         -- 多 gate: 按 pid 反解 gate, 每 gate 只收本 gate 玩家帧 (减消息体积)
         local byGate = {}
@@ -1671,7 +1607,6 @@ local function broadcastSnapshot()
             if gs then moon.send("lua", gs, { t = "broadcastSnap", shard = shardId, data = m }) end
         end
     end
-    phaseEnd("bcastSend", ts)
 end
 
 local function sendCombatEvents(combatEvents)
@@ -1722,8 +1657,6 @@ local function doGameTick()
         print(string.format("[World] Tick #%d — simTime=%.1f", tick, simTime))
     end
 
-    local t0 = moonCore.clock()
-
     -- Phase: 门触发器 (TS updateDoorTriggers: 移动后检测副本入口)
     pcall(function()
         for pid in pairs(players) do
@@ -1751,16 +1684,12 @@ local function doGameTick()
     if despawnToRemove then
         for id, _ in pairs(despawnToRemove) do
             if entities[id] then
-                local isMob = entities[id].kind == "mob"
                 mobAI.cleanup(id)
                 grid.remove(entities[id])
                 entities[id] = nil
-                if isMob then mobRemoveCount = mobRemoveCount + 1 end
             end
         end
     end
-
-    phaseEnd("prologue", t0); t0 = moonCore.clock()
 
     -- Phase: 玩家状态更新 (TS per-player loop, 仅在在线时执行)
     if hasPlayers then
@@ -1868,8 +1797,6 @@ local function doGameTick()
     end
     end -- hasPlayers guard for player state update
 
-    phaseEnd("player", t0); t0 = moonCore.clock()
-
     -- Phase: 战斗 (仅在有玩家时)
     if hasPlayers then
     local cEvents = safeCall("combatTick", function() return combatTick(config.DT) end)
@@ -1917,8 +1844,6 @@ local function doGameTick()
     for _, ev in ipairs(rcEvents) do table.insert(combatEvents, ev) end
     end -- hasPlayers combat guard
 
-    phaseEnd("combat", t0); t0 = moonCore.clock()
-
     -- Phase: 功勋 + 解除卡死 + 复活提议 + Raid Boss
     if hasPlayers then
     for pid, meta in pairs(players) do
@@ -1946,15 +1871,11 @@ local function doGameTick()
     for _, ev in ipairs(escortEvents) do table.insert(combatEvents, ev) end
     end -- hasPlayers: deeds/unstuck/nyth/escort guard
 
-    phaseEnd("misc", t0); t0 = moonCore.clock()
-
     -- Phase: 广播 — 每 tick 发快照+事件 (内部遍历 players 表, 空表时零开销)
     pcall(ghostSync)
     pcall(syncRegionInternalGhosts)
     pcall(broadcastSnapshot)
     pcall(function() sendCombatEvents(combatEvents) end)
-
-    phaseEnd("broadcast", t0); t0 = moonCore.clock()
 
     -- Phase: Dragonkin Brood (龙蛋靠近偷袭/孵化, 仅在有玩家时)
     if hasPlayers then
@@ -1963,8 +1884,6 @@ local function doGameTick()
     end)
     for _, ev in ipairs(broodEvents) do table.insert(combatEvents, ev) end
     end
-
-    phaseEnd("brood", t0); t0 = moonCore.clock()
 
     -- Phase: EngagedPids pass + NPC aura cleanse + object respawn (仅在有玩家时)
     if hasPlayers then
@@ -2009,8 +1928,6 @@ local function doGameTick()
     end
     end -- hasPlayers engagedPids guard
 
-    phaseEnd("engaged", t0); t0 = moonCore.clock()
-
     -- Phase: 玩家网格刷新
     -- grid.update 已在 processInputs / mob AI 按实体调用, 无需全量 refresh
     local playerEntities = {}
@@ -2029,22 +1946,6 @@ local function doGameTick()
     if tick % (config.TICK_RATE * 10) == 0 then
         pcall(sweepLinkdead)
     end
-
-    phaseEnd("save", t0)
-
-    -- 周期性状态日志 (采样 200 tick, 生产写 world-diag.log)
-    if tick % (config.TICK_RATE * 10) == 0 then
-        local n = 0; for _ in pairs(players) do n = n + 1 end
-        local m = 0; for _, e in pairs(entities) do if e.kind == "mob" and not e.dead then m = m + 1 end end
-        writeDiag(string.format(shardTag("[World]") .. " t=%d time=%.1f players=%d mobs=%d", tick, simTime, n, m))
-    end
-
-    -- 分相计时: 每 10 秒墙上时间采样一次 (tick 慢时不受 200-tick 间隔影响); 生产写 world-diag.log
-    local phaseNow = moonCore.clock()
-    if phaseNow - phaseLastReport >= 10 then
-        phaseLastReport = phaseNow
-        phaseReport()
-    end
 end
 
 local function gameTick()
@@ -2059,9 +1960,6 @@ local function gameTick()
     end
     local elapsed = moonCore.clock() - start
     local delay = math.max(1, math.floor((config.DT - elapsed) * 1000))
-    if tick % 200 == 0 then
-        writeDiag(string.format(shardTag("[TickDiag]") .. " tick=%d elapsed=%.2fms delay=%dms", tick, elapsed * 1000, delay))
-    end
     moon.timeout(delay, gameTick)
 end
 

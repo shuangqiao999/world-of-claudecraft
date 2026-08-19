@@ -499,6 +499,7 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
             session.seenEntities[other.id] = idHash
             entsArr[#entsArr + 1] = buildEntityFull(other)
             session.lastDyn[other.id] = nil
+            session.scratchDyn[other.id] = nil -- 丢弃旧 lite 缓冲, 避免残留引用
             session.lastStamp[other.id] = nil
             session.lastRefresh[other.id] = tick
             session.lastSentTick[other.id] = tick
@@ -581,6 +582,10 @@ function M.buildForPlayer(entities, players, ghostEntities, pid, session, tick, 
             session.lastDyn[id] = nil
             session.lastStamp[id] = nil
             session.lastRefresh[id] = nil
+            session.lastSentTick[id] = nil
+            -- 双缓冲的另一半: 漏清会让每个会话永久保留它见过每个实体的 scratch 表
+            -- (roaming + ghost 会累积数千条/会话, 是本次 5000 人 2h 压测的内存泄漏源)
+            session.scratchDyn[id] = nil
         end
     end
 

@@ -41,6 +41,15 @@ const DB_NAME = 'postgres';
 
 // ---------- helpers ----------
 function parsePort(v, def) { const n = Number.parseInt(String(v ?? ''), 10); return Number.isFinite(n) && n > 0 && n < 65536 ? n : def; }
+function readGateCountFromConfig() {
+  try {
+    const p = path.join(ROOT, 'moon-server', 'woc', 'config.lua');
+    const s = fs.readFileSync(p, 'utf8');
+    const m = s.match(/M\.GATE_COUNT\s*=\s*(\d+)/);
+    if (m) { const n = Number.parseInt(m[1], 10); if (n >= 1) return n; }
+  } catch {}
+  return 4;
+}
 function log(...args) { console.log(`[host]`, ...args); }
 function fail(msg) { console.error(`[host]`, msg); process.exitCode = 1; }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -54,7 +63,7 @@ function writeEnvFile(password) {
     `PORT=${MOON_PORT}`,
     `WOC_GATE_PORT=${MOON_PORT}`,
     `DB_POOL_MAX_CLIENTS=200`,
-    `MAX_PLAYERS_PER_REALM=5000`,
+    `MAX_PLAYERS_PER_REALM=50000`,
     `REALM_NAME=Claudemoon`,
     `PUBLIC_ORIGIN=http://localhost:${PUBLIC_PORT}`,
     `NODE_ENV=production`,
@@ -200,7 +209,8 @@ async function main() {
   log('starting Moon server...');
   const cpuCount = Number.parseInt(process.env.NUMBER_OF_PROCESSORS ?? '', 10) || os.cpus().length;
   const worldShards = Number.parseInt(process.env.WOC_WORLD_SHARDS ?? '', 10) || Math.max(1, Math.min(Math.floor(cpuCount / 2), 64));
-  const gateCount = Number.parseInt(process.env.WOC_GATE_COUNT ?? '', 10) || 2;
+  // Gate 实例数只以 config.lua 的 M.GATE_COUNT 为准 (改 config.lua 即可, 无需重新打包 launcher)
+  const gateCount = readGateCountFromConfig();
   const threadCount = Number.parseInt(process.env.WOC_THREADS ?? '', 10) || (5 + worldShards + (gateCount - 1));
   const dbPoolSize = Number.parseInt(process.env.DB_POOL_SIZE ?? '', 10) || Math.max(8, Math.min(cpuCount * 4, 64));
   log(`adaptive threads: cpu=${cpuCount} threads=${threadCount} worldShards=${worldShards} gates=${gateCount} dbPool=${dbPoolSize}`);

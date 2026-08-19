@@ -1,0 +1,10 @@
+import pg from 'pg';
+const c = new pg.Client({ connectionString: process.env.DATABASE_URL });
+await c.connect();
+const r = await c.query(`SELECT count(*) n FROM accounts WHERE username LIKE 'ld%'`);
+console.log('leftover load accounts:', r.rows[0].n);
+const r2 = await c.query(`SELECT count(*) n FROM characters WHERE name LIKE 'L%'`);
+console.log('characters starting with L:', r2.rows[0].n);
+const r3 = await c.query(`SELECT count(*) n FROM accounts`);
+console.log('total accounts:', r3.rows[0].n);
+await c.end();
