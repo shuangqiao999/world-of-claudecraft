@@ -3535,6 +3535,11 @@ export interface Entity extends ClientMirroredEntityFields {
   ccDurationReduction: number;
   moveSpeed: number;
   hostile: boolean;
+  // Stable "wild enemy" class marker (moon server sets it at mob spawn): the
+  // client's attackable/auto-follow gate prefers it over the dynamic hostile
+  // flag, so every wild mob (wolf/spider/...) is one attackable class. Optional
+  // for legacy hosts; clients fall back to `hostile` when absent.
+  wild?: boolean;
   // combat
   targetId: number | null;
   autoAttack: boolean;

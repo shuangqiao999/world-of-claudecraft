@@ -124,6 +124,23 @@ describe('hoverCursorKind', () => {
     expect(hoverCursorKind(ownCat, 1, new Set(), new Set([900]))).toBe('default');
   });
 
+  it('treats the whole wild-mob class as attackable via the stable wild marker', () => {
+    // Moon server stamps wild=true at spawn for every camp mob, so auto-follow/
+    // attack works on the whole class (wolves, spiders, ...) regardless of the
+    // dynamic hostile flag (which flips false on flee).
+    const wolf = stubEntity({ id: 500, kind: 'mob', wild: true, hostile: false });
+    const spider = stubEntity({ id: 501, kind: 'mob', wild: true, hostile: false });
+    expect(isAttackableEntity(wolf, 1)).toBe(true);
+    expect(isAttackableEntity(spider, 1)).toBe(true);
+    expect(hoverCursorKind(spider, 1, new Set())).toBe('attack');
+    // Legacy hosts without the marker still fall back to hostile.
+    const legacyWild = stubEntity({ id: 502, kind: 'mob', hostile: true });
+    expect(isAttackableEntity(legacyWild, 1)).toBe(true);
+    // A player-owned pet that carries wild stays non-attackable.
+    const pet = stubEntity({ id: 503, kind: 'mob', wild: true, ownerId: 1 });
+    expect(isAttackableEntity(pet, 1)).toBe(false);
+  });
+
   it('returns default for empty pick', () => {
     expect(hoverCursorKind(undefined, 1, new Set())).toBe('default');
   });

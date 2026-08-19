@@ -604,6 +604,9 @@ local function createMobEntity(templateId, name, level, pos, opts)
     mobSpawnByTemplate[tid] = (mobSpawnByTemplate[tid] or 0) + 1
     local id = allocId()
     local e = Entity.new(id, "mob", templateId, name, level, pos)
+    -- 野外敌对类稳定标记 (区别于动态 combat 标志 hostile): 客户端自动追随/攻击
+    -- 按此判定, 保证全部野外怪 (狼/蜘蛛/…任何 kind==mob) 统一为一个可打类。
+    e.wild = true
     e.hostile = true
     e.spawnPos = { x = pos.x, y = pos.y, z = pos.z }
     e.homeShard = shardId

@@ -2934,6 +2934,7 @@ export class ClientWorld implements IWorld {
       e.ghost = !!w.gh; // released spirit: rendered translucent, runs faster
       e.lootable = !!w.loot;
       e.hostile = !!w.h;
+      e.wild = !!w.w;
       e.castingAbility = w.cast ?? null;
       e.castRemaining = w.castRem ?? 0;
       e.castTotal = w.castTot ?? 0;

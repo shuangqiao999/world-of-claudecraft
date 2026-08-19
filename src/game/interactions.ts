@@ -102,11 +102,18 @@ export function isAttackableEntity(
   activePvpOpponentSet: ReadonlySet<number> = new Set(),
 ): boolean {
   if (!e || e.dead || e.id === playerId) return false;
-  // A mob is attackable when wild-hostile OR a match objective in the
-  // opponent set (the enemy Yumi cat carries hostile=false; its team
-  // hostility lives in the sim rule, and activePvpOpponentIds mirrors it
-  // here so every attack affordance agrees with the sim).
-  if (e.kind === 'mob') return e.hostile || activePvpOpponentSet.has(e.id);
+  // The "wild mob" class is the auto-follow/attack target set: every wild mob
+  // (stable `wild` marker set by the moon server at spawn) OR a mob that is
+  // dynamically hostile (legacy hosts without the marker) OR a match objective
+  // in the opponent set (the enemy Yumi cat carries hostile=false; its team
+  // hostility lives in the sim rule, and activePvpOpponentIds mirrors it here so
+  // every attack affordance agrees with the sim). Owned pets and escortee quest
+  // NPCs are never attackable.
+  if (e.kind === 'mob') {
+    if (e.ownerId !== null) return false;
+    if (isEscorteeEntity(e)) return false;
+    return e.wild || e.hostile || activePvpOpponentSet.has(e.id);
+  }
   return e.kind === 'player' && activePvpOpponentSet.has(e.id);
 }
 

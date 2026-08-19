@@ -93,6 +93,8 @@ function Entity.new(id, kind, templateId, name, level, pos)
         -- 移动速度
         moveSpeed = 7,
         hostile = false,
+        -- 野外敌对类稳定标记 (自动追随/攻击按此判定; 动态 combat 标志用 hostile)
+        wild = false,
 
         -- 状态
         dead = false,

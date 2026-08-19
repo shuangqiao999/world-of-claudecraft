@@ -1358,6 +1358,7 @@ function dynamicFields(e: Entity, includeAuras = true): Record<string, unknown> 
   if (e.ghost) out.gh = 1; // released spirit (ghost form); renders translucent
   if (e.lootable) out.loot = 1;
   if (e.hostile) out.h = 1;
+  if (e.wild) out.w = 1; // stable "wild enemy" class marker (moon server sets at spawn)
   if (e.afk) out.ak = 1; // /afk display bit: other clients tag the nameplate + presence dot
   // The target frame's resource bar: type + current/max, sent only for entities
   // that HAVE a resource (players and caster mobs; a resource-less wolf omits all

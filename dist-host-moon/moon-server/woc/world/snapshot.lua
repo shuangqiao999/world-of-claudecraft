@@ -294,6 +294,7 @@ local function fillEntityDyn(dyn, e)
     if e.ghost then dyn.gh = true end
     if e.lootable then dyn.loot = true end
     if e.hostile then dyn.h = true end
+    if e.wild then dyn.w = true end
     if e.afk then dyn.ak = true end
     if e.resourceType then dyn.rtype = e.resourceType end
     if e.resource and e.resource > 0 then dyn.res = jh.round2(e.resource) end
@@ -346,6 +347,7 @@ local function fillMobDyn(dyn, e)
     if e.dead then dyn.dead = true end
     if e.lootable then dyn.loot = true end
     if e.hostile then dyn.h = true end
+    if e.wild then dyn.w = true end
     if e.resourceType then dyn.rtype = e.resourceType end
     if e.resource and e.resource > 0 then dyn.res = jh.round2(e.resource) end
     if e.maxResource then dyn.mres = e.maxResource end
