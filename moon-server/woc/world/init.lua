@@ -2003,7 +2003,8 @@ local function doGameTick()
     for pid, meta in pairs(players) do
         local p = entities[pid]
         if p then
-            p.inCombat = engagedPids[pid] or (p.combatTimer or 0) < 5
+            -- 死者永不进入战斗 (无论 engagedPids/combatTimer 残留), 保证"战斗中"在死亡时立即清除
+            p.inCombat = not p.dead and (engagedPids[pid] or (p.combatTimer or 0) < 5)
         end
     end
     end -- hasPlayers engagedPids guard

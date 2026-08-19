@@ -234,6 +234,7 @@ function M.updateMob(mob, entities, players, dt)
         if not target or target.dead or target.ghost then
             data.state = AI_STATE.RETURNING
             data.targetId = nil
+            mob.aggroTargetId = nil
             mob.chaseStall = 0
         else
             local dx = mob.pos.x - target.pos.x
@@ -286,6 +287,7 @@ function M.updateMob(mob, entities, players, dt)
         if not target or target.dead or target.ghost then
             data.state = AI_STATE.RETURNING
             data.targetId = nil
+            mob.aggroTargetId = nil -- 目标死亡: 不保留尸体仇恨, 否则 engagedPids 会永久标记死者
             mob.chaseStall = 0
         else
             local dx = mob.pos.x - target.pos.x
